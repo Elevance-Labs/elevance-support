@@ -10,7 +10,7 @@
 // leaves the building. This runs with the service_role key so the browser never
 // needs read access to `issues` — the anon key is public, so any RLS policy wide
 // enough to serve this page would hand over every column of every ticket, rather
-// than the seven fields here.
+// than the handful of fields here.
 //
 // Deploy with:  supabase functions deploy public-issue
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
 
   const authorIds = [...new Set((comments ?? []).map((c) => c.author_id).filter(Boolean))];
   const { data: authors } = authorIds.length
-    ? await admin.from("profiles").select("id, full_name, email").in("id", authorIds)
+    ? await admin.from("profiles").select("id, full_name, email, avatar_url").in("id", authorIds)
     : { data: [] };
   const authorById = new Map((authors ?? []).map((p) => [p.id, p]));
 
@@ -137,12 +137,24 @@ Deno.serve(async (req) => {
       submitted_date: issue.submitted_date,
     },
     attachments: signed,
-    // Only the author's name goes out — never the email, and never the id.
-    comments: (comments ?? []).map((c) => ({
-      id: c.id,
-      body: c.body,
-      created_at: c.created_at,
-      author_name: displayName(authorById.get(c.author_id) ?? null),
-    })),
+    // The author's name and photo go out — never the email, and never the id.
+    //
+    // The photo is a deliberate addition to this allow-list: the `avatars`
+    // bucket is public already, so the file was always reachable, but this page
+    // is what ties a face to a name for anyone holding a share link. That is the
+    // same exposure the name itself carries, and a support reply reads better
+    // from a person than from a grey circle. Drop `author_avatar_url` here if a
+    // customer-facing page should stay anonymous — the page falls back to
+    // initials on its own.
+    comments: (comments ?? []).map((c) => {
+      const author = authorById.get(c.author_id) ?? null;
+      return {
+        id: c.id,
+        body: c.body,
+        created_at: c.created_at,
+        author_name: displayName(author),
+        author_avatar_url: author?.avatar_url ?? null,
+      };
+    }),
   });
 });

@@ -11,7 +11,7 @@ const { ThemeProvider } = await import('@mui/material')
 const { theme } = await import('../src/theme')
 const { AuthContext } = await import('../src/context/AuthContext.jsx')
 const PublicIssue = (await import('../src/pages/PublicIssue')).default
-const { captured, PUBLIC_KEY, PUBLIC_NUMBER } = await import('./mockSupabase.js')
+const { captured, PUBLIC_KEY, PUBLIC_NUMBER, PUBLIC_PAYLOAD } = await import('./mockSupabase.js')
 const { publicIssueUrl, publicIssuePath } = await import('../src/lib/projects.js')
 
 const { check, done } = reporter()
@@ -76,6 +76,19 @@ check('anon sees the Jira ticket', body().includes('ENG-77'))
 check('anon sees attachments', body().includes('screenshot.png'))
 check('anon sees comments', body().includes('Looking into this.') && body().includes('Just posted.'))
 check('anon sees comment authors by name', body().includes('Ada Lovelace'))
+
+// The photo is on the allow-list deliberately — a support reply reads better
+// from a person. What must not follow it out is the id or the email behind it.
+const D = dom.window.document
+const commentImgs = [...D.querySelectorAll('img')].map((i) => i.getAttribute('src'))
+check('anon sees a comment author photo',
+  commentImgs.includes(PUBLIC_PAYLOAD.comments[0].author_avatar_url),
+  commentImgs.join(', ') || '(none)')
+check('an author with no photo falls back to initials, not a broken image',
+  body().includes('GH'), body().slice(0, 400))
+check('the photo URL is the only thing the avatar exposes',
+  !commentImgs.some((src) => /user-2|@co\.com/.test(src ?? '')),
+  commentImgs.join(', '))
 
 check('the page is served by the edge function, with the key and number from the URL',
   captured.functionCalls.length === 1

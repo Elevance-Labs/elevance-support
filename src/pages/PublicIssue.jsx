@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
 import {
-  Alert, Avatar, Box, Chip, CircularProgress, Container, Divider, Link,
+  Alert, Box, Chip, CircularProgress, Container, Divider, Link,
   Paper, Stack, Typography,
 } from '@mui/material'
 import DescriptionIcon from '@mui/icons-material/Description'
@@ -11,8 +11,9 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { fetchPublicIssue } from '../lib/publicLink'
 import { parseIssueRef } from '../lib/projects'
-import { formatDateTime, initials, stringColor } from '../lib/format'
+import { formatDateTime } from '../lib/format'
 import { jiraUrl } from '../lib/jira'
+import UserAvatar from '../components/UserAvatar'
 
 function Splash() {
   return (
@@ -164,11 +165,13 @@ export default function PublicIssue() {
             ) : comments.map((c) => (
               <Paper key={c.id} sx={{ p: 1.5 }}>
                 <Stack direction="row" spacing={1.5}>
-                  <Avatar sx={{
-                    width: 30, height: 30, fontSize: 12, bgcolor: stringColor(c.author_name),
-                  }}>
-                    {initials(c.author_name)}
-                  </Avatar>
+                  {/* The function sends the photo URL, or null — either way the
+                      same component the signed-in pages use draws it. */}
+                  <UserAvatar
+                    user={{ avatar_url: c.author_avatar_url }}
+                    name={c.author_name}
+                    size={30}
+                  />
                   <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                     <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>{c.author_name}</Typography>

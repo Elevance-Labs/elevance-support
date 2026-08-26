@@ -187,8 +187,13 @@ export const PUBLIC_PAYLOAD = {
       url: 'https://signed.example/issue-1/screenshot.png' },
   ],
   // Names only — the function never sends an author id or email.
+  // The function sends a name and a photo URL — no id, no email. Ada has a
+  // photo, Grace does not, so the page is exercised both ways.
   comments: [
-    { id: 'c1', body: 'Looking into this.', created_at: iso(2 * DAY), author_name: 'Ada Lovelace' },
-    { id: 'c2', body: 'Just posted.', created_at: iso(30_000), author_name: 'Grace Hopper' },
+    { id: 'c1', body: 'Looking into this.', created_at: iso(2 * DAY),
+      author_name: 'Ada Lovelace',
+      author_avatar_url: 'https://public.example/avatars/user-1/avatar?v=1' },
+    { id: 'c2', body: 'Just posted.', created_at: iso(30_000),
+      author_name: 'Grace Hopper', author_avatar_url: null },
   ],
 }

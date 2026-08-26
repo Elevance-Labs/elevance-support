@@ -253,7 +253,8 @@ things that are actually yours:
 - **Your photo.** PNG, JPEG, GIF or WebP up to 2 MB. It replaces your initials
   everywhere you appear: the header, board cards, the Assignee column and both
   assignee pickers (the option list and the selected field), comments, a
-  project's member list and the Users table. Uploads go to the `avatars` storage bucket at `<your user id>/avatar`
+  project's member list, the Users table, and — on your comments — the public
+  share-link page. Uploads go to the `avatars` storage bucket at `<your user id>/avatar`
   — one object per person, overwritten in place, so changing your photo never
   leaves an orphan behind. **Remove** clears the photo and you fall back to your
   initials.
@@ -489,8 +490,14 @@ Two things limit the damage, and both are worth keeping:
 Attachments come back as one-hour signed URLs; the bucket itself stays private,
 so an attachment URL can't be guessed even though the ticket URL can.
 
-Comment authors appear by name on the public page. If that isn't wanted, drop
-`author_name` from the function's response.
+Comment authors appear by **name and photo** on the public page — a support
+reply reads better from a person than from a grey circle. The photo is on the
+allow-list deliberately: the `avatars` bucket is public already, so the file was
+always reachable, but this page is what ties a face to a name for anyone holding
+a share link. That is the same exposure the name itself carries. If a
+customer-facing page should stay anonymous, drop `author_name` and
+`author_avatar_url` from the function's response — the page falls back to
+initials on its own.
 
 If you later want these links to be private again, the shape to go back to is a
 per-ticket random token in place of the number — `/i/ACME/8f2c1a4b…`. That was
@@ -573,8 +580,8 @@ again by the storage bucket.
   60-second signed URLs when someone opens a file.
 - **Avatars are public**, deliberately — see *Your profile*. Only the owner can
   write one; everywhere else shows it read-only.
-- **The public ticket page shows no avatars.** The `public-issue` allow-list
-  sends comment author *names* and no user ids, and that stays deliberate.
+- **The public ticket page shows comment author avatars.** The `public-issue`
+  allow-list sends the author's name and photo URL — never their id or email.
 - **Deleting a configuration item** doesn't rewrite issues already using it — they
   keep the value. Toggle *Active* off instead to retire an option gracefully.
 - `public/_redirects` (Netlify) and `vercel.json` are included so deep links like
