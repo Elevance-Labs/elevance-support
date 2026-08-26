@@ -12,6 +12,7 @@ import Board from './pages/Board'
 import Report from './pages/Report'
 import Projects from './pages/Projects'
 import Users from './pages/Users'
+import Profile from './pages/Profile'
 import Configuration from './pages/Configuration'
 import EmbedForm from './pages/EmbedForm'
 import PublicIssue from './pages/PublicIssue'
@@ -70,6 +71,7 @@ export default function App() {
               }
             >
               <Route path="/issues" element={<Issues />} />
+              <Route path="/profile" element={<Profile />} />
               <Route path="/board" element={<Board />} />
               <Route path="/report" element={<Protected require={can.seeReports}><Report /></Protected>} />
               <Route path="/projects" element={<Protected require={can.seeProjects}><Projects /></Protected>} />

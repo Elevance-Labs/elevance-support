@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Alert, Autocomplete, AvatarGroup, Avatar, Box, Button, Chip, Dialog, DialogActions,
+  Alert, Autocomplete, AvatarGroup, Box, Button, Chip, Dialog, DialogActions,
   DialogContent, DialogTitle, IconButton, InputAdornment, MenuItem, Paper, Stack,
   Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
@@ -13,9 +13,10 @@ import LockIcon from '@mui/icons-material/Lock'
 import { supabase } from '../lib/supabase'
 import { useConfig } from '../context/ConfigContext'
 import { useProject } from '../context/ProjectContext'
-import { formatDateTime, initials } from '../lib/format'
+import { formatDateTime } from '../lib/format'
 import { byDisplayName, displayName } from '../lib/users'
 import { copyText } from '../lib/publicLink'
+import UserAvatar, { UserChip } from '../components/UserAvatar'
 import {
   PROJECT_STATUSES, PROJECT_STATUS_COLORS, PROJECT_STATUS_LABELS,
   embedFormUrl, isValidKey, normalizeKey,
@@ -203,9 +204,8 @@ export default function Projects() {
                       }}>
                         {memberIds.map((id) => (
                           <Tooltip key={id} title={displayName(userById[id])}>
-                            <Avatar sx={{ bgcolor: 'primary.main' }}>
-                              {initials(displayName(userById[id], '?'))}
-                            </Avatar>
+                            {/* AvatarGroup sizes its children through the sx above. */}
+                            <UserAvatar user={userById[id]} size={24} />
                           </Tooltip>
                         ))}
                       </AvatarGroup>
@@ -307,6 +307,18 @@ export default function Projects() {
               isOptionEqualToValue={(o, v) => o.id === v.id}
               getOptionLabel={(u) => displayName(u)}
               onChange={(_e, v) => setDialog((d) => ({ ...d, values: { ...d.values, members: v } }))}
+              renderOption={({ key, ...props }, u) => (
+                <li key={key} {...props}><UserChip user={u} size={24} /></li>
+              )}
+              renderValue={(selected, getItemProps) =>
+                selected.map((u, i) => {
+                  const { key, ...chipProps } = getItemProps({ index: i })
+                  return (
+                    <Chip key={key} {...chipProps} size="small" label={displayName(u)}
+                      avatar={<UserAvatar user={u} size={24} />} />
+                  )
+                })
+              }
               renderInput={(p) => (
                 <TextField {...p} label="Members"
                   helperText="Who can see this project's tickets. They keep their own role — a manager is a manager here too." />

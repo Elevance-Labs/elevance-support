@@ -15,6 +15,7 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | **Projects** | Admin-only CRUD over projects, their keys and their members. |
 | **Users** | Admin-only CRUD over who can sign in and be assigned work. |
 | **Configuration** | Admin-only CRUD over the lists that drive every dropdown. |
+| **Profile** | Your own account — reached from the avatar in the header. Shows your name, email and role; lets you change your photo and your password. |
 
 ## Roles
 
@@ -109,7 +110,9 @@ Opening a ticket gives a three-column view:
   Anyone signed in can comment; the author can edit or delete their own comment
   for **5 minutes**, after which the buttons disappear on their own. The
   5-minute rule is enforced by row-level security too, so it can't be bypassed
-  via the API.
+  via the API. **Ctrl+Enter** (or **Cmd+Enter**) posts the comment, and saves an
+  edit in progress; plain Enter is still a newline, since the box is multi-line.
+  **Escape** cancels an edit.
 - **Right** — the **status timeline**: the statuses this ticket has actually been
   through, in order, showing who moved it there, when, and how long it sat in the
   previous status. Statuses it never reached are not drawn. Total elapsed time
@@ -234,6 +237,49 @@ is why emails used to show up instead. Two things prevent that now:
   on the way in, so new accounts are never nameless.
 
 Set a proper name on the Users page whenever the derived one isn't right.
+
+## Your profile
+
+The avatar in the top-right corner opens a menu with **Profile** and **Sign out**.
+
+The Profile page shows your name, email and role, and lets you change the two
+things that are actually yours:
+
+- **Your photo.** PNG, JPEG, GIF or WebP up to 2 MB. It replaces your initials
+  everywhere you appear: the header, board cards, the Assignee column and both
+  assignee pickers (the option list and the selected field), comments, a
+  project's member list and the Users table. Uploads go to the `avatars` storage bucket at `<your user id>/avatar`
+  — one object per person, overwritten in place, so changing your photo never
+  leaves an orphan behind. **Remove** clears the photo and you fall back to your
+  initials.
+- **Your password.** You must type your current password first: the app proves it
+  before changing anything, so an unattended signed-in browser isn't enough to
+  take the account over. Minimum eight characters.
+
+Your **name, email and role are read-only here** — they identify you to everyone
+else, and an admin owns them on the Users page.
+
+Everyone else's photo is **view only** wherever it appears — including the Users
+table, where an admin edits names, roles and access but never someone's face.
+Only the owner can change their own, and that is enforced by the storage policy
+rather than by hiding a button.
+
+A person with no photo falls back to their initials on a colour hashed from
+their name, so they are still recognisable at a glance and stay the same colour
+on every page. One component, [`src/components/UserAvatar.jsx`](src/components/UserAvatar.jsx),
+draws all of it.
+
+Unlike `attachments`, the `avatars` bucket is **public**: an avatar is drawn in
+every header and comment row, and signing a URL per render would be a lot of
+round trips for a photo its owner chose to show colleagues. Writes are still
+owner-only — the storage policy requires the first folder of the object path to
+be your own user id. Because the path never changes, the saved URL carries a
+`?v=` cache-buster.
+
+Saving your own profile row goes through the `profiles_self_update` policy. A
+trigger pins `role`, `is_active` and `email` back to their old values on any
+self-write by a non-admin, so that policy cannot be used from the browser to
+promote yourself — the `admin-users` function stays the only writer of `role`.
 
 ## Setup
 
@@ -520,6 +566,10 @@ again by the storage bucket.
   belong to. Roles are global; project membership decides which tickets you see.
 - **Attachments are private.** The bucket is not public; the app hands out
   60-second signed URLs when someone opens a file.
+- **Avatars are public**, deliberately — see *Your profile*. Only the owner can
+  write one; everywhere else shows it read-only.
+- **The public ticket page shows no avatars.** The `public-issue` allow-list
+  sends comment author *names* and no user ids, and that stays deliberate.
 - **Deleting a configuration item** doesn't rewrite issues already using it — they
   keep the value. Toggle *Active* off instead to retire an option gracefully.
 - `public/_redirects` (Netlify) and `vercel.json` are included so deep links like

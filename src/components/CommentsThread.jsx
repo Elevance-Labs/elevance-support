@@ -1,15 +1,35 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Alert, Avatar, Box, Button, IconButton, Paper, Stack, TextField, Tooltip, Typography,
+  Alert, Box, Button, IconButton, Paper, Stack, TextField, Tooltip, Typography,
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useConfig } from '../context/ConfigContext'
-import { formatDateTime, initials, stringColor, toMillis } from '../lib/format'
+import { formatDateTime, toMillis } from '../lib/format'
 import { can, COMMENT_EDIT_WINDOW_MS } from '../lib/permissions'
 import { displayName } from '../lib/users'
+import UserAvatar from './UserAvatar'
+
+/**
+ * Ctrl+Enter posts, and so does Cmd+Enter.
+ *
+ * Both are accepted rather than picking one per platform: a Mac user reaches
+ * for Cmd, everyone else for Ctrl, and honouring both means the shortcut is
+ * never the wrong one. The platform is only consulted to *name* the key in the
+ * hint next to the button.
+ *
+ * `isComposing` guards an IME: mid-composition Enter commits the candidate word
+ * and must not also post the comment.
+ */
+const isSubmitChord = (e) =>
+  e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent?.isComposing
+
+const MOD_KEY_LABEL =
+  typeof navigator !== 'undefined' &&
+  /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent || '')
+    ? '⌘' : 'Ctrl'
 
 /**
  * Re-renders when a comment's 5-minute edit window expires, so the edit and
@@ -120,12 +140,7 @@ export default function CommentsThread({ issueId }) {
           return (
             <Paper key={c.id} sx={{ p: 1.5 }}>
               <Stack direction="row" spacing={1.5}>
-                <Avatar sx={{
-                  width: 30, height: 30, fontSize: 12,
-                  bgcolor: stringColor(name),
-                }}>
-                  {initials(name)}
-                </Avatar>
+                <UserAvatar user={author} name={name} size={30} />
 
                 <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -139,13 +154,13 @@ export default function CommentsThread({ issueId }) {
                     <Box sx={{ flexGrow: 1 }} />
                     {mine && !isEditing && (
                       <>
-                        <Tooltip title="Edit (within 5 minutes of posting)">
+                        <Tooltip title="Edit">
                           <IconButton size="small"
                             onClick={() => setEditing({ id: c.id, body: c.body })}>
                             <EditIcon sx={{ fontSize: 15 }} />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="Delete (within 5 minutes of posting)">
+                        <Tooltip title="Delete">
                           <IconButton size="small" onClick={() => remove(c)}>
                             <DeleteIcon sx={{ fontSize: 15 }} />
                           </IconButton>
@@ -159,6 +174,17 @@ export default function CommentsThread({ issueId }) {
                       <TextField
                         fullWidth multiline size="small" autoFocus value={editing.body}
                         onChange={(e) => setEditing((s) => ({ ...s, body: e.target.value }))}
+                        onKeyDown={(e) => {
+                          // Same box, same chord — and Escape backs out, which is
+                          // what every other cancellable edit in the app does.
+                          if (isSubmitChord(e)) {
+                            e.preventDefault()
+                            if (!busy && editing.body.trim()) saveEdit()
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault()
+                            setEditing(null)
+                          }
+                        }}
                       />
                       <Stack direction="row" spacing={1}>
                         <Button size="small" variant="contained" onClick={saveEdit} disabled={busy}>
@@ -183,8 +209,16 @@ export default function CommentsThread({ issueId }) {
         <TextField
           fullWidth multiline minRows={2} size="small" placeholder="Add a comment…"
           value={draft} onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (!isSubmitChord(e)) return
+            e.preventDefault()          // otherwise the chord also types a newline
+            if (!busy && draft.trim()) post()
+          }}
         />
-        <Stack direction="row" sx={{ mt: 1, justifyContent: 'flex-end' }}>
+        <Stack direction="row" spacing={1} sx={{ mt: 1, justifyContent: 'flex-end', alignItems: 'center' }}>
+          <Typography variant="caption" color="text.disabled">
+            {MOD_KEY_LABEL}+Enter to post
+          </Typography>
           <Button size="small" variant="contained" onClick={post}
             disabled={busy || !draft.trim()}>
             Comment

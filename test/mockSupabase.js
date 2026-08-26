@@ -23,7 +23,7 @@ export const PROJECT_MEMBERS = [
   { project_id: 'proj-1', user_id: 'user-2' },
 ]
 
-export const captured = { inserts: [], functionCalls: [] }
+export const captured = { inserts: [], updates: [], uploads: [], auth: [], functionCalls: [] }
 /**
  * A thenable query builder that actually applies `eq` and `in`.
  *
@@ -59,18 +59,37 @@ export const supabase = {
     return {
       select: () => chain(tableData(table)),
       insert: (row) => { captured.inserts.push({ table, row }); return chain([{ id: 'new-issue' }]) },
-      update: () => chain([]), delete: () => chain([]),
+      update: (row) => { captured.updates.push({ table, row }); return chain([]) },
+      delete: () => chain([]),
     }
   },
   auth: {
     getSession: async () => ({ data: { session: null } }),
     onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+    // The Profile page proves the current password before changing it, so both
+    // calls are recorded: a test can assert the order they happened in.
+    signInWithPassword: async ({ email, password }) => {
+      captured.auth.push({ call: 'signInWithPassword', email, password })
+      return password === CURRENT_PASSWORD
+        ? { data: { user: FIXTURES.profiles[0] }, error: null }
+        : { data: null, error: { message: 'Invalid login credentials' } }
+    },
+    updateUser: async (attrs) => {
+      captured.auth.push({ call: 'updateUser', ...attrs })
+      return { data: { user: FIXTURES.profiles[0] }, error: null }
+    },
   },
   storage: {
-    from: () => ({
-      upload: async () => ({ error: null }),
+    from: (bucket) => ({
+      upload: async (path, file, opts) => {
+        captured.uploads.push({ bucket, path, type: file?.type, size: file?.size, opts })
+        return { error: null }
+      },
       createSignedUrl: async (path) => ({
         data: { signedUrl: `https://signed.example/${path}` }, error: null,
+      }),
+      getPublicUrl: (path) => ({
+        data: { publicUrl: `https://public.example/${bucket}/${path}` },
       }),
     }),
   },
@@ -90,6 +109,9 @@ export const supabase = {
   },
 }
 export const isConfigured = true
+
+/** The only password `signInWithPassword` accepts, so a test can get it wrong. */
+export const CURRENT_PASSWORD = 'correct-horse'
 
 // ---- extra fixtures for the ticket detail view ----
 export const NOW = Date.now()
@@ -132,10 +154,14 @@ export const FIXTURES = {
       created_at: iso(30_000), updated_at: iso(30_000) },
   ],
   profiles: [
-    { id: 'user-1', full_name: 'Ada Lovelace', email: 'ada@co.com', role: 'admin', is_active: true },
+    // Ada has uploaded a photo; Grace has not — so every avatar site is exercised
+    // in both states by the same fixture list.
+    { id: 'user-1', full_name: 'Ada Lovelace', email: 'ada@co.com', role: 'admin', is_active: true,
+      avatar_url: 'https://public.example/avatars/user-1/avatar?v=1' },
     // Deliberately nameless — mirrors an account created from the Supabase
     // dashboard, which is what made emails show up in the UI.
-    { id: 'user-2', full_name: '', email: 'grace.hopper@co.com', role: 'member', is_active: true },
+    { id: 'user-2', full_name: '', email: 'grace.hopper@co.com', role: 'member', is_active: true,
+      avatar_url: null },
   ],
 }
 

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
-  Alert, AppBar, Avatar, Box, Button, Divider, Drawer, IconButton, List, ListItemButton,
+  Alert, AppBar, Box, Button, Divider, Drawer, IconButton, List, ListItemButton,
   ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Typography,
 } from '@mui/material'
 import ListAltIcon from '@mui/icons-material/ListAlt'
@@ -11,14 +11,15 @@ import PeopleIcon from '@mui/icons-material/People'
 import FolderIcon from '@mui/icons-material/Folder'
 import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
+import PersonIcon from '@mui/icons-material/Person'
 import SupportAgentIcon from '@mui/icons-material/SupportAgent'
 import AddIcon from '@mui/icons-material/Add'
 import { useAuth } from '../context/AuthContext'
 import { can, ROLE_LABELS } from '../lib/permissions'
 import { RefreshProvider, useRefreshSignal } from '../context/RefreshContext'
 import CreateIssueDialog from './CreateIssueDialog'
-import { initials } from '../lib/format'
 import { displayName } from '../lib/users'
+import UserAvatar from './UserAvatar'
 
 const WIDTH = 224
 
@@ -98,11 +99,14 @@ function AppLayoutInner() {
               {profile?.role && ` · ${ROLE_LABELS[profile.role] ?? profile.role}`}
             </Typography>
             <IconButton onClick={(e) => setAnchor(e.currentTarget)} size="small">
-              <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: 14 }}>
-                {initials(displayName(profile, ''))}
-              </Avatar>
+              <UserAvatar user={profile} size={32} />
             </IconButton>
             <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
+              <MenuItem onClick={() => { setAnchor(null); navigate('/profile') }}>
+                <ListItemIcon><PersonIcon fontSize="small" /></ListItemIcon>
+                Profile
+              </MenuItem>
+              <Divider />
               <MenuItem onClick={handleSignOut}>
                 <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
                 Sign out

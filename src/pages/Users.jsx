@@ -14,6 +14,7 @@ import { useConfig } from '../context/ConfigContext'
 import { formatDateTime } from '../lib/format'
 import { can, ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS } from '../lib/permissions'
 import { displayName } from '../lib/users'
+import UserAvatar from '../components/UserAvatar'
 
 /** Account changes need the service_role key, so they go through an Edge Function. */
 async function adminCall(body) {
@@ -116,6 +117,10 @@ export default function Users() {
         <Table size="small">
           <TableHead>
             <TableRow>
+              {/* View only. A photo is changed by its owner on /profile and
+                  nowhere else — the `avatars` storage policy enforces that, so
+                  even an admin cannot set somebody else's from here. */}
+              <TableCell width={56} />
               <TableCell>Full name</TableCell>
               <TableCell>Email</TableCell>
               <TableCell>Role</TableCell>
@@ -129,6 +134,7 @@ export default function Users() {
               const disabled = r.is_active === false
               return (
                 <TableRow key={r.id} hover sx={{ opacity: disabled ? 0.55 : 1 }}>
+                  <TableCell><UserAvatar user={r} size={32} /></TableCell>
                   <TableCell>
                     {r.full_name?.trim()
                       ? r.full_name
@@ -197,7 +203,7 @@ export default function Users() {
             })}
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6}>
+                <TableCell colSpan={7}>
                   <Box sx={{ py: 3, textAlign: 'center', color: 'text.secondary' }}>No users yet.</Box>
                 </TableCell>
               </TableRow>

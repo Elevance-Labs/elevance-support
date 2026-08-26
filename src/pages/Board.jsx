@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Alert, Avatar, Box, Card, CardContent, Chip, InputAdornment, Link, MenuItem,
+  Alert, Box, Card, CardContent, Chip, InputAdornment, Link, MenuItem,
   Paper, Stack, TextField, Tooltip, Typography,
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
@@ -12,7 +12,8 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import { supabase } from '../lib/supabase'
 import { useConfig } from '../context/ConfigContext'
 import { useRefreshSignal } from '../context/RefreshContext'
-import { elapsed, initials } from '../lib/format'
+import UserAvatar from '../components/UserAvatar'
+import { elapsed } from '../lib/format'
 import Tag from '../components/Tag'
 import IssueDetail from '../components/IssueDetail'
 import { jiraUrl } from '../lib/jira'
@@ -233,15 +234,11 @@ function BoardCard({ issue, assignee, attachments, typeColor, colorOf, sla, onOp
         </Stack>
 
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          {assignee ? (
-            <Tooltip title={displayName(assignee)}>
-              <Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: 'primary.main' }}>
-                {initials(displayName(assignee))}
-              </Avatar>
-            </Tooltip>
-          ) : (
-            <Avatar sx={{ width: 22, height: 22, fontSize: 10, bgcolor: 'grey.300' }}>?</Avatar>
-          )}
+          <Tooltip title={assignee ? displayName(assignee) : 'Unassigned'}>
+            <Box sx={{ display: 'flex' }}>
+              <UserAvatar user={assignee} size={22} />
+            </Box>
+          </Tooltip>
 
           {attachments > 0 && (
             <Tooltip title={`${attachments} attachment(s)`}>

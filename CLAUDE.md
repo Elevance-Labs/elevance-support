@@ -42,7 +42,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 | Path | Role |
 |---|---|
 | `src/pages/` | One file per route. Fetches data, owns page state. |
-| `src/components/` | Shared UI: ticket dialog, form, comments, timeline, chips. |
+| `src/components/` | Shared UI: ticket dialog, form, comments, timeline, chips, avatars. |
 | `src/components/charts/` | Hand-drawn SVG charts. No charting dependency. |
 | `src/context/` | App-wide state providers (auth, config, project, refresh). |
 | `src/lib/` | Pure domain logic + the Supabase client. Where rules live. |
@@ -60,6 +60,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `/projects` — admin-only CRUD over projects and their members.
 - `/users` — admin/manager CRUD over accounts.
 - `/config` — admin-only CRUD over the dropdown lists.
+- `/profile` — your own account: shows name/email/role, changes photo and
+  password. Reached from the header avatar menu. No role guard — everyone has one.
 - `/embed/:key/form` — public, no auth, no chrome; one form per project.
 - `/i/:key/:number` — share link, addressed by ticket reference: staff get
   redirected to the editable view, everyone else gets a read-only page.
@@ -69,7 +71,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 
 | Provider | Supplies | Scope |
 |---|---|---|
-| `AuthContext` | `session`, `profile`, `loading`, sign in/out | Whole app |
+| `AuthContext` | `session`, `profile`, `loading`, sign in/out, `refreshProfile` | Whole app |
 | `ConfigContext` | Dropdown lists grouped by type, user roster, active statuses | Authed pages + embed form |
 | `ProjectContext` | Project list, the one selected project, persistence | Authed pages only |
 | `RefreshContext` | Bump counter so the header can tell a page to reload | Inside `AppLayout` |
@@ -103,9 +105,15 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `comments` — thread on a ticket; author-editable for 5 minutes (RLS-enforced).
 - `status_events` — every status change, written by trigger; feeds the timeline.
 - `attachments` + a **private** storage bucket; access via short-lived signed URLs.
+- A **public** `avatars` bucket, one object per user at `<uid>/avatar`; writes are
+  owner-only. Public because avatars render everywhere — nothing private lives there.
+  Everything that draws a person goes through `components/UserAvatar.jsx`; only
+  `/profile` writes one.
 - `list_items` — one table backing every dropdown (`type`, `product`, `area`,
   `priority`, `status`, `labels`), plus per-status type and per-type SLA target.
-- `profiles` — mirrors auth users; carries the role. First account becomes admin.
+- `profiles` — mirrors auth users; carries the role and `avatar_url`. First
+  account becomes admin. Self-writes are allowed, but a trigger freezes `role`,
+  `is_active` and `email` for non-admins — only `admin-users` writes a role.
 - `views` — saved Issues filter sets.
 
 ## 8. Edge Functions

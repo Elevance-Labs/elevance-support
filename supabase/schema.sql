@@ -29,6 +29,9 @@ create table if not exists public.profiles (
   email       text not null,
   role        text not null default 'member' check (role in ('admin','manager','member')),
   is_active   boolean not null default true,
+  -- Public URL of the profile photo in the `avatars` bucket, or null. The photo
+  -- is the one thing on a profile its owner may change themselves.
+  avatar_url  text,
   created_at  timestamptz not null default now()
 );
 
@@ -591,6 +594,32 @@ drop policy if exists profiles_admin_all on public.profiles;
 create policy profiles_admin_all on public.profiles for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
 
+-- `profiles_self_update` exists so you can save your own avatar. It must not
+-- become a self-promotion: role, is_active and email are pinned back to their
+-- old values whenever you write your own row and you are not an admin. The
+-- admin-users function runs as `service_role` (auth.uid() is null) and is
+-- unaffected.
+create or replace function public.profiles_freeze_privileged_fields()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() = old.id and not public.is_admin() then
+    new.role      := old.role;
+    new.is_active := old.is_active;
+    new.email     := old.email;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_freeze_privileged on public.profiles;
+create trigger profiles_freeze_privileged
+  before update on public.profiles
+  for each row execute function public.profiles_freeze_privileged_fields();
+
 -- ---------- projects ----------
 -- The public intake form has to resolve /embed/{key}/form before anyone has
 -- signed in, so `anon` may read the project list. This exposes project names
@@ -714,6 +743,40 @@ create policy att_download on storage.objects for select to authenticated
 drop policy if exists att_remove on storage.objects;
 create policy att_remove on storage.objects for delete to authenticated
   using (bucket_id = 'attachments');
+
+-- ============================================================
+-- Storage bucket for profile photos
+--
+-- Public, unlike `attachments`: an avatar is shown in every header and comment
+-- row, so signing a URL per render would be a lot of round trips for a photo
+-- its owner chose to show colleagues. Writes stay owner-only — the first folder
+-- of the object name must be the caller's uid.
+-- ============================================================
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('avatars', 'avatars', true, 2097152,
+        array['image/png','image/jpeg','image/gif','image/webp'])
+on conflict (id) do update
+  set public             = excluded.public,
+      file_size_limit    = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists avatar_read on storage.objects;
+create policy avatar_read on storage.objects for select to anon, authenticated
+  using (bucket_id = 'avatars');
+drop policy if exists avatar_upload on storage.objects;
+create policy avatar_upload on storage.objects for insert to authenticated
+  with check (bucket_id = 'avatars'
+              and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists avatar_update on storage.objects;
+create policy avatar_update on storage.objects for update to authenticated
+  using (bucket_id = 'avatars'
+         and (storage.foldername(name))[1] = auth.uid()::text)
+  with check (bucket_id = 'avatars'
+              and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists avatar_remove on storage.objects;
+create policy avatar_remove on storage.objects for delete to authenticated
+  using (bucket_id = 'avatars'
+         and (storage.foldername(name))[1] = auth.uid()::text);
 
 -- ============================================================
 -- Seed the configuration lists

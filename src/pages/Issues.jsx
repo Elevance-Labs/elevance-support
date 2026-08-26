@@ -20,6 +20,7 @@ import { can } from '../lib/permissions'
 import { formatDuration, formatDate } from '../lib/format'
 import Tag from '../components/Tag'
 import IssueDetail from '../components/IssueDetail'
+import { UserChip } from '../components/UserAvatar'
 import { byDisplayName, displayName } from '../lib/users'
 import { slaStatus, slaBand, statusColor } from '../lib/sla'
 import { useProject } from '../context/ProjectContext'
@@ -122,12 +123,16 @@ export default function Issues() {
     pausedSince: issue.paused_since,
   }), [statusTypeByName, slaHoursByType])
 
+  const userById = useMemo(
+    () => Object.fromEntries(users.map((u) => [u.id, u])),
+    [users],
+  )
   const userName = useCallback(
     (id) => {
-      const u = users.find((x) => x.id === id)
+      const u = userById[id]
       return u ? displayName(u) : ''
     },
-    [users],
+    [userById],
   )
 
   const filtered = useMemo(() => {
@@ -213,8 +218,14 @@ export default function Issues() {
     },
     { field: 'product', headerName: 'Product', width: 140 },
     {
-      field: 'assignee_id', headerName: 'Assignee', width: 150,
+      // valueGetter still yields the name, so sorting, filtering and export keep
+      // working on what the column actually means; renderCell only adds the face.
+      field: 'assignee_id', headerName: 'Assignee', width: 170,
       valueGetter: (v) => userName(v) || '—',
+      renderCell: (p) => (
+        <UserChip user={userById[p.row.assignee_id]} size={24} empty="—" italicWhenEmpty={false}
+          sx={{ height: '100%' }} />
+      ),
     },
     { field: 'company', headerName: 'Company', width: 140 },
     { field: 'jira_ticket', headerName: 'Jira', width: 110, valueGetter: (v) => v || '—' },
@@ -241,7 +252,7 @@ export default function Issues() {
         )
       },
     },
-  ], [attachmentCounts, colorOf, userName, slaFor, lists.status, project])
+  ], [attachmentCounts, colorOf, userName, userById, slaFor, lists.status, project])
 
   const activeFilterCount = Object.values(filters).filter(Boolean).length
 
@@ -282,7 +293,9 @@ export default function Issues() {
             <MenuItem value="">All</MenuItem>
             <MenuItem value="unassigned"><em>Unassigned</em></MenuItem>
             {[...users].sort(byDisplayName).map((u) => (
-              <MenuItem key={u.id} value={u.id}>{displayName(u)}</MenuItem>
+              <MenuItem key={u.id} value={u.id}>
+                <UserChip user={u} size={22} />
+              </MenuItem>
             ))}
           </TextField>
           {activeFilterCount > 0 && (

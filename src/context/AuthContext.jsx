@@ -52,9 +52,20 @@ export function AuthProvider({ children }) {
   }
   const signOut = () => supabase.auth.signOut()
 
+  // The Profile page writes the signed-in user's own row; the header reads it.
+  // Re-reading here is what keeps the two in step without either knowing about
+  // the other.
+  const refreshProfile = useCallback(
+    () => loadProfile(session?.user?.id),
+    [loadProfile, session?.user?.id],
+  )
+
   return (
     <AuthContext.Provider
-      value={{ session, profile, loading, signIn, signOut, isAdmin: profile?.role === 'admin' }}
+      value={{
+        session, profile, loading, signIn, signOut, refreshProfile,
+        isAdmin: profile?.role === 'admin',
+      }}
     >
       {children}
     </AuthContext.Provider>

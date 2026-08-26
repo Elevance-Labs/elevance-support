@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert, Box, Button, Chip, Dialog, Divider, IconButton, Link, MenuItem,
   Paper, Stack, TextField, Tooltip, Typography, Autocomplete, CircularProgress,
@@ -19,13 +19,14 @@ import { jiraUrl } from '../lib/jira'
 import { copyText } from '../lib/publicLink'
 import { issueRef, publicIssueUrl } from '../lib/projects'
 import { useProject } from '../context/ProjectContext'
-import { byDisplayName, displayName } from '../lib/users'
+import { byDisplayName } from '../lib/users'
 import {
   allowedStatuses, canEditRequestFields, slaStatus, statusTypeOf, effectiveStatusType,
   STATUS_TYPE_LABELS,
 } from '../lib/sla'
 import StatusTimeline from './StatusTimeline'
 import CommentsThread from './CommentsThread'
+import { UserChip } from './UserAvatar'
 
 /**
  * Three-column ticket view:
@@ -35,6 +36,7 @@ import CommentsThread from './CommentsThread'
  */
 export default function IssueDetail({ issueId, open, onClose, onSaved }) {
   const { lists, users, statuses } = useConfig()
+  const userById = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u])), [users])
   const { profile } = useAuth()
   const { project } = useProject()
   const [issue, setIssue] = useState(null)
@@ -270,10 +272,17 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
                 gap: 2,
               }}>
                 <TextField select size="small" label="Assignee" value={issue.assignee_id ?? ''}
-                  onChange={(e) => patch('assignee_id', e.target.value)}>
+                  onChange={(e) => patch('assignee_id', e.target.value)}
+                  slotProps={{
+                    // Without renderValue the closed field would fall back to the
+                    // option's text and lose the face the open list just showed.
+                    select: { renderValue: (id) => <UserChip user={userById[id]} size={22} /> },
+                  }}>
                   <MenuItem value=""><em>Unassigned</em></MenuItem>
                   {users.filter((u) => u.is_active !== false).sort(byDisplayName).map((u) => (
-                    <MenuItem key={u.id} value={u.id}>{displayName(u)}</MenuItem>
+                    <MenuItem key={u.id} value={u.id}>
+                      <UserChip user={u} size={22} />
+                    </MenuItem>
                   ))}
                 </TextField>
                 <TextField select size="small" label="Status" value={issue.status ?? ''}
