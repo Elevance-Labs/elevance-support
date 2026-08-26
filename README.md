@@ -291,6 +291,20 @@ supabase functions deploy public-issue
 Until this is deployed, share links work for signed-in staff but show a dead end
 to everyone else.
 
+### 4c. Deploy the new-ticket notification
+
+Whenever a ticket is created — from the embed form or from Create Issue — a card
+is posted to a Google Chat space. See
+[New-ticket notifications](#new-ticket-notifications) for the setup; the function
+itself deploys like the others, but with JWT verification off, because its caller
+is the database rather than a signed-in user:
+
+```bash
+supabase functions deploy notify-issue --no-verify-jwt
+```
+
+Until it is deployed, tickets are created exactly as before and nothing is posted.
+
 ### 5. Schema changes from here on
 
 [`supabase/schema.sql`](supabase/schema.sql) is the baseline as of go-live: run it
@@ -298,6 +312,66 @@ once on a fresh project and you have everything. Any change after that goes in
 `supabase/migrations/` as its own numbered, idempotent file, applied in order —
 `schema.sql` is only edited to fold in a migration that has already shipped
 everywhere.
+
+## New-ticket notifications
+
+Every new ticket posts a card into a Google Chat space: type and priority, the
+title, the company and the requester's name and email, and a button to the
+ticket's [share link](#share-links).
+
+It hangs off the **insert**, not off either form. A ticket can be created from
+the public embed form or from the staff Create Issue dialog, and both end as one
+insert into `issues`, so the trigger `issues_notify_new`
+([migration 0001](supabase/migrations/0001_new_issue_notification.sql)) is the
+one place that sees all of them. The trigger runs after the number and the
+default status are assigned, so the card can already name the ticket `ACME-42`
+and link to it.
+
+The HTTP call is made with `pg_net`, which queues the request and returns at
+once. That is deliberate: a customer submitting the form must never see it fail
+because Chat is unreachable. Every failure path in the trigger returns the row
+unchanged, so a broken notification can cost you a message but never a ticket.
+
+### Setting it up
+
+The Chat webhook URL is a bearer secret — anyone holding it can post into your
+space — so it never goes in the repo and never reaches a browser. It lives in
+the function's environment:
+
+```bash
+supabase secrets set \
+  GOOGLE_CHAT_WEBHOOK_URL='https://chat.googleapis.com/v1/spaces/…' \
+  NOTIFY_SHARED_SECRET='<a long random string>' \
+  APP_BASE_URL='https://support.example.com'
+```
+
+`APP_BASE_URL` is the origin of the deployed app, and is what makes the button on
+the card point somewhere real.
+
+The database needs two matching values of its own, held in Supabase Vault so they
+are not written into a migration. Run once per environment, in the SQL editor:
+
+```sql
+select vault.create_secret(
+  'https://<project-ref>.supabase.co/functions/v1/notify-issue', 'notify_issue_url');
+select vault.create_secret('<the same long random string>', 'notify_issue_secret');
+```
+
+`notify_issue_secret` must equal `NOTIFY_SHARED_SECRET`. The function is deployed
+with `--no-verify-jwt` because Postgres has no user JWT to send, so that shared
+secret is the only thing authenticating the call — treat it like a password, and
+make it long and random.
+
+Until both Vault secrets exist the trigger does nothing at all, which is what you
+want on a local or preview database: it should not page anybody.
+
+### Getting the webhook URL
+
+In Google Chat, open the space → **Apps & integrations** → **Webhooks** → **Add
+webhook**. Incoming webhooks require a Google Workspace account; they are not
+available on personal Google accounts. If the URL ever leaks, delete the webhook
+in that menu and create a new one — the URL *is* the credential, so rotating it
+is the only fix.
 
 ## Creating a ticket by hand
 

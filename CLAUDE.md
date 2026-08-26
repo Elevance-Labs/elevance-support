@@ -114,16 +114,22 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   unban. Needed because `service_role` must never reach a browser.
 - `public-issue` — resolves `(project key, ticket number)` to a **field allow-list** for
   the sign-in-free page. Returns attachments as signed URLs.
-- Both are Deno, both handle CORS preflight, both deploy with
-  `supabase functions deploy <name>`. Neither can import from `src/` — small,
-  deliberate duplication (e.g. display names) is expected there.
+- `notify-issue` — posts a Google Chat card for each new ticket. Called by an
+  `issues` insert trigger via `pg_net`, not by the browser; authenticated by a
+  shared secret, so it deploys with `--no-verify-jwt`. Webhook URL and secret
+  live in function env + Vault, never in the repo.
+- All three are Deno, and deploy with `supabase functions deploy <name>`; the two
+  browser-facing ones handle CORS preflight. None can import from `src/` — small,
+  deliberate duplication (e.g. display names, the share-link path) is expected
+  there.
 
 ## 9. How things connect
 
 - A request arrives via the **embed form** (or the staff **Create Issue**
   dialog) → both render the same `IssueForm` → row inserted into `issues` →
   triggers assign the project number, the default status and the first
-  status event.
+  status event, then fire the Google Chat notification (queued via `pg_net`, so
+  it can never fail the insert).
 - Staff work it on **Issues** or **Board** → both open the same `IssueDetail`
   dialog → which composes `CommentsThread` and `StatusTimeline`.
 - **Report** re-reads the same rows and derives everything through
