@@ -13,12 +13,13 @@ import { supabase } from '../lib/supabase'
 import { useConfig } from '../context/ConfigContext'
 import { useRefreshSignal } from '../context/RefreshContext'
 import UserAvatar from '../components/UserAvatar'
+import StatusDot from '../components/StatusDot'
 import { elapsed } from '../lib/format'
 import Tag from '../components/Tag'
 import IssueDetail from '../components/IssueDetail'
 import { jiraUrl } from '../lib/jira'
 import { byDisplayName, displayName } from '../lib/users'
-import { slaStatus, slaBand, STATUS_TYPE_COLORS } from '../lib/sla'
+import { slaStatus, slaBand } from '../lib/sla'
 import { useProject } from '../context/ProjectContext'
 import ProjectFilter, { NoProject } from '../components/ProjectFilter'
 import { issueRef } from '../lib/projects'
@@ -168,10 +169,7 @@ export default function Board() {
             sx={{ width: 300, flexShrink: 0, bgcolor: '#f1f3f5', p: 1.5, maxHeight: '72vh', overflowY: 'auto' }}
           >
             <Stack direction="row" spacing={1} sx={{ mb: 1.5, px: 0.5, alignItems: 'center' }}>
-              <Box sx={{
-                width: 8, height: 8, borderRadius: '50%',
-                bgcolor: STATUS_TYPE_COLORS[s.status_type] ?? '#9ca3af',
-              }} />
+              <StatusDot statusType={s.status_type} />
               <Typography variant="subtitle2">{s.name}</Typography>
               <Chip size="small" label={(byStatus[s.name] ?? []).length} />
             </Stack>

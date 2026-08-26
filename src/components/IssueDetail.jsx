@@ -27,6 +27,7 @@ import {
 import StatusTimeline from './StatusTimeline'
 import CommentsThread from './CommentsThread'
 import { UserChip } from './UserAvatar'
+import { StatusLabel } from './StatusDot'
 
 /**
  * Three-column ticket view:
@@ -287,12 +288,24 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
                 </TextField>
                 <TextField select size="small" label="Status" value={issue.status ?? ''}
                   onChange={(e) => patch('status', e.target.value)}
+                  slotProps={{
+                    // Same reason as the assignee field above: without this the
+                    // closed field falls back to the option's plain text and
+                    // drops the dot the open list just showed.
+                    select: {
+                      renderValue: (name) => (
+                        <StatusLabel name={name} statusType={statusTypeOf(lists.status ?? [], name)} />
+                      ),
+                    },
+                  }}
                   helperText={
                     currentStatusType === 'closed' ? 'Closed — this ticket cannot be reopened'
                     : currentStatusType === 'paused' ? 'Paused — the SLA clock is stopped'
                     : undefined}>
                   {statusOptions.map((st) => (
-                    <MenuItem key={st.id} value={st.name}>{st.name}</MenuItem>
+                    <MenuItem key={st.id} value={st.name}>
+                      <StatusLabel name={st.name} statusType={st.status_type} />
+                    </MenuItem>
                   ))}
                 </TextField>
               </Box>

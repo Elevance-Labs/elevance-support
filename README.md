@@ -105,7 +105,9 @@ Opening a ticket gives a three-column view:
 
 - **Left** — the read-only submission details, then the request fields
   (type, product, area), then the remaining controls (priority, labels, Jira).
-- **Centre** — **assignee and status side by side** at the top, the description,
+- **Centre** — **assignee and status side by side** at the top — the assignee
+  picker shows each person's photo, and the status picker a coloured dot for the
+  status *type*, the same dot the board columns use — then the description,
   then the **comment** thread with the composer beneath the existing comments.
   Anyone signed in can comment; the author can edit or delete their own comment
   for **5 minutes**, after which the buttons disappear on their own. The
@@ -145,7 +147,10 @@ new  ──▶  in_progress  ──▶  closed
 
 **Statuses are coloured by their type, not individually** — every "in progress"
 status looks the same wherever it appears, whatever you call it. There is no
-per-status colour to set.
+per-status colour to set. The dot is drawn by
+[`src/components/StatusDot.jsx`](src/components/StatusDot.jsx) everywhere it
+appears — board columns and the ticket's status picker — and carries the type's
+name as a tooltip, so the colour is never the only thing saying what it means.
 
 **Paused** stops the SLA clock. A ticket can be paused from anywhere except a
 closed status, and the time it spends paused is excluded from its SLA. Pausing
