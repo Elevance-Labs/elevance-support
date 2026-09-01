@@ -72,10 +72,13 @@ Deno.serve(async (req) => {
           email, password, email_confirm: true,
         });
         if (error) throw error;
-        const { error: pErr } = await admin.from("profiles").insert({
+        // The `on_auth_user_created` trigger has already written a profiles row
+        // (as a plain member) by the time createUser returns — so upsert over it
+        // rather than insert, which would collide on the primary key.
+        const { error: pErr } = await admin.from("profiles").upsert({
           id: data.user.id, email, full_name: derived,
           role: role ?? "member", is_active: true,
-        });
+        }, { onConflict: "id" });
         if (pErr) {
           await admin.auth.admin.deleteUser(data.user.id); // no orphaned auth user
           throw pErr;
