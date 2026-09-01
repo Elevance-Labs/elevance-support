@@ -12,10 +12,22 @@ const LIST_ITEMS = [
   { id: '9',  list_type: 'status',  name: 'Done',        color: null, sort_order: 5, is_active: true, status_type: 'closed' },
   { id: '13', list_type: 'status',  name: 'On Hold',     color: null, sort_order: 4, is_active: true, status_type: 'paused' },
   { id: '10', list_type: 'labels',  name: 'regression',  color: '#d32f2f', sort_order: 1, is_active: true },
+  // 'Form' is stamped by the database and must never be offered to staff.
+  { id: '14', list_type: 'source',  name: 'Form',        color: '#1976d2', sort_order: 1, is_active: true },
+  { id: '15', list_type: 'source',  name: 'Email',       color: '#7b1fa2', sort_order: 2, is_active: true },
+  { id: '16', list_type: 'source',  name: 'Call',        color: '#f57c00', sort_order: 5, is_active: true },
 ]
 export const PROJECTS = [
   { id: 'proj-1', name: 'Acme Support', key: 'ACME', status: 'in_progress', issue_seq: 42 },
   { id: 'proj-2', name: 'Billing',      key: 'BILL', status: 'incoming',    issue_seq: 0 },
+]
+
+// Companies are a list, not a text box. `Old Free Text Ltd` is deliberately NOT
+// here: it only exists on an old ticket, which the filters must still reach.
+export const COMPANIES = [
+  { id: 'co-1', name: "Wilbert's U-Pull-It", code: 'wupi', is_active: true },
+  { id: 'co-2', name: 'Acme',                code: 'acme', is_active: true },
+  { id: 'co-3', name: 'Former Customer',     code: 'former', is_active: false },
 ]
 
 export const PROJECT_MEMBERS = [
@@ -51,6 +63,7 @@ const tableData = (table) => {
   if (table === 'profiles') return FIXTURES.profiles
   if (table === 'projects') return PROJECTS
   if (table === 'project_members') return PROJECT_MEMBERS
+  if (table === 'companies') return COMPANIES
   return []
 }
 

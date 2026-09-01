@@ -70,7 +70,7 @@ create index if not exists project_members_user_idx on public.project_members(us
 -- `sla_hours` applies to request types.
 create table if not exists public.list_items (
   id          uuid primary key default gen_random_uuid(),
-  list_type   text not null check (list_type in ('type','product','area','priority','status','labels')),
+  list_type   text not null check (list_type in ('type','product','area','priority','status','labels','source')),
   name        text not null,
   color       text,
   status_type text check (status_type is null or status_type in ('new','in_progress','paused','closed')),
@@ -82,6 +82,22 @@ create table if not exists public.list_items (
   -- A status row must declare its type; other list types never use the column.
   constraint list_items_status_needs_type
     check (list_type <> 'status' or status_type is not null)
+);
+
+-- ---------- companies ----------
+-- Who the ticket is for. A list rather than a text box, so one customer is one
+-- row in every report. Maintained with the service role (Supabase dashboard) —
+-- there is no admin UI and no write policy.
+--
+-- `name` is what everyone reads and what `issues.company` stores; `code` is the
+-- short, stable identifier an embed link carries (?company=wupi).
+create table if not exists public.companies (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null unique,
+  code       text not null unique
+             check (code = lower(code) and code ~ '^[a-z0-9][a-z0-9_-]*$'),
+  is_active  boolean not null default true,
+  created_at timestamptz not null default now()
 );
 
 -- ---------- issues ----------
@@ -102,9 +118,15 @@ create table if not exists public.issues (
   description     text,
   -- submission details
   company         text,
+  -- Code of the company row above; survives a rename, unlike the display name.
+  company_code    text,
   requester_name  text,
   requester_email text,
   source_url      text,
+  -- Channel the request arrived through — a name from the `source` list.
+  -- Always 'Form' for the public embed form; stamp_issue_origin() makes that
+  -- true rather than trusting the client.
+  source          text,
   -- internal
   submitted_date  timestamptz not null default now(),
   status          text not null default 'New',
@@ -126,6 +148,8 @@ create index if not exists issues_status_idx    on public.issues(status);
 create index if not exists issues_assignee_idx  on public.issues(assignee_id);
 create index if not exists issues_submitted_idx on public.issues(submitted_date desc);
 create index if not exists issues_project_idx   on public.issues(project_id);
+create index if not exists issues_source_idx    on public.issues(source);
+create index if not exists issues_company_code_idx on public.issues(company_code);
 -- Also the lookup behind a share link: /i/{key}/{number} resolves through this.
 create unique index if not exists issues_project_number_idx on public.issues(project_id, number);
 
@@ -451,6 +475,59 @@ drop trigger if exists issues_default_status on public.issues;
 create trigger issues_default_status before insert on public.issues
   for each row execute function public.default_issue_status();
 
+-- ---------- where a ticket came from ----------
+-- 'Form' means "arrived through the public embed form", which only the database
+-- can know: an anonymous insert is stamped with it, and a signed-in one may not
+-- claim it. The same rule pins an anonymous submission's date to now — staff may
+-- back-date a ticket they are logging for a customer, the public form may not.
+create or replace function public.stamp_issue_origin()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then
+    new.source         := 'Form';
+    new.submitted_date := now();
+  else
+    if new.source = 'Form' then
+      raise exception '`Form` is reserved for requests submitted through the public form';
+    end if;
+    if new.submitted_date is null or new.submitted_date > now() then
+      new.submitted_date := now();
+    end if;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists issues_stamp_origin on public.issues;
+create trigger issues_stamp_origin before insert on public.issues
+  for each row execute function public.stamp_issue_origin();
+
+-- ---------- which company a ticket belongs to ----------
+-- A client may send the name or the code. Whichever arrives is resolved against
+-- `companies`, so the two can never disagree; a company typed before the list
+-- existed is left exactly as it was.
+create or replace function public.resolve_issue_company()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  hit public.companies%rowtype;
+begin
+  if new.company_code is not null and new.company_code <> '' then
+    select * into hit from public.companies where code = lower(new.company_code);
+  elsif new.company is not null and new.company <> '' then
+    select * into hit from public.companies where lower(name) = lower(new.company);
+  end if;
+
+  if hit.id is not null then
+    new.company      := hit.name;
+    new.company_code := hit.code;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists issues_resolve_company on public.issues;
+create trigger issues_resolve_company before insert or update of company, company_code
+  on public.issues
+  for each row execute function public.resolve_issue_company();
+
 -- ---------- transition rules, pause clock and closed clock ----------
 create or replace function public.enforce_issue_rules()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -567,6 +644,7 @@ alter table public.profiles        enable row level security;
 alter table public.projects        enable row level security;
 alter table public.project_members enable row level security;
 alter table public.list_items      enable row level security;
+alter table public.companies       enable row level security;
 alter table public.issues          enable row level security;
 alter table public.attachments     enable row level security;
 alter table public.comments        enable row level security;
@@ -650,6 +728,12 @@ create policy lists_read on public.list_items for select to anon, authenticated 
 drop policy if exists lists_admin_write on public.list_items;
 create policy lists_admin_write on public.list_items for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
+
+-- ---------- companies: everyone reads, nobody writes from a browser ----------
+-- The public form has to render the picker, so `anon` may read. There is no
+-- write policy at all: the list is maintained with the service role.
+drop policy if exists companies_read on public.companies;
+create policy companies_read on public.companies for select to anon, authenticated using (true);
 
 -- ---------- issues ----------
 -- ANYONE may submit (public embed form); staff read and update only the
@@ -806,7 +890,14 @@ insert into public.list_items (list_type, name, color, status_type, sla_hours, s
   ('area','Onboarding', null, null, null, 3),
   ('labels','regression',          '#d32f2f', null, null, 1),
   ('labels','customer-escalation', '#f57c00', null, null, 2),
-  ('labels','quick-win',           '#388e3c', null, null, 3)
+  ('labels','quick-win',           '#388e3c', null, null, 3),
+  -- 'Form' is stamped by the database, never chosen by staff.
+  ('source','Form',     '#1976d2', null, null, 1),
+  ('source','Email',    '#7b1fa2', null, null, 2),
+  ('source','IM',       '#0288d1', null, null, 3),
+  ('source','SMS',      '#388e3c', null, null, 4),
+  ('source','Call',     '#f57c00', null, null, 5),
+  ('source','Internal', '#616161', null, null, 6)
 on conflict (list_type, name) do nothing;
 
 -- ---------- a starter project ----------
@@ -816,3 +907,10 @@ on conflict (list_type, name) do nothing;
 insert into public.projects (name, key, status)
 values ('Support', 'SUP', 'in_progress')
 on conflict (name) do nothing;
+
+-- ---------- a starter company ----------
+-- The internal form requires one, so a fresh install ships with an example to
+-- rename or replace. Companies are maintained here or in the dashboard.
+insert into public.companies (name, code)
+values ('Example Customer', 'example')
+on conflict (code) do nothing;

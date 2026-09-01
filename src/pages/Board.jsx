@@ -14,7 +14,7 @@ import { useConfig } from '../context/ConfigContext'
 import { useRefreshSignal } from '../context/RefreshContext'
 import UserAvatar from '../components/UserAvatar'
 import StatusDot from '../components/StatusDot'
-import { elapsed } from '../lib/format'
+import { elapsed, toMillis } from '../lib/format'
 import Tag from '../components/Tag'
 import IssueDetail from '../components/IssueDetail'
 import { jiraUrl } from '../lib/jira'
@@ -23,6 +23,10 @@ import { slaStatus, slaBand } from '../lib/sla'
 import { useProject } from '../context/ProjectContext'
 import ProjectFilter, { NoProject } from '../components/ProjectFilter'
 import { issueRef } from '../lib/projects'
+import { companyOptions } from '../lib/companies'
+
+/** A closed ticket drops off the board once it has been resolved this long. */
+const CLOSED_VISIBLE_DAYS = 7
 
 /** "3d", "5h", "12m" from a millisecond span. */
 function compactDuration(ms) {
@@ -43,7 +47,7 @@ function slaTooltip(sla) {
 }
 
 export default function Board() {
-  const { lists, users, statuses, colorOf } = useConfig()
+  const { lists, users, companies, statuses, colorOf } = useConfig()
   const { signal } = useRefreshSignal()
   const { project, projectId, loading: projectsLoading } = useProject()
   const [issues, setIssues] = useState([])
@@ -53,7 +57,11 @@ export default function Board() {
   const [search, setSearch] = useState('')
   const [assignee, setAssignee] = useState('')
   const [type, setType] = useState('')
+  const [company, setCompany] = useState('')
   const [dragging, setDragging] = useState(null)
+  // The cutoff is pinned to the last load, so a re-render never silently drops
+  // a card the user is looking at.
+  const [loadedAt, setLoadedAt] = useState(() => Date.now())
 
   const load = useCallback(async () => {
     if (!projectId) { setIssues([]); return }
@@ -63,6 +71,7 @@ export default function Board() {
     if (error) setError(error.message)
     const rows = data ?? []
     setIssues(rows)
+    setLoadedAt(Date.now())
     const { data: atts } = await supabase.from('attachments')
       .select('issue_id').in('issue_id', rows.map((i) => i.id))
     const counts = {}
@@ -72,6 +81,10 @@ export default function Board() {
 
   // `signal` bumps when an issue is created from the header.
   useEffect(() => { load() }, [load, signal])
+
+  // Includes companies already on a ticket, so a value typed before the list
+  // existed can still be filtered for.
+  const companyChoices = useMemo(() => companyOptions(companies, issues), [companies, issues])
 
   const userById = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u])), [users])
 
@@ -93,18 +106,32 @@ export default function Board() {
     pausedSince: issue.paused_since,
   })
 
-  const filtered = useMemo(() => {
+  // Long-closed tickets are dropped rather than filtered: the board is a view of
+  // work in flight, and a closed lane that grows forever stops being readable.
+  // `hiddenByStatus` keeps the omission visible in each lane it applies to.
+  const { filtered, hiddenByStatus } = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return issues.filter((i) => {
-      if (type && i.type !== type) return false
+    const cutoff = loadedAt - CLOSED_VISIBLE_DAYS * 86_400_000
+    const kept = []
+    const hidden = {}
+    for (const i of issues) {
+      if (type && i.type !== type) continue
+      if (company && i.company !== company) continue
       if (assignee) {
-        if (assignee === 'unassigned' ? i.assignee_id : i.assignee_id !== assignee) return false
+        if (assignee === 'unassigned' ? i.assignee_id : i.assignee_id !== assignee) continue
       }
       if (q && ![i.title, i.company, i.requester_name, i.jira_ticket, issueRef(project, i)]
-        .join(' ').toLowerCase().includes(q)) return false
-      return true
-    })
-  }, [issues, search, assignee, type, project])
+        .join(' ').toLowerCase().includes(q)) continue
+      // A closed ticket with no `closed_at` has no age to judge, so it stays.
+      const closedAt = statusTypeByName[i.status] === 'closed' ? toMillis(i.closed_at) : null
+      if (closedAt && closedAt < cutoff) {
+        hidden[i.status] = (hidden[i.status] ?? 0) + 1
+        continue
+      }
+      kept.push(i)
+    }
+    return { filtered: kept, hiddenByStatus: hidden }
+  }, [issues, search, assignee, type, company, project, statusTypeByName, loadedAt])
 
   const byStatus = useMemo(() => {
     const map = Object.fromEntries(statuses.map((s) => [s.name, []]))
@@ -157,6 +184,11 @@ export default function Board() {
             <MenuItem value="">All</MenuItem>
             {(lists.type ?? []).map((t) => <MenuItem key={t.id} value={t.name}>{t.name}</MenuItem>)}
           </TextField>
+          <TextField select size="small" label="Company" value={company}
+            onChange={(e) => setCompany(e.target.value)} sx={{ minWidth: 180 }}>
+            <MenuItem value="">All</MenuItem>
+            {companyChoices.map((name) => <MenuItem key={name} value={name}>{name}</MenuItem>)}
+          </TextField>
         </Stack>
       </Paper>
 
@@ -177,6 +209,7 @@ export default function Board() {
               {(byStatus[s.name] ?? []).map((issue) => (
                 <BoardCard
                   key={issue.id} issue={issue}
+                  reference={issueRef(project, issue)}
                   assignee={userById[issue.assignee_id]}
                   attachments={attachmentCounts[issue.id] ?? 0}
                   typeColor={colorOf('type', issue.type)}
@@ -186,9 +219,14 @@ export default function Board() {
                   onDragStart={() => setDragging(issue.id)}
                 />
               ))}
-              {(byStatus[s.name] ?? []).length === 0 && (
+              {(byStatus[s.name] ?? []).length === 0 && !hiddenByStatus[s.name] && (
                 <Typography variant="caption" color="text.disabled" sx={{ px: 0.5 }}>
                   Nothing here.
+                </Typography>
+              )}
+              {hiddenByStatus[s.name] > 0 && (
+                <Typography variant="caption" color="text.disabled" sx={{ px: 0.5 }}>
+                  {hiddenByStatus[s.name]} resolved over {CLOSED_VISIBLE_DAYS} days ago hidden.
                 </Typography>
               )}
             </Stack>
@@ -204,7 +242,7 @@ export default function Board() {
   )
 }
 
-function BoardCard({ issue, assignee, attachments, typeColor, colorOf, sla, onOpen, onDragStart }) {
+function BoardCard({ issue, reference, assignee, attachments, typeColor, colorOf, sla, onOpen, onDragStart }) {
   const link = jiraUrl(issue.jira_ticket)
   const breached = sla?.state === 'breached'
   const hasSla = sla && sla.state !== 'none'
@@ -222,14 +260,24 @@ function BoardCard({ issue, assignee, attachments, typeColor, colorOf, sla, onOp
       }}
     >
       <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+        <Stack direction="row" spacing={0.75} sx={{ mb: 0.75, alignItems: 'center' }}>
+          {reference && (
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+              {reference}
+            </Typography>
+          )}
+          <Tag value={issue.type} color={typeColor} />
+        </Stack>
+
         <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{issue.title}</Typography>
 
-        <Stack direction="row" sx={{ mb: 1, flexWrap: 'wrap', gap: 0.5 }}>
-          <Tag value={issue.type} color={typeColor} />
-          {(issue.labels ?? []).map((l) => (
-            <Tag key={l} value={l} color={colorOf('labels', l)} variant="outlined" />
-          ))}
-        </Stack>
+        {(issue.labels ?? []).length > 0 && (
+          <Stack direction="row" sx={{ mb: 1, flexWrap: 'wrap', gap: 0.5 }}>
+            {issue.labels.map((l) => (
+              <Tag key={l} value={l} color={colorOf('labels', l)} variant="outlined" />
+            ))}
+          </Stack>
+        )}
 
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <Tooltip title={assignee ? displayName(assignee) : 'Unassigned'}>

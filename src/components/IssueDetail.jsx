@@ -15,7 +15,7 @@ import { useConfig } from '../context/ConfigContext'
 import { useAuth } from '../context/AuthContext'
 import { formatDateTime } from '../lib/format'
 import { can } from '../lib/permissions'
-import { jiraUrl } from '../lib/jira'
+import { jiraKey, jiraUrl } from '../lib/jira'
 import { copyText } from '../lib/publicLink'
 import { issueRef, publicIssueUrl } from '../lib/projects'
 import { useProject } from '../context/ProjectContext'
@@ -28,6 +28,7 @@ import StatusTimeline from './StatusTimeline'
 import CommentsThread from './CommentsThread'
 import { UserChip } from './UserAvatar'
 import { StatusLabel } from './StatusDot'
+import Tag from './Tag'
 
 /**
  * Three-column ticket view:
@@ -36,7 +37,7 @@ import { StatusLabel } from './StatusDot'
  *   right  — status timeline and total elapsed time
  */
 export default function IssueDetail({ issueId, open, onClose, onSaved }) {
-  const { lists, users, statuses } = useConfig()
+  const { lists, users, statuses, colorOf } = useConfig()
   const userById = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u])), [users])
   const { profile } = useAuth()
   const { project } = useProject()
@@ -100,7 +101,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
       status: issue.status,
       assignee_id: issue.assignee_id || null,
       labels: issue.labels ?? [],
-      jira_ticket: issue.jira_ticket || null,
+      jira_ticket: jiraKey(issue.jira_ticket) || null,
       priority: issue.priority,
       // Only send the request fields when they're actually editable — the
       // database rejects the update otherwise, even if the values are unchanged.
@@ -198,7 +199,13 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
                   <Field label="Company"   value={issue.company} />
                   <Field label="Requester" value={issue.requester_name} />
                   <Field label="Email"     value={issue.requester_email} />
-                  <Field label="Source" value={issue.source_url
+                  {/* How it reached us, and where from — the channel is set when
+                      the ticket is logged and is a fact about the past, so it
+                      reads rather than edits. */}
+                  <Field label="Source" value={issue.source
+                    ? <Tag value={issue.source} color={colorOf('source', issue.source)} />
+                    : null} />
+                  <Field label="Source URL" value={issue.source_url
                     ? <Link href={issue.source_url} target="_blank" rel="noopener">{issue.source_url}</Link>
                     : null} />
                   <Field label="Submitted" value={formatDateTime(issue.submitted_date)} />
@@ -253,9 +260,12 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
                     value={issue.labels ?? []}
                     onChange={(_e, v) => patch('labels', v)}
                     renderInput={(p) => <TextField {...p} label="Labels" />} />
-                  <TextField size="small" label="Jira ticket" placeholder="ENG-1234"
+                  {/* A pasted Jira URL is reduced to its key — on blur so the
+                      field doesn't fight the paste, and again on save. */}
+                  <TextField size="small" label="Jira ticket" placeholder="ENG-1234 or a pasted Jira link"
                     value={issue.jira_ticket ?? ''}
                     onChange={(e) => patch('jira_ticket', e.target.value)}
+                    onBlur={(e) => patch('jira_ticket', jiraKey(e.target.value))}
                     helperText={jiraUrl(issue.jira_ticket)
                       && <Link href={jiraUrl(issue.jira_ticket)} target="_blank" rel="noopener">
                           Open in Jira <OpenInNewIcon sx={{ fontSize: 12, verticalAlign: 'middle' }} />

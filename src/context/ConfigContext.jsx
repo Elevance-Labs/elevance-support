@@ -14,7 +14,15 @@ export const LIST_TYPES = [
   { key: 'priority', label: 'Priorities', singular: 'Priority' },
   { key: 'status',   label: 'Statuses',   singular: 'Status' },
   { key: 'labels',   label: 'Labels',     singular: 'Label' },
+  { key: 'source',   label: 'Sources',    singular: 'Source' },
 ]
+
+/**
+ * The one source staff never pick: it means the request came through the public
+ * embed form, which the database stamps for itself. Renaming or deactivating it
+ * on the Configuration page changes only how it reads, not what gets stored.
+ */
+export const PUBLIC_SOURCE = 'Form'
 
 /**
  * Loads every configuration list once and exposes them grouped by list_type.
@@ -23,6 +31,10 @@ export const LIST_TYPES = [
 export function ConfigProvider({ children, withUsers = true }) {
   const [items, setItems] = useState([])
   const [users, setUsers] = useState([])
+  // Companies have no Configuration tab — they are maintained in the Supabase
+  // dashboard — but every form and filter needs the list, so it loads here with
+  // the rest of the vocabulary.
+  const [companies, setCompanies] = useState([])
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
@@ -30,6 +42,8 @@ export function ConfigProvider({ children, withUsers = true }) {
       .from('list_items').select('*')
       .order('list_type').order('sort_order').order('name')
     setItems(data ?? [])
+    const { data: c } = await supabase.from('companies').select('*').order('name')
+    setCompanies(c ?? [])
     if (withUsers) {
       const { data: u } = await supabase.from('profiles').select('*').order('full_name')
       setUsers(u ?? [])
@@ -56,7 +70,8 @@ export function ConfigProvider({ children, withUsers = true }) {
   )
 
   return (
-    <ConfigContext.Provider value={{ lists, users, statuses, loading, refresh, colorOf }}>
+    <ConfigContext.Provider
+      value={{ lists, users, companies, statuses, loading, refresh, colorOf }}>
       {children}
     </ConfigContext.Provider>
   )

@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Alert, Box, Button, Chip, CircularProgress, Divider, MenuItem, Stack,
-  TextField, Typography,
+  Alert, Autocomplete, Box, Button, Chip, CircularProgress, Divider, MenuItem,
+  Stack, TextField, Typography,
 } from '@mui/material'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import CloseIcon from '@mui/icons-material/Close'
 import { supabase } from '../lib/supabase'
-import { useConfig } from '../context/ConfigContext'
+import { useConfig, PUBLIC_SOURCE } from '../context/ConfigContext'
+import { toInputDateTime } from '../lib/format'
+import { activeCompanies, findCompany } from '../lib/companies'
 
 const MAX_FILES = 5
 const MAX_BYTES = 10 * 1024 * 1024
@@ -16,6 +18,11 @@ export const EMPTY_ISSUE = {
   type: '', product: '', area: '', priority: '', title: '', description: '',
   company: '', requester_name: '', requester_email: '', source_url: '',
 }
+
+// Staff-only fields. The public form neither shows nor sends them: `source` is
+// stamped `Form` by the database, the submission date is the moment it arrives,
+// and labels are the team's own triage vocabulary.
+const EMPTY_STAFF = { source: '', labels: [], submitted_date: '' }
 
 /**
  * The support request form, shared by the public embed page and the internal
@@ -32,16 +39,22 @@ export const EMPTY_ISSUE = {
  *               with no project is one nobody would ever see.
  * `children`  — extra fields the caller wants above the request details, used by
  *               the internal dialog for its project picker.
+ * `staff`     — this is the internal dialog rather than the public form: the
+ *               person filling it in is logging somebody else's request, so they
+ *               also say which channel it came through, when it arrived, and
+ *               which labels it starts with — and must attach the original
+ *               request as evidence.
  */
 export default function IssueForm({
   hidden = {},
   defaults = {},
   projectId,
+  staff = false,
   submitLabel = 'Submit request',
   onSubmitted,
   children,
 }) {
-  const { lists, loading: configLoading } = useConfig()
+  const { lists, companies, loading: configLoading } = useConfig()
   const [values, setValues] = useState({ ...EMPTY_ISSUE, ...defaults, ...hidden })
   const [files, setFiles] = useState([])
   const [error, setError] = useState('')
@@ -56,16 +69,25 @@ export default function IssueForm({
     [lists.priority],
   )
 
+  // A company may arrive as a code (`?company=wupi`), which is what an embed
+  // link carries. Whatever comes in, the form holds the display name.
+  const resolvedCompany = (value) => findCompany(companies, value)?.name ?? value
+
   const seed = useMemo(
     () => ({
       ...EMPTY_ISSUE,
+      // The date opens on "now" and is the only staff field that starts filled.
+      ...(staff ? { ...EMPTY_STAFF, submitted_date: toInputDateTime(new Date()) } : {}),
       ...(defaultPriority ? { priority: defaultPriority } : {}),
       // An explicitly supplied value always wins over the pre-selection.
       ...defaults,
       ...hidden,
+      ...(defaults.company || hidden.company
+        ? { company: resolvedCompany(hidden.company ?? defaults.company) }
+        : {}),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [defaultPriority, JSON.stringify(defaults), JSON.stringify(hidden)],
+    [defaultPriority, staff, companies, JSON.stringify(defaults), JSON.stringify(hidden)],
   )
   useEffect(() => setValues(seed), [seed])
 
@@ -91,15 +113,28 @@ export default function IssueForm({
     setError(''); setBusy(true)
     try {
       if (!projectId) throw new Error('Choose a project for this request.')
+      // Staff are logging somebody else's request, so the ticket has to carry
+      // the customer's own words — the email, the chat, the screenshot.
+      if (staff && files.length === 0) {
+        throw new Error("Attach the customer's original request before creating the ticket.")
+      }
       const { data: issue, error: insertErr } = await supabase
         .from('issues')
         .insert({
           ...values,
           project_id: projectId,
           title: values.title.trim(),
+          ...(staff ? { source: values.source || null, labels: values.labels ?? [] } : {}),
+          // The name is what everyone reads; the code is what survives a rename.
+          // The database resolves one from the other either way.
+          company_code: findCompany(companies, values.company)?.code ?? null,
           requester_email: values.requester_email.trim() || null,
           source_url: values.source_url.trim() || null,
-          submitted_date: new Date().toISOString(),
+          // A public submission happens now; a staff one records when the
+          // request actually arrived. The database enforces both.
+          submitted_date: staff && values.submitted_date
+            ? new Date(values.submitted_date).toISOString()
+            : new Date().toISOString(),
         })
         .select('id')
         .single()
@@ -131,11 +166,11 @@ export default function IssueForm({
 
   // Plain functions, not components — a component defined during render gets a
   // new identity each pass, which remounts the input and drops focus.
-  const selectField = ({ field, label, options, required }) =>
+  const selectField = ({ field, label, options, required, ...rest }) =>
     isHidden(field) ? null : (
       <TextField
         key={field} select fullWidth label={label} value={values[field]}
-        onChange={set(field)} required={required} size="small"
+        onChange={set(field)} required={required} size="small" {...rest}
       >
         {options.filter((o) => o.is_active).map((o) => (
           <MenuItem key={o.id} value={o.name}>{o.name}</MenuItem>
@@ -150,6 +185,32 @@ export default function IssueForm({
         onChange={set(field)} {...rest}
       />
     )
+
+  // Companies are picked, never typed. The value stored is the display name;
+  // `findCompany` is what turns a code from a link into one.
+  const companyOptions = activeCompanies(companies)
+  const companyField = () => {
+    if (isHidden('company')) return null
+    const current = values.company ?? ''
+    const known = companyOptions.some((c) => c.name === current)
+    return (
+      <TextField
+        select fullWidth size="small" label="Company" required
+        value={current}
+        onChange={set('company')}
+        helperText={companyOptions.length === 0
+          ? 'No companies are set up yet — ask an admin to add one.'
+          : undefined}
+      >
+        {/* An unrecognised value (an old ticket, a stale link) keeps its place
+            in the list rather than disappearing when the form re-renders. */}
+        {current && !known && <MenuItem value={current}>{current}</MenuItem>}
+        {companyOptions.map((c) => (
+          <MenuItem key={c.id} value={c.name}>{c.name}</MenuItem>
+        ))}
+      </TextField>
+    )
+  }
 
   const requestSection = ['type', 'product', 'area', 'priority'].some((f) => !isHidden(f))
   const submissionSection = ['company', 'requester_name', 'requester_email', 'source_url']
@@ -168,6 +229,13 @@ export default function IssueForm({
             {selectField({ field: 'product',  label: 'Product',  options: lists.product ?? [],  required: true })}
             {selectField({ field: 'area',     label: 'Area',     options: lists.area ?? [] })}
             {selectField({ field: 'priority', label: 'Priority', options: lists.priority ?? [] })}
+            {/* `Form` is what the database stamps on a public submission, so it
+                is never something to pick here. */}
+            {staff && selectField({
+              field: 'source', label: 'Source', required: true,
+              options: (lists.source ?? []).filter((o) => o.name !== PUBLIC_SOURCE),
+              helperText: 'How this request reached us.',
+            })}
           </Section>
         )}
 
@@ -175,17 +243,36 @@ export default function IssueForm({
           {textField({ field: 'title', label: 'Title', required: true })}
           {textField({ field: 'description', label: 'Description', multiline: true, minRows: 4, required: true })}
 
+          {staff && (
+            <Autocomplete
+              multiple size="small"
+              options={(lists.labels ?? []).filter((l) => l.is_active).map((l) => l.name)}
+              value={values.labels ?? []}
+              onChange={(_e, v) => setValues((prev) => ({ ...prev, labels: v }))}
+              renderInput={(p) => <TextField {...p} label="Labels" />}
+            />
+          )}
+
           <Box>
             <Button
               startIcon={<AttachFileIcon />} variant="outlined" size="small"
               onClick={() => fileInput.current?.click()}
               disabled={files.length >= MAX_FILES}
             >
-              Attach files
+              {staff ? 'Attach the original request' : 'Attach files'}
             </Button>
             <Typography variant="caption" color="text.secondary" sx={{ ml: 1.5 }}>
               PDF or images · up to {MAX_FILES} files · 10MB each
             </Typography>
+            {staff && (
+              <Typography
+                variant="caption" color={files.length === 0 ? 'error' : 'text.secondary'}
+                sx={{ display: 'block', mt: 1 }}
+              >
+                Required — attach the customer's own request: the email, or a
+                screenshot of the email, chat or message it arrived in.
+              </Typography>
+            )}
             <input ref={fileInput} type="file" hidden multiple
               accept={ACCEPT.join(',')} onChange={addFiles} />
             {files.length > 0 && (
@@ -202,13 +289,28 @@ export default function IssueForm({
 
         {submissionSection && (
           <Section title="Submission details">
-            {textField({ field: 'company', label: 'Company', required: true })}
+            {/* A list, not a text box: the same customer typed three ways is
+                three customers in every report. A company already on a ticket
+                but no longer on the list still shows, so an old value is never
+                silently swapped. */}
+            {companyField()}
             {textField({ field: 'requester_name', label: 'Requester name', required: true })}
             {textField({ field: 'requester_email', label: 'Requester email', type: 'email', required: true })}
             {textField({
               field: 'source_url', label: 'Source URL',
               placeholder: 'https://…',
               helperText: 'Where the request came from — a page, an email thread, a ticket link.',
+            })}
+            {/* When the request actually arrived, which is not when it is being
+                logged. Defaults to now; the database refuses a future date. */}
+            {staff && textField({
+              field: 'submitted_date', label: 'Submitted', type: 'datetime-local',
+              required: true,
+              slotProps: {
+                inputLabel: { shrink: true },
+                htmlInput: { max: toInputDateTime(new Date()) },
+              },
+              helperText: 'When the customer sent it. Defaults to now.',
             })}
           </Section>
         )}

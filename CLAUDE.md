@@ -72,7 +72,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 | Provider | Supplies | Scope |
 |---|---|---|
 | `AuthContext` | `session`, `profile`, `loading`, sign in/out, `refreshProfile` | Whole app |
-| `ConfigContext` | Dropdown lists grouped by type, user roster, active statuses | Authed pages + embed form |
+| `ConfigContext` | Dropdown lists grouped by type, company list, user roster, active statuses | Authed pages + embed form |
 | `ProjectContext` | Project list, the one selected project, persistence | Authed pages only |
 | `RefreshContext` | Bump counter so the header can tell a page to reload | Inside `AppLayout` |
 
@@ -90,6 +90,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `projects.js` — key format/normalisation, ticket refs, embed and share URLs.
 - `format.js` — timestamp parsing (all `timestamptz`, shown local), durations,
   initials, hashed colours.
+- `companies.js` — resolving a company from a code or a name, and what the
+  pickers and filters may offer.
 - `users.js` — how a person is displayed; derives a name from an email when a
   profile has none.
 - `publicLink.js` — calls the `public-issue` function; clipboard helper.
@@ -98,10 +100,18 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 ## 7. Data model (conceptual)
 
 - `projects` — name, immutable `key`, status, own ticket counter.
+- `companies` — who a ticket is for: display `name` plus a short, stable lower-case
+  `code` that embed links carry (`?company=wupi`). Read-only from the browser and
+  deliberately **not** in Configuration — maintained with `service_role`. A trigger
+  resolves whichever identifier a client sends and stores both on the issue.
 - `project_members` — who may see a project's tickets.
 - `issues` — the ticket. Request fields, submission details, workflow fields,
   `project_id` + per-project `number` (which also addresses the share link),
-  SLA bookkeeping.
+  SLA bookkeeping, the company (`company` name + `company_code`), and the
+  `source` channel it arrived through. `Form` means the
+  public embed form: a trigger stamps it on anonymous inserts (pinning their
+  `submitted_date` to now) and refuses it from a signed-in one, so staff pick
+  from the other channels and may back-date what they log.
 - `comments` — thread on a ticket; author-editable for 5 minutes (RLS-enforced).
 - `status_events` — every status change, written by trigger; feeds the timeline.
 - `attachments` + a **private** storage bucket; access via short-lived signed URLs.
@@ -110,7 +120,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   Everything that draws a person goes through `components/UserAvatar.jsx`; only
   `/profile` writes one.
 - `list_items` — one table backing every dropdown (`type`, `product`, `area`,
-  `priority`, `status`, `labels`), plus per-status type and per-type SLA target.
+  `priority`, `status`, `labels`, `source`), plus per-status type and per-type
+  SLA target.
 - `profiles` — mirrors auth users; carries the role and `avatar_url`. First
   account becomes admin. Self-writes are allowed, but a trigger freezes `role`,
   `is_active` and `email` for non-admins — only `admin-users` writes a role.
@@ -134,7 +145,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 ## 9. How things connect
 
 - A request arrives via the **embed form** (or the staff **Create Issue**
-  dialog) → both render the same `IssueForm` → row inserted into `issues` →
+  dialog) → both render the same `IssueForm` — which in `staff` mode also asks
+  for source, labels, submission date and a mandatory attachment of the
+  customer's original request → row inserted into `issues` →
   triggers assign the project number, the default status and the first
   status event, then fire the Google Chat notification (queued via `pg_net`, so
   it can never fail the insert).

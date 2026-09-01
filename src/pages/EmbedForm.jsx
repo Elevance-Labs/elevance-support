@@ -16,7 +16,8 @@ const FIELDS = {
   priority:        ['priority'],
   title:           ['title', 'subject'],
   description:     ['description', 'body'],
-  company:         ['company', 'org'],
+  // A company may be named or, better, given by its short code: ?company=wupi.
+  company:         ['company', 'org', 'company_code', 'code'],
   requester_name:  ['requester_name', 'name'],
   requester_email: ['requester_email', 'email'],
   source_url:      ['source_url', 'url'],

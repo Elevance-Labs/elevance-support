@@ -118,16 +118,51 @@ const issue = captured.inserts.find((i) => i.table === 'issues')?.row
 check('submit: issue inserted', Boolean(issue), 'no insert captured')
 check('submit: pre-filled (visible) type carried through', issue?.type === 'Bug', JSON.stringify(issue))
 check('submit: hidden company carried through', issue?.company === 'Acme', JSON.stringify(issue))
+check('submit: a company on the list also sends its code',
+  issue?.company_code === 'acme', JSON.stringify(issue))
 check('submit: typed title carried through', issue?.title === 'Cannot export invoice', JSON.stringify(issue))
 // The client deliberately does NOT send a status: a database trigger assigns the
 // first status of type "new", so the public form and the dashboard agree.
 check('submit: client sends no status (trigger assigns it)',
   issue && !('status' in issue), JSON.stringify(issue))
 check('submit: source_url sent as null when blank', issue?.source_url === null)
+// The public form claims nothing about how the request arrived, nor how it
+// should be triaged — the database stamps `Form`, and labels are the team's.
+check('submit: client sends no source (the trigger stamps Form)',
+  !('source' in (issue ?? {})), JSON.stringify(issue))
+check('submit: client sends no labels', !('labels' in (issue ?? {})), JSON.stringify(issue))
+check('submit: the public form has no Source picker or Submitted date',
+  ![...dom.window.document.querySelectorAll('.MuiFormLabel-root')]
+    .map((l) => l.textContent.replace(/\s*\*$/, '').trim())
+    .some((t) => t === 'Source' || t === 'Submitted' || t === 'Labels'))
 // The key in the path decides the project; the form never asks and never guesses.
 check('submit: filed against the project named by the key in the URL',
   issue?.project_id === 'proj-1', JSON.stringify(issue))
 check('the project name is shown on the form', el.textContent.includes('Acme Support'))
+
+// 4b. A company arrives by its code — the short identifier an embed link carries.
+captured.inserts.length = 0
+el = await render('/embed/ACME/form?company=wupi')
+check('a company code hides the field, like any supplied company',
+  ![...el.querySelectorAll('.MuiFormLabel-root')]
+    .map((l) => l.textContent.replace(/\s*\*$/, '').trim()).includes('Company'))
+await act(async () => {
+  const lab = [...el.querySelectorAll('label')]
+    .find((l) => l.textContent.replace(/\s*\*$/, '') === 'Title')
+  const input = el.querySelector(`#${lab.getAttribute('for')}`)
+  Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+    .call(input, 'Pallets not scanning')
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+})
+await act(async () => {
+  el.querySelector('form').dispatchEvent(
+    new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+  await new Promise((r) => setTimeout(r, 30))
+})
+const byCode = captured.inserts.find((i) => i.table === 'issues')?.row
+check('a code is stored as the company display name',
+  byCode?.company === "Wilbert's U-Pull-It", JSON.stringify(byCode?.company))
+check('and the code travels with it', byCode?.company_code === 'wupi', JSON.stringify(byCode))
 
 // 5. A key that matches no project refuses to take submissions
 el = await render('/embed/ZZZ/form')

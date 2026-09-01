@@ -10,11 +10,11 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | Page | What it does |
 |---|---|
 | **Issues** | Every request in a filterable table. Admins save filter sets as **views** everyone can load. |
-| **Board** | Jira-style kanban by status. Drag a card between lanes to change its status. |
+| **Board** | Jira-style kanban by status. Drag a card between lanes to change its status. Each card leads with its ticket reference and type. |
 | **Report** | Volume, breakdowns and SLA performance for the selected range. |
 | **Projects** | Admin-only CRUD over projects, their keys and their members. |
 | **Users** | Admin-only CRUD over who can sign in and be assigned work. |
-| **Configuration** | Admin-only CRUD over the lists that drive every dropdown. |
+| **Configuration** | Admin-only CRUD over the lists that drive every dropdown — types, products, areas, priorities, statuses, labels and sources. |
 | **Profile** | Your own account — reached from the avatar in the header. Shows your name, email and role; lets you change your photo and your password. |
 
 ## Roles
@@ -96,6 +96,37 @@ Membership is enforced by row-level security, not just by the filter — the
 timeline, all check membership of the ticket's project. Admins are exempt, since
 they create projects and would otherwise be locked out of their own.
 
+## Companies
+
+Every ticket belongs to a **company**, chosen from a list rather than typed. That
+is the whole point: one customer typed three ways ("Wilbert's U-Pull-It",
+"Wilberts UPullIt", "wupi") is three customers in every report.
+
+A company has two identifiers:
+
+| | What it's for |
+|---|---|
+| **Name** — `Wilbert's U-Pull-It` | What everyone reads. It is what the ticket stores and what the filters, lists and public page show. |
+| **Code** — `wupi` | Short, lower case, stable. It is what an embed link carries (`?company=wupi`) and what the ticket keeps alongside the name, so renaming a company doesn't split its history. |
+
+**There is no Configuration tab for companies** — they are onboarded rarely, so
+the list lives in the Supabase dashboard (**Table Editor → companies**) or in
+SQL:
+
+```sql
+insert into public.companies (name, code) values ('Wilbert''s U-Pull-It', 'wupi');
+```
+
+Set `is_active` to false to retire one: it stops being offered on the forms but
+stays readable on the tickets that already have it, and stays available in the
+Company filter on Issues and Board. Those filters also list any company found on
+a ticket but not on the list, so tickets logged before the list existed are never
+stranded.
+
+Whichever identifier a form or a link supplies, a database trigger resolves it
+against the list and stores both — so a ticket can never carry one company's code
+and another's name.
+
 ## Ticket detail
 
 The header reads **project name · ticket identifier** — `Acme Support · ACME-42`
@@ -105,6 +136,10 @@ Opening a ticket gives a three-column view:
 
 - **Left** — the read-only submission details, then the request fields
   (type, product, area), then the remaining controls (priority, labels, Jira).
+  The **Jira** field takes a pasted Jira link as happily as a typed key: whatever
+  you paste is reduced to the ticket key (`ENG-1234`) when you leave the field
+  and again when you save, so the "Open in Jira" link is always well formed.
+  Text with no key in it is left exactly as you wrote it.
 - **Centre** — **assignee and status side by side** at the top — the assignee
   picker shows each person's photo, and the status picker a coloured dot for the
   status *type*, the same dot the board columns use — then the description,
@@ -184,6 +219,13 @@ exactly 100% is still orange. A closed ticket that never breached is labelled
 The band colour shows in three places: the total-elapsed box in the ticket
 detail (with a progress bar and the percentage consumed), the left edge and age
 badge of each board card, and the SLA column on the Issues list.
+
+**Resolved tickets age out of the working views.** The Board only keeps a closed
+ticket for **7 days** after it was resolved; each lane says how many it is
+hiding. The Issues list has the same limit as a **Resolved** filter, which
+defaults to the last 7 days and can be widened to 30 days, 60 days or all time.
+Either way only *closed* tickets are affected — open work always shows, and a
+closed ticket with no recorded resolution time is never hidden.
 
 **Request fields** (type, product, area) can only be changed by an **admin or
 manager**, and only while the ticket is still in a **New** status. After that
@@ -433,6 +475,22 @@ nothing hidden. Fill in the customer's own details: the ticket is attributed to
 them, not to whoever logged it. The Issues list and Board reload automatically
 once it's created.
 
+Because you are logging somebody else's request, the internal form asks for four
+things the public form doesn't:
+
+| Field | Why |
+|---|---|
+| **Source** | Which channel it arrived through — Email, IM, SMS, Call, Internal. Editable under Configuration → Sources. |
+| **Labels** | So a ticket can be triaged as it's logged, instead of re-opened to do it. |
+| **Submitted** | When the customer actually sent it, not when you got round to logging it. Defaults to now; a future date is refused. |
+| **An attachment** | **Required.** Attach the customer's own request — the email itself, or a screenshot of the email, chat or message. Without it the ticket is one person's account of what somebody else said. |
+
+**`Form` is not one of the Source choices**, because it means "arrived through
+the public embed form" — something only the database can know. An anonymous
+submission is stamped `Form` on insert, and a signed-in one is refused if it
+tries to claim it. The same trigger pins a public submission's date to the moment
+it arrives: staff may back-date, the public form may not.
+
 ## Share links
 
 A ticket's share link is just its reference. **ACME-42** lives at:
@@ -550,7 +608,7 @@ That form asks for everything about the request — with Product pre-selected as
 | `priority` | | Priority | — |
 | `title` | `subject` | Title | — |
 | `description` | `body` | Description | — |
-| `company` | `org` | Company | ✅ |
+| `company` | `org`, `company_code`, `code` | Company — **by name or, better, by code** (`?company=wupi`) | ✅ |
 | `requester_name` | `name` | Requester name | ✅ |
 | `requester_email` | `email` | Requester email | ✅ |
 | `source_url` | `url` | Source URL | ✅ |
@@ -559,6 +617,11 @@ Values for `type`, `product`, `area` and `priority` must match the names on the
 **Configuration** page exactly — matching is case-sensitive, and an unrecognised
 value is stored as-is rather than rejected. URL-encode everything
 (`encodeURIComponent`).
+
+`company` is the exception: it matches a company's **code** or its name, ignoring
+case, and the ticket is stored under that company's display name. Codes are short
+and stable, so `?company=wupi` is the right thing to put in an embed snippet — it
+survives the customer being renamed.
 
 A section disappears only when all of its fields are gone, so supplying all four
 submission parameters removes the "Submission details" block entirely.

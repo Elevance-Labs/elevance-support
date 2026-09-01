@@ -17,7 +17,7 @@ import { useConfig } from '../context/ConfigContext'
 import { useRefreshSignal } from '../context/RefreshContext'
 import { useAuth } from '../context/AuthContext'
 import { can } from '../lib/permissions'
-import { formatDuration, formatDate } from '../lib/format'
+import { formatDuration, formatDate, toMillis } from '../lib/format'
 import Tag from '../components/Tag'
 import IssueDetail from '../components/IssueDetail'
 import { UserChip } from '../components/UserAvatar'
@@ -26,13 +26,24 @@ import { slaStatus, slaBand, statusColor } from '../lib/sla'
 import { useProject } from '../context/ProjectContext'
 import ProjectFilter, { NoProject } from '../components/ProjectFilter'
 import { issueRef } from '../lib/projects'
+import { companyOptions } from '../lib/companies'
+
+// `resolvedWithin` hides tickets closed longer ago than this many days; '' is
+// "no limit". Only closed tickets are ever affected — open work always shows.
+const RESOLVED_WINDOWS = [
+  { value: '7', label: 'Last 7 days' },
+  { value: '30', label: 'Last 30 days' },
+  { value: '60', label: 'Last 60 days' },
+  { value: '', label: 'All time' },
+]
 
 const EMPTY_FILTERS = {
   search: '', status: '', type: '', priority: '', assignee_id: '', product: '',
+  company: '', resolvedWithin: '7',
 }
 
 export default function Issues() {
-  const { lists, users, colorOf } = useConfig()
+  const { lists, users, companies, colorOf } = useConfig()
   const { profile } = useAuth()
   const { signal } = useRefreshSignal()
   const { project, projectId, projects, setProjectId, loading: projectsLoading } = useProject()
@@ -45,6 +56,9 @@ export default function Issues() {
   const [views, setViews] = useState([])
   const [activeView, setActiveView] = useState('')
   const [viewDialog, setViewDialog] = useState(null) // { mode: 'create'|'rename', id?, name }
+  // The resolved-window cutoff is pinned to the last load, so a re-render never
+  // silently drops a row the user is looking at.
+  const [loadedAt, setLoadedAt] = useState(() => Date.now())
 
   // Which ticket is open lives in the URL, so a share link can hand a signed-in
   // user straight to it. Both transitions replace rather than push: the dialog
@@ -88,6 +102,7 @@ export default function Issues() {
     if (error) setError(error.message)
     const issues = data ?? []
     setRows(issues)
+    setLoadedAt(Date.now())
 
     const { data: atts } = await supabase.from('attachments')
       .select('issue_id').in('issue_id', issues.map((i) => i.id))
@@ -135,13 +150,23 @@ export default function Issues() {
     [userById],
   )
 
+  const companyChoices = useMemo(() => companyOptions(companies, rows), [companies, rows])
+
   const filtered = useMemo(() => {
     const q = filters.search.trim().toLowerCase()
+    const days = Number(filters.resolvedWithin)
+    const cutoff = days > 0 ? loadedAt - days * 86_400_000 : null
     return rows.filter((r) => {
+      if (cutoff && statusTypeByName[r.status] === 'closed') {
+        // No `closed_at` means no age to judge, so the ticket stays.
+        const closedAt = toMillis(r.closed_at)
+        if (closedAt && closedAt < cutoff) return false
+      }
       if (filters.status && r.status !== filters.status) return false
       if (filters.type && r.type !== filters.type) return false
       if (filters.priority && r.priority !== filters.priority) return false
       if (filters.product && r.product !== filters.product) return false
+      if (filters.company && r.company !== filters.company) return false
       if (filters.assignee_id) {
         if (filters.assignee_id === 'unassigned' ? r.assignee_id : r.assignee_id !== filters.assignee_id)
           return false
@@ -153,7 +178,7 @@ export default function Issues() {
       }
       return true
     })
-  }, [rows, filters, project])
+  }, [rows, filters, project, statusTypeByName, loadedAt])
 
   const applyView = (id) => {
     setActiveView(id)
@@ -254,7 +279,8 @@ export default function Issues() {
     },
   ], [attachmentCounts, colorOf, userName, userById, slaFor, lists.status, project])
 
-  const activeFilterCount = Object.values(filters).filter(Boolean).length
+  const activeFilterCount = Object.entries(filters)
+    .filter(([k, v]) => v && v !== EMPTY_FILTERS[k]).length
 
   return (
     <Stack spacing={2}>
@@ -286,6 +312,23 @@ export default function Issues() {
           <Filter label="Type"     value={filters.type}     onChange={set('type')}     options={lists.type} />
           <Filter label="Priority" value={filters.priority} onChange={set('priority')} options={lists.priority} />
           <Filter label="Product"  value={filters.product}  onChange={set('product')}  options={lists.product} />
+          {/* Options include companies already on a ticket, so a value typed
+              before the list existed can still be filtered for. */}
+          <TextField
+            select size="small" label="Company" value={filters.company}
+            onChange={set('company')} sx={{ minWidth: 180 }}
+          >
+            <MenuItem value="">All</MenuItem>
+            {companyChoices.map((name) => <MenuItem key={name} value={name}>{name}</MenuItem>)}
+          </TextField>
+          <TextField
+            select size="small" label="Resolved" value={filters.resolvedWithin}
+            onChange={set('resolvedWithin')} sx={{ minWidth: 150 }}
+          >
+            {RESOLVED_WINDOWS.map((w) => (
+              <MenuItem key={w.value} value={w.value}>{w.label}</MenuItem>
+            ))}
+          </TextField>
           <TextField
             select size="small" label="Assignee" value={filters.assignee_id}
             onChange={set('assignee_id')} sx={{ minWidth: 150 }}

@@ -30,6 +30,14 @@ export function toLocal(value) {
   return parsed.isValid() ? parsed : null
 }
 
+/**
+ * A stored timestamp as an `<input type="datetime-local">` value, in the
+ * viewer's own zone — that input has no concept of one, so it must be fed local
+ * wall-clock time and read back the same way.
+ */
+export const toInputDateTime = (value) =>
+  toLocal(value ?? undefined)?.format('YYYY-MM-DDTHH:mm') ?? ''
+
 /** Milliseconds since the epoch for a stored timestamp, or NaN. */
 export const toMillis = (value) => toLocal(value)?.valueOf() ?? NaN
 

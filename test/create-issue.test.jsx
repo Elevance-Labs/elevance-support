@@ -94,14 +94,59 @@ check('supplied ?priority= overrides the pre-selection',
 
 // ---------- Create Issue dialog ----------
 await mount(<CreateIssueDialog open onClose={() => {}} onCreated={() => {}} />)
-const dialogText = D.querySelector('[role="dialog"]')?.textContent ?? ''
-check('dialog opens with a Create issue title', dialogText.includes('Create issue'))
+const dialogText = () => D.querySelector('[role="dialog"]')?.textContent ?? ''
+check('dialog opens with a Create issue title', dialogText().includes('Create issue'))
 check('dialog shows the full form, nothing hidden', (() => {
   const L = labels()
   return ['Type', 'Product', 'Area', 'Priority', 'Title', 'Description',
           'Company', 'Requester name', 'Requester email', 'Source URL']
     .every((f) => L.includes(f))
 })(), labels().join(', '))
+
+// ---------- staff-only fields ----------
+check('dialog has a Source picker', labels().includes('Source'), labels().join(', '))
+check('dialog has Labels', labels().includes('Labels'), labels().join(', '))
+check('dialog has a Submitted date', labels().includes('Submitted'), labels().join(', '))
+check('Submitted defaults to now',
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(valueOf('Submitted') ?? ''), String(valueOf('Submitted')))
+check('the attachment rule is spelled out',
+  dialogText().includes("attach the customer's own request"), dialogText().slice(-400))
+
+// ---------- company is picked, never typed ----------
+const selectOptions = async (label) => {
+  const lab = [...D.querySelectorAll('.MuiFormLabel-root')]
+    .find((l) => l.textContent.replace(/\s*\*$/, '').trim() === label)
+  const box = D.getElementById(lab.id.replace(/-label$/, ''))
+  await act(async () => {
+    box.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }))
+    box.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 20))
+  })
+  const opts = [...D.querySelectorAll('[role="option"]')].map((o) => o.textContent.trim())
+  await act(async () => {
+    D.querySelector('.MuiBackdrop-root')?.dispatchEvent(
+      new dom.window.MouseEvent('click', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 20))
+  })
+  return opts
+}
+const sourceOptions = () => selectOptions('Source')
+
+check('Company is a picker, not a free text box', (() => {
+  const lab = [...D.querySelectorAll('.MuiFormLabel-root')]
+    .find((l) => l.textContent.replace(/\s*\*$/, '').trim() === 'Company')
+  return D.getElementById(lab.id.replace(/-label$/, ''))?.getAttribute('role') === 'combobox'
+})())
+const companies = await selectOptions('Company')
+check('Company lists the configured companies',
+  companies.includes("Wilbert's U-Pull-It") && companies.includes('Acme'), companies.join(', '))
+check('an inactive company is not offered',
+  !companies.includes('Former Customer'), companies.join(', '))
+
+const opts = await sourceOptions()
+check('Source offers the configured channels', opts.includes('Email') && opts.includes('Call'),
+  opts.join(', '))
+check('Source never offers Form — the database stamps that', !opts.includes('Form'), opts.join(', '))
 check('dialog also pre-selects the first priority',
   (() => {
     const lab = [...D.querySelectorAll('.MuiFormLabel-root')]
@@ -126,17 +171,34 @@ const setVal = (label, v) => {
   Object.getOwnPropertyDescriptor(proto, 'value').set.call(input, v)
   input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
 }
+const submitForm = async () => {
+  await act(async () => {
+    D.querySelector('form').dispatchEvent(
+      new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+    await new Promise((r) => setTimeout(r, 40))
+  })
+}
 await act(async () => {
   setVal('Title', 'Customer emailed about billing')
   setVal('Requester name', 'Jane')
   setVal('Requester email', 'jane@acme.com')
   setVal('Source URL', 'https://mail.google.com/thread/123')
 })
+
+// The evidence rule is the point of the internal form: no attachment, no ticket.
+await submitForm()
+check('no attachment means no ticket',
+  !captured.inserts.some((i) => i.table === 'issues'), JSON.stringify(captured.inserts))
+check('and it says why', dialogText().includes("original request"), dialogText().slice(-300))
+
+// Attach the customer's email, then submit for real.
+const fileInput = D.querySelector('input[type="file"]')
+const file = new dom.window.File(['from: jane'], 'jane-email.png', { type: 'image/png' })
+Object.defineProperty(fileInput, 'files', { value: [file], configurable: true })
 await act(async () => {
-  D.querySelector('form').dispatchEvent(
-    new dom.window.Event('submit', { bubbles: true, cancelable: true }))
-  await new Promise((r) => setTimeout(r, 40))
+  fileInput.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
 })
+await submitForm()
 const issue = captured.inserts.find((i) => i.table === 'issues')?.row
 check('dialog creates an issue', Boolean(issue), JSON.stringify(captured.inserts))
 check('dialog carries the typed title',
@@ -145,6 +207,12 @@ check('dialog carries the requester, not the staff member',
   issue?.requester_email === 'jane@acme.com', JSON.stringify(issue))
 check('dialog carries a manually entered source URL',
   issue?.source_url === 'https://mail.google.com/thread/123', JSON.stringify(issue))
+check('dialog carries the attachment',
+  captured.uploads.some((u) => u.bucket === 'attachments'), JSON.stringify(captured.uploads))
+check('a staff ticket carries a submitted date it was given',
+  typeof issue?.submitted_date === 'string', JSON.stringify(issue?.submitted_date))
+check('a staff ticket sends labels', Array.isArray(issue?.labels), JSON.stringify(issue))
+check('a staff ticket never claims Form', issue?.source !== 'Form', JSON.stringify(issue?.source))
 check('onCreated fires so the list can refresh', createdId !== null)
 check('confirmation replaces the form', (D.querySelector('[role="dialog"]')?.textContent ?? '')
   .includes('Ticket created'))

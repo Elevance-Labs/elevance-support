@@ -62,7 +62,7 @@ export default function CreateIssueDialog({ open, onClose, onCreated }) {
               them, not to you.
             </Alert>
             <IssueForm
-              submitLabel="Create issue" projectId={target}
+              staff submitLabel="Create issue" projectId={target}
               onSubmitted={handleSubmitted}
             >
               <TextField
