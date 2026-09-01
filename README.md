@@ -648,4 +648,15 @@ again by the storage bucket.
 - **Deleting a configuration item** doesn't rewrite issues already using it — they
   keep the value. Toggle *Active* off instead to retire an option gracefully.
 - `public/_redirects` (Netlify) and `vercel.json` are included so deep links like
-  `/embed/ACME/form` and `/i/ACME/42` resolve on static hosting.
+  `/embed/ACME/form` and `/i/ACME/42` resolve on static hosting. GitHub Pages has
+  no rewrite rules, so `.github/workflows/pages.yml` copies `index.html` to
+  `404.html` instead — the same trick by another door.
+- **GitHub Pages** builds from that workflow on every push to `main`. A project
+  site is served from `/<repo>/`, so the workflow passes `VITE_BASE`, which sets
+  Vite's base, the router's `basename` and the prefix on embed and share links.
+  Drop `VITE_BASE` if you move to a custom domain or an `<org>.github.io` repo,
+  which are served from the root. Build-time config comes from repository
+  *variables* (Settings -> Secrets and variables -> Actions -> Variables), not
+  secrets: everything `VITE_*` is compiled into the bundle and public anyway.
+  Whatever the URL ends up being, add it to Supabase's Site URL / redirect list
+  and set the `notify-issue` function's `APP_BASE_URL` to match, sub-path included.

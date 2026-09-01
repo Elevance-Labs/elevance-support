@@ -166,7 +166,12 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - Tests are **behavioural**: permissions, SLA maths, report aggregation,
   project scoping, form rendering. Add to them when changing a rule.
 - Env: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, optional
-  `VITE_JIRA_BASE_URL`. See `.env.example`.
+  `VITE_JIRA_BASE_URL`. See `.env.example`. Build-time `VITE_BASE` sets the URL
+  prefix when the app is not served from the root (GitHub Pages project site);
+  it feeds Vite's `base`, the router `basename` and `appOrigin()`.
+- Deploys: Vercel/Netlify from `dist/` (rewrites in `vercel.json` /
+  `public/_redirects`), or GitHub Pages via `.github/workflows/pages.yml`
+  (no rewrites there — `404.html` is the SPA fallback).
 - Schema changes go in a **new numbered, idempotent migration** — never by
   editing `schema.sql` alone.
 

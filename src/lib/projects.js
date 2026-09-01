@@ -48,10 +48,20 @@ export function issueRef(project, issue) {
   return project?.key ? `${project.key}-${n}` : `#${n}`
 }
 
+/**
+ * Where this deployment lives, as a URL prefix the paths below hang off.
+ *
+ * Usually just the origin, but a GitHub Pages project site is served from
+ * /<repo>/, and a public link that drops that segment is a dead link — so the
+ * build's base path is part of the address, not decoration.
+ */
+export const appOrigin = () =>
+  window.location.origin + (import.meta.env?.BASE_URL ?? '/').replace(/\/$/, '')
+
 /** Where a project's embeddable intake form lives. */
 export const embedFormPath = (key) => `/embed/${key}/form`
 
-export const embedFormUrl = (key, origin = window.location.origin) =>
+export const embedFormUrl = (key, origin = appOrigin()) =>
   key ? `${origin}${embedFormPath(key)}` : null
 
 /**
@@ -65,7 +75,7 @@ export const embedFormUrl = (key, origin = window.location.origin) =>
  */
 export const publicIssuePath = (key, number) => `/i/${key}/${number}`
 
-export function publicIssueUrl(key, number, origin = window.location.origin) {
+export function publicIssueUrl(key, number, origin = appOrigin()) {
   return key && number != null ? `${origin}${publicIssuePath(key, number)}` : null
 }
 

@@ -42,7 +42,9 @@ export default function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <BrowserRouter>
+      {/* basename follows Vite's base, so a GitHub Pages project site served
+          from /<repo>/ routes the same as a root deployment. */}
+      <BrowserRouter basename={import.meta.env.BASE_URL}>
         <AuthProvider>
           <Routes>
             {/* Public, embeddable intake form — no auth, no chrome. One per
