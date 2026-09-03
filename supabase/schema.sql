@@ -811,9 +811,13 @@ create policy views_manage on public.views for all to authenticated
 -- ============================================================
 -- Storage bucket for attachments
 -- ============================================================
+-- One limit for the whole bucket, so it is the largest thing allowed through it
+-- (30MB, for a screen recording). The per-type rule — 10MB for an image or PDF,
+-- 30MB only for video — is enforced by the form.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('attachments', 'attachments', false, 10485760,
-        array['image/png','image/jpeg','image/gif','image/webp','application/pdf'])
+values ('attachments', 'attachments', false, 31457280,
+        array['image/png','image/jpeg','image/gif','image/webp','application/pdf',
+              'video/mp4','video/webm','video/quicktime'])
 on conflict (id) do update
   set file_size_limit = excluded.file_size_limit,
       allowed_mime_types = excluded.allowed_mime_types;

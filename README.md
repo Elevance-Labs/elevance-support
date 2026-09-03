@@ -631,8 +631,13 @@ other submission fields. Omit it and the field is pre-filled with the embedding
 page's URL but stays visible — an auto-detected guess is not the same as
 something you asserted, so the requester can see and correct it.
 
-Attachments: PDF or image, up to 5 files, 10MB each — enforced in the browser and
-again by the storage bucket.
+Attachments: PDF, image or video, up to 5 files. An image or PDF may be 10MB, a
+video 30MB — the browser applies the per-type limit, the storage bucket enforces
+the 30MB outer bound and the list of accepted types.
+
+A screenshot can also be **pasted straight into the Description** box: the image
+becomes an attachment (named `pasted-…`) instead of being dropped, while pasting
+ordinary text behaves as it always did. Videos are picked with the button.
 
 ## Notes
 

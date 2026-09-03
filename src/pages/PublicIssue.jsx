@@ -6,6 +6,7 @@ import {
 } from '@mui/material'
 import DescriptionIcon from '@mui/icons-material/Description'
 import ImageIcon from '@mui/icons-material/Image'
+import MovieIcon from '@mui/icons-material/Movie'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -146,7 +147,7 @@ export default function PublicIssue() {
                 <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
                   {attachments.map((a) => (
                     <Chip key={a.id} variant="outlined" label={a.file_name}
-                      icon={a.mime_type === 'application/pdf' ? <DescriptionIcon /> : <ImageIcon />}
+                      icon={attachmentIcon(a.mime_type)}
                       component={a.url ? 'a' : 'div'} href={a.url ?? undefined}
                       target="_blank" rel="noopener"
                       clickable={Boolean(a.url)} disabled={!a.url} />
@@ -195,4 +196,12 @@ export default function PublicIssue() {
       </Container>
     </Box>
   )
+}
+
+// A PDF, a screen recording and a screenshot are three different things to open,
+// so the chip says which before it is clicked.
+function attachmentIcon(mime) {
+  if (mime === 'application/pdf') return <DescriptionIcon />
+  if (mime?.startsWith('video/')) return <MovieIcon />
+  return <ImageIcon />
 }

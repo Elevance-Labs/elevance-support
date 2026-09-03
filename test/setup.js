@@ -21,6 +21,8 @@ export function setupDom(url = 'http://localhost/') {
     'HTMLDivElement', 'HTMLButtonElement', 'DOMParser', 'CustomEvent',
     // MUI's Avatar preloads its src with `new Image()` before showing a photo.
     'Image', 'HTMLImageElement',
+    // Attachments: pasted screenshots and picked files.
+    'File', 'Blob', 'FileList', 'DataTransfer',
   ]) {
     if (w[name] !== undefined) global[name] = w[name]
   }

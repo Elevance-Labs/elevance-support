@@ -11,8 +11,19 @@ import { toInputDateTime } from '../lib/format'
 import { activeCompanies, findCompany } from '../lib/companies'
 
 const MAX_FILES = 5
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+const DOC_TYPES = ['application/pdf']
+// A screen recording is often the clearest bug report there is, so video is
+// worth the extra room — but only the containers a browser can play back.
+const VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime']
+const ACCEPT = [...IMAGE_TYPES, ...DOC_TYPES, ...VIDEO_TYPES]
+
 const MAX_BYTES = 10 * 1024 * 1024
-const ACCEPT = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf']
+const MAX_VIDEO_BYTES = 30 * 1024 * 1024
+// The storage bucket allows the larger of the two; the per-type limit is here,
+// so a 30MB screenshot is still refused.
+const limitFor = (type) => (VIDEO_TYPES.includes(type) ? MAX_VIDEO_BYTES : MAX_BYTES)
+const asMb = (bytes) => Math.round(bytes / (1024 * 1024))
 
 export const EMPTY_ISSUE = {
   type: '', product: '', area: '', priority: '', title: '', description: '',
@@ -94,18 +105,50 @@ export default function IssueForm({
   const isHidden = (field) => field in hidden
   const set = (field) => (e) => setValues((v) => ({ ...v, [field]: e.target.value }))
 
-  const addFiles = (e) => {
+  // The one gate every attachment goes through, whatever brought it here: the
+  // file picker, or a screenshot pasted into the description.
+  const acceptFiles = (picked) => {
     setError('')
-    const picked = Array.from(e.target.files ?? [])
     const next = [...files]
     for (const f of picked) {
       if (next.length >= MAX_FILES) { setError(`You can attach at most ${MAX_FILES} files.`); break }
-      if (!ACCEPT.includes(f.type)) { setError(`${f.name} is not a PDF or image.`); continue }
-      if (f.size > MAX_BYTES) { setError(`${f.name} is larger than 10MB.`); continue }
+      if (!ACCEPT.includes(f.type)) { setError(`${f.name} is not a PDF, image or video.`); continue }
+      if (f.size > limitFor(f.type)) {
+        setError(`${f.name} is larger than ${asMb(limitFor(f.type))}MB.`); continue
+      }
       next.push(f)
     }
     setFiles(next)
+  }
+
+  const addFiles = (e) => {
+    acceptFiles(Array.from(e.target.files ?? []))
     e.target.value = ''   // allow re-picking the same file
+  }
+
+  // A pasted screenshot arrives as a file the clipboard names `image.png` — the
+  // same name every time — so it is renamed to keep five of them apart.
+  const pastedName = (file) => {
+    // Milliseconds included: two screenshots pasted a second apart must not
+    // land on the same name.
+    const stamp = new Date().toISOString().replace(/[-:.]/g, '').replace('Z', '')
+    const ext = file.name?.match(/\.[a-z0-9]+$/i)?.[0]
+      ?? `.${(file.type.split('/')[1] ?? 'png')}`
+    return `pasted-${stamp}${ext}`
+  }
+
+  // Pasting into the description: a screenshot becomes an attachment, ordinary
+  // text is left alone for the browser to paste as usual.
+  const pasteFiles = (e) => {
+    const picked = Array.from(e.clipboardData?.items ?? [])
+      .filter((i) => i.kind === 'file')
+      .map((i) => i.getAsFile())
+      .filter(Boolean)
+    if (picked.length === 0) return
+    e.preventDefault()
+    acceptFiles(picked.map((f) => (
+      f.type.startsWith('image/') ? new File([f], pastedName(f), { type: f.type }) : f
+    )))
   }
 
   const submit = async (e) => {
@@ -241,7 +284,12 @@ export default function IssueForm({
 
         <Section title="Issue details">
           {textField({ field: 'title', label: 'Title', required: true })}
-          {textField({ field: 'description', label: 'Description', multiline: true, minRows: 4, required: true })}
+          {textField({
+            field: 'description', label: 'Description',
+            multiline: true, minRows: 4, required: true,
+            onPaste: pasteFiles,
+            helperText: 'Paste a screenshot here and it is attached to the request.',
+          })}
 
           {staff && (
             <Autocomplete
@@ -262,7 +310,8 @@ export default function IssueForm({
               {staff ? 'Attach the original request' : 'Attach files'}
             </Button>
             <Typography variant="caption" color="text.secondary" sx={{ ml: 1.5 }}>
-              PDF or images · up to {MAX_FILES} files · 10MB each
+              PDF, images or video · up to {MAX_FILES} files ·
+              {' '}{asMb(MAX_BYTES)}MB each, {asMb(MAX_VIDEO_BYTES)}MB for video
             </Typography>
             {staff && (
               <Typography
