@@ -22,7 +22,7 @@ import Tag from '../components/Tag'
 import IssueDetail from '../components/IssueDetail'
 import { UserChip } from '../components/UserAvatar'
 import { byDisplayName, displayName } from '../lib/users'
-import { slaStatus, slaBand, statusColor } from '../lib/sla'
+import { slaStatus, slaBand, statusColor, slaHoursBySeverity } from '../lib/sla'
 import { useProject } from '../context/ProjectContext'
 import ProjectFilter, { NoProject } from '../components/ProjectFilter'
 import { issueRef } from '../lib/projects'
@@ -38,8 +38,8 @@ const RESOLVED_WINDOWS = [
 ]
 
 const EMPTY_FILTERS = {
-  search: '', status: '', type: '', priority: '', assignee_id: '', product: '',
-  company: '', resolvedWithin: '7',
+  search: '', status: '', type: '', priority: '', severity: '', assignee_id: '',
+  product: '', company: '', resolvedWithin: '7',
 }
 
 export default function Issues() {
@@ -120,11 +120,9 @@ export default function Issues() {
   // `signal` bumps when an issue is created from the header.
   useEffect(() => { load(); loadViews() }, [load, loadViews, signal])
 
-  // SLA target comes from the ticket's type; the clock stops at a closed status.
-  const slaHoursByType = useMemo(
-    () => Object.fromEntries((lists.type ?? []).map((t) => [t.name, t.sla_hours])),
-    [lists.type],
-  )
+  // SLA target comes from the ticket's severity; the clock stops at a closed
+  // status. An untriaged ticket has no target yet, and reads as "—".
+  const slaHours = useMemo(() => slaHoursBySeverity(lists.severity ?? []), [lists.severity])
   const statusTypeByName = useMemo(
     () => Object.fromEntries((lists.status ?? []).map((s) => [s.name, s.status_type])),
     [lists.status],
@@ -133,10 +131,10 @@ export default function Issues() {
     submittedAt: issue.submitted_date,
     closedAt: issue.closed_at,
     statusType: statusTypeByName[issue.status] ?? null,
-    slaHours: slaHoursByType[issue.type] ?? null,
+    slaHours: slaHours[issue.severity] ?? null,
     pausedMs: issue.paused_ms,
     pausedSince: issue.paused_since,
-  }), [statusTypeByName, slaHoursByType])
+  }), [statusTypeByName, slaHours])
 
   const userById = useMemo(
     () => Object.fromEntries(users.map((u) => [u.id, u])),
@@ -165,6 +163,7 @@ export default function Issues() {
       if (filters.status && r.status !== filters.status) return false
       if (filters.type && r.type !== filters.type) return false
       if (filters.priority && r.priority !== filters.priority) return false
+      if (filters.severity && r.severity !== filters.severity) return false
       if (filters.product && r.product !== filters.product) return false
       if (filters.company && r.company !== filters.company) return false
       if (filters.assignee_id) {
@@ -236,6 +235,14 @@ export default function Issues() {
     {
       field: 'priority', headerName: 'Priority', width: 110,
       renderCell: (p) => <Tag value={p.value} color={colorOf('priority', p.value)} />,
+    },
+    {
+      // Name only in the grid — the behaviour behind it is a sentence, and
+      // belongs where a severity is chosen rather than in every row.
+      field: 'severity', headerName: 'Severity', width: 120,
+      renderCell: (p) => (p.value
+        ? <Tag value={p.value} color={colorOf('severity', p.value)} />
+        : <Typography variant="caption" color="text.disabled">Not triaged</Typography>),
     },
     {
       field: 'status', headerName: 'Status', width: 130,
@@ -311,6 +318,7 @@ export default function Issues() {
           <Filter label="Status"   value={filters.status}   onChange={set('status')}   options={lists.status} />
           <Filter label="Type"     value={filters.type}     onChange={set('type')}     options={lists.type} />
           <Filter label="Priority" value={filters.priority} onChange={set('priority')} options={lists.priority} />
+          <Filter label="Severity" value={filters.severity} onChange={set('severity')} options={lists.severity} />
           <Filter label="Product"  value={filters.product}  onChange={set('product')}  options={lists.product} />
           {/* Options include companies already on a ticket, so a value typed
               before the list existed can still be filtered for. */}

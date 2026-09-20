@@ -7,10 +7,10 @@ import { supabase } from '../lib/supabase'
 import { useConfig } from '../context/ConfigContext'
 import { useRefreshSignal } from '../context/RefreshContext'
 import { formatDuration, formatDate } from '../lib/format'
-import { slaBand } from '../lib/sla'
+import { slaBand, slaHoursBySeverity } from '../lib/sla'
 import {
   RANGES, UNSET, ageing, bucketUnit, countBy, decorate, inRange, needsAttention,
-  openBySlaBand, rangeStart, slaByType, summarise, volumeSeries,
+  openBySlaBand, rangeStart, slaBySeverity, summarise, volumeSeries,
 } from '../lib/reports'
 import IssueDetail from '../components/IssueDetail'
 import ChartCard, { NoData } from '../components/charts/ChartCard'
@@ -60,15 +60,12 @@ export default function Report() {
 
   useEffect(() => { load() }, [load, signal])
 
-  // The two joins every report needs: a status' type, and a request type's SLA target.
+  // The two joins every report needs: a status' type, and a severity's SLA target.
   const statusTypeByName = useMemo(
     () => Object.fromEntries((lists.status ?? []).map((s) => [s.name, s.status_type])),
     [lists.status],
   )
-  const slaHoursByType = useMemo(
-    () => Object.fromEntries((lists.type ?? []).map((t) => [t.name, t.sla_hours])),
-    [lists.type],
-  )
+  const slaHours = useMemo(() => slaHoursBySeverity(lists.severity ?? []), [lists.severity])
 
   const from = useMemo(
     () => rangeStart(RANGES.find((r) => r.key === range)?.days ?? null, now),
@@ -77,10 +74,10 @@ export default function Report() {
 
   // Every number on the page comes off these rows, so nothing can disagree.
   const rows = useMemo(() => {
-    const decorated = decorate(issues, { statusTypeByName, slaHoursByType, now })
+    const decorated = decorate(issues, { statusTypeByName, slaHoursBySeverity: slaHours, now })
     return inRange(decorated, from)
       .filter((r) => (!type || r.type === type) && (!product || r.product === product))
-  }, [issues, statusTypeByName, slaHoursByType, now, from, type, product])
+  }, [issues, statusTypeByName, slaHours, now, from, type, product])
 
   const stats = useMemo(() => summarise(rows), [rows])
   const open = useMemo(() => rows.filter((r) => !r.isClosed), [rows])
@@ -129,7 +126,7 @@ export default function Report() {
     [rows],
   )
 
-  const typeTable = useMemo(() => slaByType(rows), [rows])
+  const severityTable = useMemo(() => slaBySeverity(rows), [rows])
   const attention = useMemo(() => needsAttention(rows), [rows])
 
   const empty = !loading && rows.length === 0
@@ -246,16 +243,17 @@ export default function Report() {
 
       <Paper sx={{ p: 2 }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
-          SLA performance by request type
+          SLA performance by severity
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          Met % counts every ticket of that type against its target — open ones included,
-          since a ticket can breach before it is closed.
+          The target is set by the severity, so each row is one promise. Met % counts
+          every ticket at that severity against it — open ones included, since a ticket
+          can breach before it is closed. Untriaged tickets have no target yet.
         </Typography>
         <Table size="small" sx={{ mt: 1.5 }}>
           <TableHead>
             <TableRow>
-              <TableCell>Type</TableCell>
+              <TableCell>Severity</TableCell>
               <TableCell align="right">Target</TableCell>
               <TableCell align="right">Tickets</TableCell>
               <TableCell align="right">Open</TableCell>
@@ -266,7 +264,7 @@ export default function Report() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {typeTable.map((t) => (
+            {severityTable.map((t) => (
               <TableRow key={t.name} hover>
                 <TableCell>{t.name}</TableCell>
                 <TableCell align="right">
@@ -284,7 +282,7 @@ export default function Report() {
                 </TableCell>
               </TableRow>
             ))}
-            {!typeTable.length && (
+            {!severityTable.length && (
               <TableRow>
                 <TableCell colSpan={8}>
                   <Typography variant="body2" color="text.disabled">Nothing to report</Typography>

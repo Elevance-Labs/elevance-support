@@ -56,6 +56,10 @@ let L = labels(el)
 check('blank: shows all 10 fields', L.length === 10, `got ${L.length}: ${L.join(', ')}`)
 check('blank: has Type', L.includes('Type'))
 check('blank: has Company', L.includes('Company'))
+// Severity is the team's own judgement of a request, not the requester's, and
+// the database drops one sent by an anonymous submission — so the public form
+// never asks for it.
+check('blank: has NO Severity', !L.includes('Severity'), L.join(', '))
 
 // 2. Only submission fields hide when prefilled; request fields stay visible
 el = await render('/embed/ACME/form?type=Bug&company=Acme&email=a%40b.com&product=Mobile%20App')

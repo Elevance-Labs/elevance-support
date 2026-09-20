@@ -71,7 +71,7 @@ check('shows the project name before the identifier, on a centre dot',
 
 // three columns
 const grid = dom.window.document.querySelector('[class*="MuiDialog"] .MuiBox-root')
-check('left column: controls', body().includes('Controls'))
+check('left column: details', body().includes('Details'))
 check('left column: submission details', body().includes('Submission') && body().includes('Acme'))
 check('notes are gone from the ticket', !body().includes('Reproduced on staging.'))
 check('centre: assignee and status side by side', (() => {
@@ -136,12 +136,13 @@ check('reached statuses are all shown', (() => {
   return ['New', 'Triaged', 'In Progress'].every((n) => tl.textContent.includes(n))
 })())
 
-// left column order: Submission, then Request, then Controls
-check('left column ordered Submission -> Request -> Controls', (() => {
+// left column order: Submission (how it arrived), then Request (what was
+// asked, frozen), then Details (what the team makes of it).
+check('left column ordered Submission -> Request -> Details', (() => {
   const t = body()
-  const sub = t.indexOf('Submission'), req = t.indexOf('Request'), ctl = t.indexOf('Controls')
-  return sub > -1 && req > sub && ctl > req
-})(), `submission=${body().indexOf('Submission')} request=${body().indexOf('Request')} controls=${body().indexOf('Controls')}`)
+  const sub = t.indexOf('Submission'), req = t.indexOf('Request'), det = t.indexOf('Details')
+  return sub > -1 && req > sub && det > req
+})(), `submission=${body().indexOf('Submission')} request=${body().indexOf('Request')} details=${body().indexOf('Details')}`)
 
 // comments list sits above the composer
 check('comments appear above the comment box', (() => {

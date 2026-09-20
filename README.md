@@ -14,7 +14,7 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | **Report** | Volume, breakdowns and SLA performance for the selected range. |
 | **Projects** | Admin-only CRUD over projects, their keys and their members. |
 | **Users** | Admin-only CRUD over who can sign in and be assigned work. |
-| **Configuration** | Admin-only CRUD over the lists that drive every dropdown — types, products, areas, priorities, statuses, labels and sources. |
+| **Configuration** | Admin-only CRUD over the lists that drive every dropdown — types, products, areas, priorities, severities, statuses, labels and sources. |
 | **Profile** | Your own account — reached from the avatar in the header. Shows your name, email and role; lets you change your photo and your password. |
 
 ## Roles
@@ -22,6 +22,8 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | | Member | Manager | Admin |
 |---|:--:|:--:|:--:|
 | Work tickets on Issues and Board | ✅ | ✅ | ✅ |
+| Assign a ticket's severity | ✅ | ✅ | ✅ |
+| Re-file a ticket (product, area) | ✅ | ✅ | ✅ |
 | Comment (edit/delete own for 5 min) | ✅ | ✅ | ✅ |
 | Load saved views | ✅ | ✅ | ✅ |
 | Create / rename / delete views | — | ✅ | ✅ |
@@ -134,8 +136,14 @@ The header reads **project name · ticket identifier** — `Acme Support · ACME
 
 Opening a ticket gives a three-column view:
 
-- **Left** — the read-only submission details, then the request fields
-  (type, product, area), then the remaining controls (priority, labels, Jira).
+- **Left** — three blocks, in the order a ticket is read.
+  **Submission** is how it reached us: company, requester, channel, when.
+  **Request** is the customer's own account of the problem — **type** and
+  **priority** exactly as submitted and not editable at all — followed by
+  **severity**, the one judgement the team adds to it.
+  **Details** is everything the team decides for itself and may keep changing:
+  **product**, **area**, **labels** and **Jira**. Product and area say
+  *"Submitted as …"* underneath once they no longer match what arrived.
   The **Jira** field takes a pasted Jira link as happily as a typed key: whatever
   you paste is reduced to the ticket key (`ENG-1234`) when you leave the field
   and again when you save, so the "Open in Jira" link is always well formed.
@@ -161,6 +169,43 @@ see [Share links](#share-links) below.
 New tickets automatically start at the first status in sort order, and every
 status change is recorded by a database trigger — so tickets submitted through
 the public form get a timeline too.
+
+## Severity
+
+**Priority is how the requester ranks it. Severity is how *we* read it** — what
+the problem costs the customer, and what the team therefore commits to. So a
+severity is not just a label: each one carries a **behaviour**, one sentence
+saying what picking it means, and the **SLA target** that sentence is worth in
+hours. Picking a severity is therefore the moment the ticket acquires a deadline
+— see [SLAs](#statuses-status-types-and-slas) below.
+
+| | Where it shows |
+|---|---|
+| Name + behaviour | in the severity dropdown, wherever one is chosen |
+| Name only | on the ticket, on the Issues grid, on board cards |
+
+The behaviour is read at the moment the promise is made; afterwards the name is
+the answer and the sentence would only be noise. Severities are managed on
+**Configuration → Severities** — name, behaviour and SLA target together, which
+is the point: the sentence and the number say the same thing to two different
+readers. The database refuses a severity with no behaviour, because one without
+it is just a second priority list, and it refuses an SLA target on anything that
+is not a severity.
+
+**Only an internal user assigns a severity.** That means anyone signed in,
+whatever their role — severity is what unlocks starting work, and members are
+who start work. The public embed form neither shows nor sends one: an anonymous
+submission has whatever it claims dropped by a trigger, and severity is not in
+the `public-issue` allow-list, so it never reaches a customer-facing page
+either.
+
+**A ticket cannot be started or paused until it has one.** Moving to a status of
+type **In Progress** or **Paused** is refused while severity is empty — the
+dropdown doesn't offer those statuses, a board card says "Not triaged", and the
+database raises if the update arrives anyway. **Closed is deliberately not
+gated**: a request can always be answered or rejected outright without being
+triaged first. Tickets that predate the rule keep a blank severity and are left
+alone until someone tries to move them.
 
 ## Statuses, status types and SLAs
 
@@ -199,9 +244,14 @@ In Progress → Closed is fine, but In Progress → New and Closed → anything 
 rejected. Paused sits outside that ladder and is always available. The status dropdown only offers legal moves, and the rule is enforced
 again by a database trigger so it holds however the update arrives.
 
-**SLA targets are set per request type** (Configuration → Types), in hours. The
-clock starts when the ticket is submitted and **stops the moment the ticket
-reaches a status of type Closed** — `issues.closed_at` is stamped by a trigger.
+**SLA targets are set per severity** (Configuration → Severities), in hours —
+the commitment belongs to what the ticket costs the customer, not to what kind
+of request it is. The clock starts when the ticket is **submitted** and **stops
+the moment the ticket reaches a status of type Closed** — `issues.closed_at` is
+stamped by a trigger. Triage does not restart it: an untriaged ticket is already
+counting, against no target, and the moment a severity is assigned that target
+applies to the whole elapsed time. Being slow to triage therefore costs exactly
+what it costs.
 
 | Band | Consumed | Colour |
 |---|---|---|
@@ -209,7 +259,7 @@ reaches a status of type Closed** — `issues.closed_at` is stamped by a trigger
 | Watch | 40% – 70% | 🟡 yellow |
 | At risk | 70% – 100% | 🟠 orange |
 | SLA breached | over 100% | 🔴 red |
-| No SLA | — | the ticket's type has no target set |
+| No SLA | — | the ticket is untriaged, or its severity has no target set |
 
 Boundaries sit at the start of each band: exactly 40% is yellow, exactly 70% is
 orange. Only going *past* the target counts as a breach, so a ticket sitting at
@@ -227,9 +277,35 @@ defaults to the last 7 days and can be widened to 30 days, 60 days or all time.
 Either way only *closed* tickets are affected — open work always shows, and a
 closed ticket with no recorded resolution time is never hidden.
 
-**Request fields** (type, product, area) can only be changed by an **admin or
-manager**, and only while the ticket is still in a **New** status. After that
-they're locked, with a padlock explaining why. Enforced by trigger as well.
+**What a ticket arrived as is kept separately from what it is worked as.** At
+insert a trigger stamps `submitted_type`, `submitted_product`, `submitted_area`
+and `submitted_priority` from whatever the request carried, and nothing ever
+writes them again — not even an admin.
+
+From there:
+
+- **Type and priority cannot be changed at all.** They are the request's own
+  account of itself; the team records its own reading in severity, product and
+  area instead. The ticket shows them with a padlock.
+- **Product and area can be changed by anyone signed in, at any point** in the
+  ticket's life — filing is a judgement that improves as the ticket is
+  understood, and the snapshot above is what makes correcting it safe.
+
+Every one of those rules is a trigger, not just a disabled field. Tickets
+created before the snapshot existed carry null `submitted_*` values: that means
+*unknown*, not *unchanged*, and reports must leave them out rather than count
+them as never re-filed.
+
+**A ticket sitting in a New status is offered no New status to move to.** The
+status dropdown withholds them, so opening a New ticket and saving it as New
+takes deliberate effort: the choices on the table are to triage it and start, to
+park it, or to answer it outright. The database still permits New → New — a
+ticket has to be able to wait in the queue — so this is a nudge where the
+decision is being made, not a rule.
+
+**An untriaged ticket cannot move into In Progress or Paused** at all — see
+[Severity](#severity) above. That rule sits on top of the ladder rather than
+replacing it: assigning a severity never unlocks a move backwards.
 
 ## Reports
 
@@ -241,7 +317,8 @@ table can never disagree.
 
 - **Tiles** — submitted, still open, closed, median time to close, and the
   percentage that met SLA. The SLA figure is measured **only over tickets whose
-  type has a target**; counting untargeted tickets as met would flatter it.
+  severity has a target**; counting untriaged or untargeted tickets as met would
+  flatter it.
 - **Volume over time** — submitted against closed, bucketed by day, week or
   month depending on how long the range is. Quiet buckets are drawn as zero
   rather than skipped.
@@ -251,8 +328,11 @@ table can never disagree.
 - **Age of open tickets** — how long the open queue has been waiting, in bands.
 - **Priority mix** and **SLA position of open tickets** — one bar each, split
   into its parts, with the counts spelled out in the legend.
-- **SLA performance by request type** — target, volume, breaches, met % and
-  median time to close, per type.
+- **SLA performance by severity** — target, volume, breaches, met % and median
+  time to close, per severity. Grouped by severity because that is where the
+  target lives, so every ticket in a row was committed to the same thing and the
+  met % is a statement about one promise. Untriaged tickets get a row of their
+  own, with no target and no percentage.
 - **Closest to breaching** — the open tickets that have used the most of their
   target. Click a row to open the ticket.
 
@@ -475,12 +555,13 @@ nothing hidden. Fill in the customer's own details: the ticket is attributed to
 them, not to whoever logged it. The Issues list and Board reload automatically
 once it's created.
 
-Because you are logging somebody else's request, the internal form asks for four
+Because you are logging somebody else's request, the internal form asks for five
 things the public form doesn't:
 
 | Field | Why |
 |---|---|
 | **Source** | Which channel it arrived through — Email, IM, SMS, Call, Internal. Editable under Configuration → Sources. |
+| **Severity** | The team's own reading of the request — see [Severity](#severity). Optional here, since triage can happen later, but the ticket can't be started without it. |
 | **Labels** | So a ticket can be triaged as it's logged, instead of re-opened to do it. |
 | **Submitted** | When the customer actually sent it, not when you got round to logging it. Defaults to now; a future date is refused. |
 | **An attachment** | **Required.** Attach the customer's own request — the email itself, or a screenshot of the email, chat or message. Without it the ticket is one person's account of what somebody else said. |

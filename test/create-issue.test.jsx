@@ -106,6 +106,8 @@ check('dialog shows the full form, nothing hidden', (() => {
 // ---------- staff-only fields ----------
 check('dialog has a Source picker', labels().includes('Source'), labels().join(', '))
 check('dialog has Labels', labels().includes('Labels'), labels().join(', '))
+// Severity is the team's own judgement, so it is on the internal dialog only.
+check('dialog has a Severity picker', labels().includes('Severity'), labels().join(', '))
 check('dialog has a Submitted date', labels().includes('Submitted'), labels().join(', '))
 check('Submitted defaults to now',
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(valueOf('Submitted') ?? ''), String(valueOf('Submitted')))
@@ -142,6 +144,15 @@ check('Company lists the configured companies',
   companies.includes("Wilbert's U-Pull-It") && companies.includes('Acme'), companies.join(', '))
 check('an inactive company is not offered',
   !companies.includes('Former Customer'), companies.join(', '))
+
+const severities = await selectOptions('Severity')
+check('Severity offers the configured severities',
+  severities.some((o) => o.startsWith('Critical')), severities.join(' | '))
+// The name alone says nothing; the sentence beside it is what is being promised.
+check('each severity option carries its behaviour',
+  severities.some((o) => o.includes('Work starts immediately')), severities.join(' | '))
+check('an inactive severity is not offered',
+  !severities.some((o) => o.startsWith('Shelved')), severities.join(' | '))
 
 const opts = await sourceOptions()
 check('Source offers the configured channels', opts.includes('Email') && opts.includes('Call'),

@@ -22,6 +22,13 @@ export const RANGES = [
 /** Shown instead of an empty cell when a ticket never had the field set. */
 export const UNSET = 'Unspecified'
 
+/**
+ * How an untriaged ticket reads in a breakdown by severity. Its own word rather
+ * than UNSET: no severity is not a gap in the data, it is a ticket nobody has
+ * judged yet — and one that is running against no target while it waits.
+ */
+export const UNTRIAGED = 'Not triaged'
+
 /** The instant a range starts, or null for "all time". */
 export const rangeStart = (days, now = Date.now()) =>
   days == null ? null : dayjs(now).startOf('day').subtract(days - 1, 'day').valueOf()
@@ -30,10 +37,11 @@ export const rangeStart = (days, now = Date.now()) =>
  * Attach the status type and the SLA result to every ticket once.
  *
  * Both are joins the raw row can't do on its own: the status type lives on the
- * configured status list, the SLA target on the configured request type.
+ * configured status list, the SLA target on the configured severity — so an
+ * untriaged ticket is counted, and counted as having no target.
  */
 export function decorate(issues, {
-  statusTypeByName = {}, slaHoursByType = {}, now = Date.now(),
+  statusTypeByName = {}, slaHoursBySeverity = {}, now = Date.now(),
 } = {}) {
   return issues.map((issue) => {
     const statusType = statusTypeByName[issue.status] ?? null
@@ -47,7 +55,7 @@ export function decorate(issues, {
         submittedAt: issue.submitted_date,
         closedAt: issue.closed_at,
         statusType,
-        slaHours: slaHoursByType[issue.type] ?? null,
+        slaHours: slaHoursBySeverity[issue.severity] ?? null,
         // Paused time is excluded from the SLA, so reports must see it too or
         // their figures drift from the Issues list and Board.
         pausedMs: issue.paused_ms,
@@ -183,13 +191,17 @@ export function openBySlaBand(rows) {
 }
 
 /**
- * SLA performance per request type — the table behind the SLA charts.
- * `metPct` is null for a type with no target configured; it is not zero.
+ * SLA performance per severity — the table behind the SLA charts.
+ *
+ * Grouped by severity because that is where the target lives: every ticket in a
+ * row was committed to the same thing, so "met 80%" is a statement about one
+ * promise rather than an average of several. `metPct` is null for a severity
+ * with no target configured, and for the untriaged row; it is not zero.
  */
-export function slaByType(rows) {
+export function slaBySeverity(rows) {
   const groups = new Map()
   for (const r of rows) {
-    const name = r.type || UNSET
+    const name = r.severity || UNTRIAGED
     if (!groups.has(name)) groups.set(name, [])
     groups.get(name).push(r)
   }

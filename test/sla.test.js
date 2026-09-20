@@ -1,6 +1,6 @@
 import { reporter } from './setup.js'
 import {
-  canTransition, allowedStatuses, canEditRequestFields, slaStatus,
+  canTransition, allowedStatuses, slaHoursBySeverity, slaStatus,
   statusTypeOf, statusRank, bandFor, slaBand,
 } from '../src/lib/sla.js'
 import { duration, formatDuration } from '../src/lib/format.js'
@@ -35,8 +35,12 @@ check('unknown types do not lock a ticket', canTransition(null, 'new'))
 // ---------------- the allowed dropdown ----------------
 const names = (list) => list.map((s) => s.name)
 
+// A New ticket is offered everything except another New status: the dialog is
+// where somebody decides what happens to it, so "nothing" is not on the menu.
 const fromNew = names(allowedStatuses(STATUSES, 'New'))
-check('from New: every status offered', fromNew.length === 6, fromNew.join(', '))
+check('from New: no New-type status offered',
+  !fromNew.includes('New') && !fromNew.includes('Needs Info'), fromNew.join(', '))
+check('from New: everything forward is offered', fromNew.length === 4, fromNew.join(', '))
 
 const fromProgress = names(allowedStatuses(STATUSES, 'In Progress'))
 check('from In Progress: no New-type statuses',
@@ -54,15 +58,15 @@ const inactive = [...STATUSES, { id: '7', name: 'Retired', status_type: 'closed'
 check('inactive statuses are not offered',
   !names(allowedStatuses(inactive, 'New')).includes('Retired'))
 
-// ---------------- who may edit request fields ----------------
-const admin = { role: 'admin' }, manager = { role: 'manager' }, member = { role: 'member' }
-check('admin edits request fields in New',      canEditRequestFields(admin, STATUSES, 'New'))
-check('manager edits request fields in New',    canEditRequestFields(manager, STATUSES, 'New'))
-check('member cannot edit request fields',      !canEditRequestFields(member, STATUSES, 'New'))
-check('admin cannot edit once In Progress',     !canEditRequestFields(admin, STATUSES, 'In Progress'))
-check('admin cannot edit once Closed',          !canEditRequestFields(admin, STATUSES, 'Done'))
-check('editable in any New-type status',        canEditRequestFields(admin, STATUSES, 'Needs Info'))
-check('no profile means no edit',               !canEditRequestFields(null, STATUSES, 'New'))
+// ---------------- the SLA target now hangs off severity ----------------
+check('a severity maps to its target hours',
+  slaHoursBySeverity([{ name: 'Critical', sla_hours: 4 }]).Critical === 4)
+check('a severity with no target maps to null',
+  slaHoursBySeverity([{ name: 'Low', sla_hours: null }]).Low === null)
+check('an unknown severity has no target',
+  slaHoursBySeverity([{ name: 'Low', sla_hours: 8 }]).Critical === undefined)
+check('no severities configured is not a crash',
+  Object.keys(slaHoursBySeverity()).length === 0)
 
 // ---------------- SLA calculation ----------------
 const now = Date.now()

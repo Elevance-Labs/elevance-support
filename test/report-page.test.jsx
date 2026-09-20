@@ -30,8 +30,8 @@ await act(async () => { await new Promise((r) => setTimeout(r, 60)) })
 const body = () => el.textContent
 const svgs = () => el.querySelectorAll('svg')
 
-// The fixture is a single Bug submitted three days ago, still In Progress,
-// against an 8-hour target — so it is open and well past its SLA.
+// The fixture is a single Critical ticket submitted three days ago, still In
+// Progress. Critical carries an 8-hour target, so it is open and well past it.
 check('the page renders', body().includes('Report'))
 check('the tiles are drawn', ['Submitted', 'Still open', 'Closed', 'Median time to close', 'Met SLA']
   .every((label) => body().includes(label)))
@@ -48,8 +48,8 @@ check('the charts actually draw marks', svgs().length >= 5, `${svgs().length} sv
 // path data and silently draws nothing — cheap to assert, hard to spot by eye.
 check('no chart geometry came out NaN', !el.innerHTML.includes('NaN'))
 
-check('the per-type table is filled in', body().includes('SLA performance by request type'))
-check('the breach shows up in the type table', body().includes('0%'))
+check('the per-severity table is filled in', body().includes('SLA performance by severity'))
+check('the breach shows up in the severity table', body().includes('0%'))
 check('the attention table lists the open ticket',
   body().includes('Closest to breaching') && body().includes('ACME-42'))
 check('the breached ticket is labelled as such', body().includes('SLA breached'))

@@ -1,7 +1,7 @@
 import { reporter } from './setup.js'
 import {
-  RANGES, UNSET, ageing, bucketUnit, countBy, decorate, inRange, median,
-  needsAttention, openBySlaBand, rangeStart, slaByType, summarise, volumeSeries,
+  RANGES, UNSET, UNTRIAGED, ageing, bucketUnit, countBy, decorate, inRange, median,
+  needsAttention, openBySlaBand, rangeStart, slaBySeverity, summarise, volumeSeries,
 } from '../src/lib/reports.js'
 
 const { check, done } = reporter()
@@ -12,35 +12,41 @@ const NOW = new Date('2026-06-15T12:00:00Z').getTime()
 const ago = (ms) => new Date(NOW - ms).toISOString()
 
 const STATUS_TYPES = { New: 'new', Triaged: 'in_progress', Done: 'closed' }
-const SLA_HOURS = { Bug: 8, Question: 24, 'Feature Request': null }
+// The target hangs off the severity, so an untriaged ticket has none.
+const SLA_HOURS = { High: 8, Moderate: 24 }
 
 const ISSUES = [
   // closed inside target: 4h of an 8h target
   { id: 'a', ref: 1, type: 'Bug', product: 'Mobile App', area: 'Billing', priority: 'High',
+    severity: 'High',
     status: 'Done', submitted_date: ago(2 * DAY), closed_at: ago(2 * DAY - 4 * HR) },
   // closed past target: 20h of an 8h target
   { id: 'b', ref: 2, type: 'Bug', product: 'Mobile App', area: 'Billing', priority: 'High',
+    severity: 'High',
     status: 'Done', submitted_date: ago(3 * DAY), closed_at: ago(3 * DAY - 20 * HR) },
   // open, 6h into an 8h target — at risk, not yet breached
   { id: 'c', ref: 3, type: 'Bug', product: 'Web', area: 'Search', priority: 'Low',
+    severity: 'High',
     status: 'Triaged', submitted_date: ago(6 * HR), closed_at: null },
   // open, 5 days into a 24h target — breached
   { id: 'd', ref: 4, type: 'Question', product: 'Web', area: null, priority: 'Low',
+    severity: 'Moderate',
     status: 'New', submitted_date: ago(5 * DAY), closed_at: null },
-  // open, type has no target at all
+  // open and never triaged, so nothing has been committed to it yet
   { id: 'e', ref: 5, type: 'Feature Request', product: null, area: 'Search', priority: null,
+    severity: null,
     status: 'New', submitted_date: ago(40 * DAY), closed_at: null },
 ]
 
 const rows = decorate(ISSUES, {
-  statusTypeByName: STATUS_TYPES, slaHoursByType: SLA_HOURS, now: NOW,
+  statusTypeByName: STATUS_TYPES, slaHoursBySeverity: SLA_HOURS, now: NOW,
 })
 
 // ---------------- decoration ----------------
 check('closed tickets are recognised by status type',
   rows.filter((r) => r.isClosed).map((r) => r.id).join(',') === 'a,b')
 check('SLA rides along on every row', rows.every((r) => r.sla != null))
-check('a type without a target gets no SLA state',
+check('an untriaged ticket gets no SLA state',
   rows.find((r) => r.id === 'e').sla.state === 'none')
 check('the open breach is spotted', rows.find((r) => r.id === 'd').sla.state === 'breached')
 check('under target while open is not a breach',
@@ -52,7 +58,7 @@ check('total counts every ticket', stats.total === 5, String(stats.total))
 check('open and closed split the total', stats.open === 3 && stats.closed === 2)
 check('breaches counted across open and closed', stats.breached === 2, String(stats.breached))
 check('only open breaches in the open figure', stats.openBreached === 1)
-// 4 measurable tickets (Bug ×3, Question ×1), 2 of them breached
+// 4 measurable tickets (High ×3, Moderate ×1), 2 of them breached
 check('met % measured only over tickets with a target',
   stats.measured === 4 && stats.slaMetPct === 50, `${stats.measured}/${stats.slaMetPct}`)
 check('median close time is the middle of the closed ones',
@@ -96,20 +102,25 @@ check('6h old sits under a day', ages[0].value === 1)
 check('5 days old sits in the 3–7 day band', ages[2].value === 1)
 check('40 days old sits in the last band', ages[4].value === 1)
 
-// ---------------- SLA bands & per-type table ----------------
+// ---------------- SLA bands & per-severity table ----------------
 const bands = openBySlaBand(rows)
 const bandValue = (state) => bands.find((b) => b.state === state).value
 check('open tickets are placed in their current band',
   bandValue('at_risk') === 1 && bandValue('breached') === 1 && bandValue('none') === 1)
 
-const table = slaByType(rows)
-const bug = table.find((t) => t.name === 'Bug')
-check('the per-type table is sorted by volume', table[0].name === 'Bug')
-check('a type splits into open and closed', bug.total === 3 && bug.open === 1 && bug.closed === 2)
-check('the type carries its target', bug.targetMs === 8 * HR)
-check('one breach in three Bugs is 67% met', bug.metPct === 67, String(bug.metPct))
-check('a type with no target reports no percentage',
-  table.find((t) => t.name === 'Feature Request').metPct === null)
+const table = slaBySeverity(rows)
+const high = table.find((t) => t.name === 'High')
+check('the per-severity table is sorted by volume', table[0].name === 'High', table[0].name)
+check('a severity splits into open and closed',
+  high.total === 3 && high.open === 1 && high.closed === 2)
+check('the severity carries its target', high.targetMs === 8 * HR)
+check('one breach in three High tickets is 67% met', high.metPct === 67, String(high.metPct))
+// Untriaged is a row of its own, not a gap: those tickets are running, they
+// just aren't running against anything yet.
+check('untriaged tickets get their own row',
+  Boolean(table.find((t) => t.name === UNTRIAGED)), table.map((t) => t.name).join(', '))
+check('an untriaged row reports no percentage',
+  table.find((t) => t.name === UNTRIAGED).metPct === null)
 
 // ---------------- volume over time ----------------
 const series = volumeSeries(rows, { from: rangeStart(7, NOW), to: NOW, unit: 'day' })

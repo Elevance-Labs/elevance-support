@@ -12,6 +12,7 @@ export const LIST_TYPES = [
   { key: 'product',  label: 'Products',   singular: 'Product' },
   { key: 'area',     label: 'Areas',      singular: 'Area' },
   { key: 'priority', label: 'Priorities', singular: 'Priority' },
+  { key: 'severity', label: 'Severities', singular: 'Severity' },
   { key: 'status',   label: 'Statuses',   singular: 'Status' },
   { key: 'labels',   label: 'Labels',     singular: 'Label' },
   { key: 'source',   label: 'Sources',    singular: 'Source' },

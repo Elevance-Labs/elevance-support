@@ -19,7 +19,7 @@ import Tag from '../components/Tag'
 import IssueDetail from '../components/IssueDetail'
 import { jiraUrl } from '../lib/jira'
 import { byDisplayName, displayName } from '../lib/users'
-import { slaStatus, slaBand } from '../lib/sla'
+import { slaStatus, slaBand, slaHoursBySeverity } from '../lib/sla'
 import { useProject } from '../context/ProjectContext'
 import ProjectFilter, { NoProject } from '../components/ProjectFilter'
 import { issueRef } from '../lib/projects'
@@ -88,11 +88,9 @@ export default function Board() {
 
   const userById = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u])), [users])
 
-  // SLA target comes from the ticket's type; the clock stops at a closed status.
-  const slaHoursByType = useMemo(
-    () => Object.fromEntries((lists.type ?? []).map((t) => [t.name, t.sla_hours])),
-    [lists.type],
-  )
+  // SLA target comes from the ticket's severity; the clock stops at a closed
+  // status. An untriaged card carries no band colour, which is the point.
+  const slaHours = useMemo(() => slaHoursBySeverity(lists.severity ?? []), [lists.severity])
   const statusTypeByName = useMemo(
     () => Object.fromEntries((lists.status ?? []).map((s) => [s.name, s.status_type])),
     [lists.status],
@@ -101,7 +99,7 @@ export default function Board() {
     submittedAt: issue.submitted_date,
     closedAt: issue.closed_at,
     statusType: statusTypeByName[issue.status] ?? null,
-    slaHours: slaHoursByType[issue.type] ?? null,
+    slaHours: slaHours[issue.severity] ?? null,
     pausedMs: issue.paused_ms,
     pausedSince: issue.paused_since,
   })
@@ -213,6 +211,7 @@ export default function Board() {
                   assignee={userById[issue.assignee_id]}
                   attachments={attachmentCounts[issue.id] ?? 0}
                   typeColor={colorOf('type', issue.type)}
+                  severityColor={colorOf('severity', issue.severity)}
                   colorOf={colorOf}
                   sla={slaFor(issue)}
                   onOpen={() => setSelected(issue.id)}
@@ -242,7 +241,10 @@ export default function Board() {
   )
 }
 
-function BoardCard({ issue, reference, assignee, attachments, typeColor, colorOf, sla, onOpen, onDragStart }) {
+function BoardCard({
+  issue, reference, assignee, attachments, typeColor, severityColor, colorOf,
+  sla, onOpen, onDragStart,
+}) {
   const link = jiraUrl(issue.jira_ticket)
   const breached = sla?.state === 'breached'
   const hasSla = sla && sla.state !== 'none'
@@ -267,6 +269,16 @@ function BoardCard({ issue, reference, assignee, attachments, typeColor, colorOf
             </Typography>
           )}
           <Tag value={issue.type} color={typeColor} />
+          {/* The board is where tickets get dragged into progress, and an
+              untriaged one cannot go: say so on the card rather than only in
+              the error that comes back from the drop. */}
+          {issue.severity
+            ? <Tag value={issue.severity} color={severityColor} />
+            : (
+              <Tooltip title="Not triaged — assign a severity before starting or pausing this ticket">
+                <Typography variant="caption" color="text.disabled">Not triaged</Typography>
+              </Tooltip>
+            )}
         </Stack>
 
         <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{issue.title}</Typography>

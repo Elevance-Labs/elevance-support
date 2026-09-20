@@ -1,8 +1,9 @@
 import { reporter } from './setup.js'
 import {
   slaStatus, slaBand, canTransition, allowedStatuses, effectiveStatusType,
-  canEditRequestFields, statusColor, STATUS_TYPE_COLORS, STATUS_TYPES,
+  statusColor, STATUS_TYPE_COLORS, STATUS_TYPES,
 } from '../src/lib/sla.js'
+import { can } from '../src/lib/permissions.js'
 
 const { check, done } = reporter()
 const HR = 3_600_000, DAY = 86_400_000
@@ -61,7 +62,10 @@ check('paused with no history falls back to new',
 
 const names = (l) => l.map((s) => s.name)
 const fromPausedNew = names(allowedStatuses(STATUSES, 'On Hold', pausedFromNew))
-check('paused from New can return to New', fromPausedNew.includes('New'), fromPausedNew.join(', '))
+// A ticket paused from New is still a ticket nobody has looked at, so New is
+// no more on offer here than it is on the ticket itself.
+check('paused from New is not offered New again',
+  !fromPausedNew.includes('New'), fromPausedNew.join(', '))
 check('paused from New can go forward', fromPausedNew.includes('In Progress'))
 
 const fromPausedProgress = names(allowedStatuses(STATUSES, 'On Hold', pausedFromProgress))
@@ -77,12 +81,12 @@ const fromClosed = names(allowedStatuses(STATUSES, 'Done', []))
 check('a closed ticket cannot be paused',
   !fromClosed.includes('On Hold'), fromClosed.join(', '))
 
-// request fields follow the effective type
-const admin = { role: 'admin' }
-check('pausing a New ticket keeps request fields editable',
-  canEditRequestFields(admin, STATUSES, 'On Hold', pausedFromNew))
-check('pausing an In Progress ticket leaves them locked',
-  !canEditRequestFields(admin, STATUSES, 'On Hold', pausedFromProgress))
+// Where a ticket is filed no longer depends on where it stands: pausing it,
+// starting it or closing it all leave product and area open to correction.
+const admin = { role: 'admin' }, member = { role: 'member' }
+check('a paused ticket can still be re-filed', can.refile(admin))
+check('so can one anybody is working', can.refile(member))
+check('but not by nobody', !can.refile(null))
 
 // ---------------- the SLA clock ----------------
 const sla = (o) => slaStatus({ slaHours: 24, now, ...o })

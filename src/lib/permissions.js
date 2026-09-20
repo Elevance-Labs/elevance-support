@@ -45,6 +45,29 @@ export const can = {
   editIssue:   (p) => Boolean(p),
   deleteIssue: isAdmin,
 
+  /**
+   * Severity is the team's own reading of a ticket — what it costs the customer
+   * and what the team therefore commits to — so only an internal user assigns
+   * one. That means anyone signed in, whatever their role: severity is what
+   * unlocks moving a ticket to In Progress or Paused, and members are who do
+   * that work. The boundary that matters is internal vs. the public form, and
+   * the database draws it by refusing a severity on an anonymous insert.
+   */
+  setSeverity: (p) => Boolean(p),
+
+  /**
+   * Re-filing a ticket: changing its product or area. Same boundary and the
+   * same reasoning as severity — it is the team's own reading of where the
+   * ticket belongs, and that reading improves as the ticket is understood, so
+   * whoever is working it may correct it at any point in its life.
+   *
+   * Type and priority are deliberately *not* here. They are the request's own
+   * account of itself, frozen by the database the moment the ticket is filed;
+   * what the team makes of it goes in severity, product and area instead, and
+   * `submitted_*` keeps the original either way.
+   */
+  refile: (p) => Boolean(p),
+
   // ---- saved views ----
   manageViews: isManagerOrAdmin,
 

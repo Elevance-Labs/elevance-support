@@ -21,7 +21,10 @@ function formatSla(hours) {
 const blank = {
   name: '', color: '', sort_order: 0, is_active: true,
   status_type: 'new',   // only used by the Statuses tab
-  sla_hours: '',        // only used by the Types tab
+  // Both only used by the Severities tab: what the team promises, and that
+  // promise as a number the SLA clock can read.
+  sla_hours: '',
+  behavior: '',
 }
 
 export default function Configuration() {
@@ -46,9 +49,20 @@ export default function Configuration() {
       is_active: values.is_active,
       // Only the tab that owns a column writes it.
       ...(listType === 'status' ? { status_type: values.status_type } : {}),
-      ...(listType === 'type'
-        ? { sla_hours: values.sla_hours === '' ? null : Number(values.sla_hours) }
+      // A severity without its behaviour is just a second priority list, so the
+      // database refuses a blank one — the form asks for it rather than letting
+      // that come back as an error. The target rides along with it: the SLA is
+      // a commitment to what the ticket costs, so it is set where that is said.
+      ...(listType === 'severity'
+        ? {
+            behavior: values.behavior.trim(),
+            sla_hours: values.sla_hours === '' ? null : Number(values.sla_hours),
+          }
         : {}),
+    }
+    if (listType === 'severity' && !payload.behavior) {
+      setBusy(false)
+      return setError('Say what this severity commits the team to.')
     }
     const { error } = id
       ? await supabase.from('list_items').update(payload).eq('id', id)
@@ -75,6 +89,13 @@ export default function Configuration() {
     if (error) return setError(error.message)
     refresh()
   }
+
+  // Kept in step with the header below rather than spelled out again, so the
+  // empty-state row can't drift out of line with the columns above it.
+  const columnCount = 4                                   // Name, Order, Active, Actions
+    + (listType === 'status' ? 1 : 0)                     // Status type
+    + (listType === 'severity' ? 2 : 0)                   // Behaviour, SLA target
+    + (listType === 'status' ? 0 : 1)                     // Colour
 
   const patch = (field) => (e) =>
     setDialog((d) => ({
@@ -112,7 +133,8 @@ export default function Configuration() {
               <TableRow>
                 <TableCell>Name</TableCell>
                 {listType === 'status' && <TableCell width={190}>Status type</TableCell>}
-                {listType === 'type' && <TableCell width={120}>SLA target</TableCell>}
+                {listType === 'severity' && <TableCell>Behaviour</TableCell>}
+                {listType === 'severity' && <TableCell width={120}>SLA target</TableCell>}
                 {listType !== 'status' && <TableCell width={110}>Colour</TableCell>}
                 <TableCell width={90}>Order</TableCell>
                 <TableCell width={90}>Active</TableCell>
@@ -145,7 +167,14 @@ export default function Configuration() {
                         : <Typography variant="caption" color="error">Not set</Typography>}
                     </TableCell>
                   )}
-                  {listType === 'type' && (
+                  {listType === 'severity' && (
+                    <TableCell>
+                      <Typography variant="body2" color="text.secondary">
+                        {item.behavior}
+                      </Typography>
+                    </TableCell>
+                  )}
+                  {listType === 'severity' && (
                     <TableCell>
                       {item.sla_hours
                         ? <Typography variant="body2">{formatSla(item.sla_hours)}</Typography>
@@ -179,6 +208,7 @@ export default function Configuration() {
                         sort_order: item.sort_order, is_active: item.is_active,
                         status_type: item.status_type ?? 'new',
                         sla_hours: item.sla_hours ?? '',
+                        behavior: item.behavior ?? '',
                       },
                     })}>
                       <EditIcon fontSize="small" />
@@ -191,7 +221,7 @@ export default function Configuration() {
               ))}
               {items.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={listType === 'status' || listType === 'type' ? 6 : 5}>
+                  <TableCell colSpan={columnCount}>
                     <Box sx={{ py: 3, textAlign: 'center', color: 'text.secondary' }}>
                       Nothing configured yet.
                     </Box>
@@ -220,11 +250,17 @@ export default function Configuration() {
               </TextField>
             )}
 
-            {listType === 'type' && (
+            {listType === 'severity' && (
+              <TextField label="Behaviour" fullWidth multiline minRows={2}
+                value={dialog?.values.behavior ?? ''} onChange={patch('behavior')}
+                helperText="What the team commits to at this severity, in one sentence. Shown beside the name wherever a severity is picked." />
+            )}
+
+            {listType === 'severity' && (
               <TextField label="SLA target (hours)" type="number" fullWidth
                 value={dialog?.values.sla_hours ?? ''} onChange={patch('sla_hours')}
                 slotProps={{ htmlInput: { min: 0, step: 0.5 } }}
-                helperText="Time from submission until the ticket reaches a Closed status. Leave blank for no SLA." />
+                helperText="Time from submission until the ticket reaches a Closed status — the clock runs from when the request arrived, not from triage. Leave blank for no SLA." />
             )}
             {listType !== 'status' && <TextField label="Colour" fullWidth placeholder="#1976d2"
               value={dialog?.values.color ?? ''} onChange={patch('color')}

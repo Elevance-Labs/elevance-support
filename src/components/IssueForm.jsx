@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase'
 import { useConfig, PUBLIC_SOURCE } from '../context/ConfigContext'
 import { toInputDateTime } from '../lib/format'
 import { activeCompanies, findCompany } from '../lib/companies'
+import { SeverityOption, SeverityValue } from './SeverityOption'
 
 const MAX_FILES = 5
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
@@ -32,8 +33,9 @@ export const EMPTY_ISSUE = {
 
 // Staff-only fields. The public form neither shows nor sends them: `source` is
 // stamped `Form` by the database, the submission date is the moment it arrives,
-// and labels are the team's own triage vocabulary.
-const EMPTY_STAFF = { source: '', labels: [], submitted_date: '' }
+// labels are the team's own triage vocabulary, and severity is the team's own
+// judgement — the database drops one sent by an anonymous submission.
+const EMPTY_STAFF = { source: '', labels: [], severity: '', submitted_date: '' }
 
 /**
  * The support request form, shared by the public embed page and the internal
@@ -167,7 +169,11 @@ export default function IssueForm({
           ...values,
           project_id: projectId,
           title: values.title.trim(),
-          ...(staff ? { source: values.source || null, labels: values.labels ?? [] } : {}),
+          ...(staff ? {
+            source: values.source || null,
+            labels: values.labels ?? [],
+            severity: values.severity || null,
+          } : {}),
           // The name is what everyone reads; the code is what survives a rename.
           // The database resolves one from the other either way.
           company_code: findCompany(companies, values.company)?.code ?? null,
@@ -255,6 +261,30 @@ export default function IssueForm({
     )
   }
 
+  // Severity reads as a promise: the open list shows each one's behaviour, the
+  // closed field just the name that was chosen.
+  const severityField = () => (
+    <TextField
+      select fullWidth size="small" label="Severity" value={values.severity ?? ''}
+      onChange={set('severity')}
+      slotProps={{
+        select: {
+          displayEmpty: true,
+          renderValue: (name) => (
+            <SeverityValue severities={lists.severity ?? []} name={name} />
+          ),
+        },
+        inputLabel: { shrink: true },
+      }}
+      helperText="What this costs the customer, and what we commit to. Needed before the ticket can be started."
+    >
+      <MenuItem value=""><em>Not triaged yet</em></MenuItem>
+      {(lists.severity ?? []).filter((o) => o.is_active).map((o) => (
+        <MenuItem key={o.id} value={o.name}><SeverityOption item={o} /></MenuItem>
+      ))}
+    </TextField>
+  )
+
   const requestSection = ['type', 'product', 'area', 'priority'].some((f) => !isHidden(f))
   const submissionSection = ['company', 'requester_name', 'requester_email', 'source_url']
     .some((f) => !isHidden(f))
@@ -279,6 +309,10 @@ export default function IssueForm({
               options: (lists.source ?? []).filter((o) => o.name !== PUBLIC_SOURCE),
               helperText: 'How this request reached us.',
             })}
+            {/* The team's own reading of the ticket, so it is here and not on
+                the public form. Optional at intake — triage can happen later —
+                but the ticket cannot be started or paused without it. */}
+            {staff && severityField()}
           </Section>
         )}
 

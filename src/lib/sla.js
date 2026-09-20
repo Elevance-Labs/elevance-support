@@ -7,7 +7,10 @@
  *   new (0) ──▶ in_progress (1) ──▶ closed (2)
  *
  * The SLA clock starts when the ticket is submitted and stops the moment it
- * reaches a status of type `closed`.
+ * reaches a status of type `closed`. Its target comes from the ticket's
+ * severity: an untriaged ticket keeps counting but is measured against nothing,
+ * and once a severity is assigned the target applies to the whole elapsed time,
+ * not to the part of it since triage.
  */
 
 import { toMillis } from './format'
@@ -35,6 +38,23 @@ export const STATUS_TYPE_COLORS = {
 /** Colour for a status name, via its type. */
 export const statusColor = (statuses, name) =>
   STATUS_TYPE_COLORS[statusTypeOf(statuses, name)] ?? '#9ca3af'
+
+/**
+ * Status types a ticket may not enter until a severity has been assigned.
+ *
+ * Triage has to happen before work does: nobody starts on a ticket, or parks
+ * one, without having said how bad it is. `closed` is deliberately not gated —
+ * a request can always be answered or rejected outright without triage.
+ */
+export const SEVERITY_REQUIRED_TYPES = ['in_progress', 'paused']
+
+/** Whether entering this status type needs a severity on the ticket first. */
+export const needsSeverity = (statusType) =>
+  SEVERITY_REQUIRED_TYPES.includes(statusType)
+
+/** A severity counts as assigned only if it is a non-blank name. */
+export const hasSeverity = (severity) =>
+  typeof severity === 'string' && severity.trim() !== ''
 
 // Paused deliberately has no rank: it suspends whatever the ticket was doing
 // rather than being a step in the workflow.
@@ -70,9 +90,15 @@ export function effectiveStatusType(statuses, currentStatus, events = []) {
  * finished), and leaving a pause is judged against the type the ticket was in
  * before it was paused. Unknown statuses are permitted so a misconfigured list
  * can't lock a ticket in place.
+ *
+ * `severity` is the ticket's severity, and is checked only against the types
+ * that need one. Omitting it means "not being checked here" rather than "the
+ * ticket has none" — the database is the real guard, and defaulting to a block
+ * would quietly freeze every caller that doesn't know about severities yet.
  */
-export function canTransition(fromType, toType) {
+export function canTransition(fromType, toType, { severity } = {}) {
   if (!fromType || !toType) return true
+  if (severity !== undefined && needsSeverity(toType) && !hasSeverity(severity)) return false
   if (toType === 'paused') return fromType !== 'closed'
   if (fromType === 'paused') return true   // caller should pass the effective type
   return statusRank(toType) >= statusRank(fromType)
@@ -80,26 +106,35 @@ export function canTransition(fromType, toType) {
 
 /**
  * The statuses a ticket may move to. Pass the timeline so a paused ticket is
- * judged against the status it was paused from.
+ * judged against the status it was paused from, and the ticket's severity so
+ * the ones that need one are withheld until it has been assigned.
+ *
+ * A ticket that is still New is offered no New status at all — not even the one
+ * it is sitting in. New means nobody has looked at it yet, so opening it and
+ * saving it as New is the one outcome worth making awkward: the choice on the
+ * table is to triage it and start, park it, or answer it outright. The database
+ * allows New → New (a ticket has to be able to sit in the queue), so this is a
+ * nudge in the one place a human is making the decision, not a rule.
  */
-export function allowedStatuses(statuses, currentStatus, events = []) {
+export function allowedStatuses(statuses, currentStatus, events = [], { severity } = {}) {
   const fromType = effectiveStatusType(statuses, currentStatus, events)
-  return statuses.filter(
-    (s) =>
-      s.name === currentStatus ||             // always keep the current value selectable
-      (s.is_active && canTransition(fromType, s.status_type)),
-  )
+  const stuckInNew = fromType === 'new'
+  return statuses.filter((s) => {
+    if (stuckInNew && s.status_type === 'new') return false
+    // Otherwise the current value always stays selectable, so an inactive or
+    // unrecognised status never disappears from under the person reading it.
+    return s.name === currentStatus
+      || (s.is_active && canTransition(fromType, s.status_type, { severity }))
+  })
 }
 
 /**
- * Request fields are editable by admins/managers, only while the ticket is
- * effectively "new" — pausing a new ticket doesn't quietly lock them.
+ * SLA target hours by severity name — the join every SLA reading needs, in one
+ * place so the Issues grid, the Board, the ticket and the reports cannot
+ * disagree about what a ticket was committed to.
  */
-export function canEditRequestFields(profile, statuses, currentStatus, events = []) {
-  const role = profile?.role
-  if (role !== 'admin' && role !== 'manager') return false
-  return effectiveStatusType(statuses, currentStatus, events) === 'new'
-}
+export const slaHoursBySeverity = (severities = []) =>
+  Object.fromEntries(severities.map((s) => [s.name, s.sla_hours]))
 
 /**
  * SLA colour bands, by fraction of the target consumed.

@@ -1,11 +1,21 @@
 const LIST_ITEMS = [
-  { id: '1', list_type: 'type',     name: 'Bug',        color: '#d32f2f', sort_order: 1, is_active: true, sla_hours: 8 },
+  { id: '1', list_type: 'type',     name: 'Bug',        color: '#d32f2f', sort_order: 1, is_active: true },
   { id: '2', list_type: 'type',     name: 'Question',   color: '#7b1fa2', sort_order: 2, is_active: true },
   { id: '3', list_type: 'product',  name: 'Mobile App', color: null,      sort_order: 1, is_active: true },
   { id: '4', list_type: 'area',     name: 'Billing',    color: null,      sort_order: 1, is_active: true },
   { id: '5',  list_type: 'priority', name: 'High',     color: '#f57c00', sort_order: 1, is_active: true },
   { id: '11', list_type: 'priority', name: 'Medium',   color: '#fbc02d', sort_order: 2, is_active: true },
   { id: '12', list_type: 'priority', name: 'Retired',  color: null,      sort_order: 0, is_active: false },
+  // Severities carry a behaviour — the sentence the dropdown shows beside the
+  // name, and the ticket does not — and the SLA target, which is what the
+  // sentence means in hours. Moderate deliberately has none, so "a severity
+  // with no target" is still something the tests can render.
+  { id: '17', list_type: 'severity', name: 'Critical', color: '#b71c1c', sort_order: 1, is_active: true,
+    behavior: 'Service is down. Work starts immediately.', sla_hours: 8 },
+  { id: '18', list_type: 'severity', name: 'Moderate', color: '#f9a825', sort_order: 2, is_active: true,
+    behavior: 'There is a workaround. Scheduled into the current queue.' },
+  { id: '19', list_type: 'severity', name: 'Shelved',  color: null,      sort_order: 3, is_active: false,
+    behavior: 'No longer offered.' },
   { id: '6', list_type: 'status',   name: 'New',         color: null, sort_order: 1, is_active: true, status_type: 'new' },
   { id: '7', list_type: 'status',   name: 'Triaged',     color: null, sort_order: 2, is_active: true, status_type: 'in_progress' },
   { id: '8', list_type: 'status',   name: 'In Progress', color: null, sort_order: 3, is_active: true, status_type: 'in_progress' },
@@ -138,6 +148,8 @@ export const FIXTURES = {
     id: 'issue-2', ref: 43, number: 1, project_id: 'proj-2',
     title: 'Invoice PDF is blank', description: 'Nothing renders.',
     type: 'Bug', product: 'Mobile App', area: 'Billing', priority: 'High',
+    // Deliberately untriaged: a New ticket that cannot yet be started.
+    severity: null,
     status: 'New', assignee_id: null, labels: [], jira_ticket: null,
     company: 'Globex', requester_name: 'Sam', requester_email: 'sam@globex.com',
     source_url: null, submitted_date: iso(1 * DAY),
@@ -147,6 +159,11 @@ export const FIXTURES = {
     title: 'Cannot export invoice',
     description: 'The export button spins forever.',
     type: 'Bug', product: 'Mobile App', area: 'Billing', priority: 'High',
+    // The snapshot the database stamps at insert: the same values here, so a
+    // test that changes `product` is changing it away from what was submitted.
+    submitted_type: 'Bug', submitted_product: 'Mobile App', submitted_area: 'Billing',
+    submitted_priority: 'High',
+    severity: 'Critical',
     status: 'In Progress', assignee_id: 'user-1', labels: ['regression'],
     jira_ticket: 'ENG-77', notes: 'Reproduced on staging.',
     company: 'Acme', requester_name: 'Jane', requester_email: 'jane@acme.com',

@@ -95,6 +95,14 @@ async function optionsOf(label) {
   return opts
 }
 
+/** The text a closed select is showing, by its visible label. */
+const fieldValue = (label) => {
+  const lab = [...D.querySelectorAll('.MuiFormLabel-root')]
+    .find((l) => l.textContent.replace(/\s*\*$/, '').trim() === label)
+  if (!lab) return null
+  return D.getElementById(lab.id.replace(/-label$/, ''))?.textContent ?? ''
+}
+
 const fieldDisabled = (label) => {
   const lab = [...D.querySelectorAll('.MuiFormLabel-root')]
     .find((l) => l.textContent.replace(/\s*\*$/, '').trim() === label)
@@ -108,29 +116,41 @@ const fieldDisabled = (label) => {
 const HR = 3_600_000, DAY = 86_400_000
 const ago = (ms) => new Date(Date.now() - ms).toISOString()
 
-// ---------- 1. New status, admin: request fields editable, all statuses offered ----------
+// ---------- 1. New status, admin: the request is read-only, the filing is not ----------
 await render({ id: 'user-1', role: 'admin' },
-  { status: 'New', closed_at: null, submitted_date: ago(1 * HR) })
-check('New + admin: Type is editable', fieldDisabled('Type') === false)
+  { status: 'New', severity: 'Critical', closed_at: null, submitted_date: ago(1 * HR) })
+// Type and priority are not fields at all any more — they are what the request
+// said, drawn rather than offered, so there is nothing to disable.
+check('New + admin: Type is not a form field', fieldDisabled('Type') === null)
+check('New + admin: Priority is not a form field', fieldDisabled('Priority') === null)
+check('New + admin: the type is still shown', body().includes('Bug'), body().slice(0, 400))
 check('New + admin: Product is editable', fieldDisabled('Product') === false)
 check('New + admin: Area is editable', fieldDisabled('Area') === false)
 
 let opts = await optionsOf('Status')
-check('from New: every status is reachable',
-  ['New', 'Triaged', 'In Progress', 'On Hold', 'Done'].every((n) => opts?.includes(n)),
+// A New ticket is not offered New: the point of opening it is to move it on.
+check('from New: New itself is NOT offered', !opts?.includes('New'), (opts ?? []).join(', '))
+check('from New: everything it can move to is reachable',
+  ['Triaged', 'In Progress', 'On Hold', 'Done'].every((n) => opts?.includes(n)),
   (opts ?? []).join(', '))
 check('from New: a Paused status is offered', opts?.includes('On Hold'), (opts ?? []).join(', '))
+check('New says what it is waiting for', body().includes('Still New'), body().slice(0, 400))
+// Withholding the option must not cost the field its value: the ticket is in
+// New, and the closed field has to keep saying so.
+check('the Status field still reads New', fieldValue('Status')?.includes('New'),
+  String(fieldValue('Status')))
 
-// ---------- 2. New status, member: request fields locked ----------
+// ---------- 2. New status, member: re-filing is open to everyone signed in ----------
 await render({ id: 'user-2', role: 'member' },
-  { status: 'New', closed_at: null, submitted_date: ago(1 * HR) })
-check('New + member: Type is locked', fieldDisabled('Type') === true)
-check('New + member: Product is locked', fieldDisabled('Product') === true)
+  { status: 'New', severity: 'Critical', closed_at: null, submitted_date: ago(1 * HR) })
+check('New + member: Type is still not a field', fieldDisabled('Type') === null)
+check('New + member: Product is editable', fieldDisabled('Product') === false)
 
-// ---------- 3. In Progress: request fields locked even for an admin ----------
+// ---------- 3. In Progress: re-filing stays open, the request stays frozen ----------
 await render({ id: 'user-1', role: 'admin' },
-  { status: 'In Progress', closed_at: null, submitted_date: ago(1 * HR) })
-check('In Progress + admin: Type is locked', fieldDisabled('Type') === true)
+  { status: 'In Progress', severity: 'Critical', closed_at: null, submitted_date: ago(1 * HR) })
+check('In Progress + admin: Type is not a field', fieldDisabled('Type') === null)
+check('In Progress + admin: Product is still editable', fieldDisabled('Product') === false)
 
 opts = await optionsOf('Status')
 check('from In Progress: "New" is not offered', !opts?.includes('New'), (opts ?? []).join(', '))
@@ -148,9 +168,9 @@ check('from Closed: only Done offered', opts?.length === 1 && opts[0] === 'Done'
 check('a closed ticket cannot be paused', !opts?.includes('On Hold'), (opts ?? []).join(', '))
 check('closed shows a cannot-reopen hint', body().includes('cannot be reopened'))
 
-// ---------- 5. SLA states in the elapsed box (Bug = 8h target) ----------
+// ---------- 5. SLA states in the elapsed box (Critical = 8h target) ----------
 await render({ id: 'user-1', role: 'admin' },
-  { status: 'In Progress', type: 'Bug', closed_at: null, submitted_date: ago(1 * HR) })
+  { status: 'In Progress', severity: 'Critical', closed_at: null, submitted_date: ago(1 * HR) })
 check('under 40% reads "On track"', elapsedBox().text.includes('On track'), elapsedBox().text)
 check('under 40% box is BLUE', toHex(elapsedBox().bg) === '#1565c0', elapsedBox().bg)
 check('elapsed box shows a real target, not a dash',
@@ -158,19 +178,19 @@ check('elapsed box shows a real target, not a dash',
 check('elapsed box shows no percentage', !elapsedBox().text.includes('%'), elapsedBox().text)
 check('elapsed box has no "since" line', !elapsedBox().text.includes('since'), elapsedBox().text)
 
-// Bug has an 8h target: 4h = 50% -> yellow, 7h = 87% -> orange.
+// Critical has an 8h target: 4h = 50% -> yellow, 7h = 87% -> orange.
 await render({ id: 'user-1', role: 'admin' },
-  { status: 'In Progress', type: 'Bug', closed_at: null, submitted_date: ago(4 * HR) })
+  { status: 'In Progress', severity: 'Critical', closed_at: null, submitted_date: ago(4 * HR) })
 check('40-70% reads "Watch"', elapsedBox().text.includes('Watch'), elapsedBox().text)
 check('40-70% box is YELLOW', toHex(elapsedBox().bg) === '#f9a825', elapsedBox().bg)
 
 await render({ id: 'user-1', role: 'admin' },
-  { status: 'In Progress', type: 'Bug', closed_at: null, submitted_date: ago(7 * HR) })
+  { status: 'In Progress', severity: 'Critical', closed_at: null, submitted_date: ago(7 * HR) })
 check('70-100% reads "At risk"', elapsedBox().text.includes('At risk'), elapsedBox().text)
 check('70-100% box is ORANGE', toHex(elapsedBox().bg) === '#ef6c00', elapsedBox().bg)
 
 await render({ id: 'user-1', role: 'admin' },
-  { status: 'In Progress', type: 'Bug', closed_at: null, submitted_date: ago(20 * HR) })
+  { status: 'In Progress', severity: 'Critical', closed_at: null, submitted_date: ago(20 * HR) })
 check('past target shows "SLA breached"', body().includes('SLA breached'))
 check('past target box is RED', toHex(elapsedBox().bg) === '#c62828', elapsedBox().bg)
 check('breach reports how far over as a duration, no percent',
@@ -179,7 +199,7 @@ check('breach reports how far over as a duration, no percent',
 
 // closed stops the clock: submitted 10d ago, closed 9d ago, 8h target -> breached, frozen at 1d
 await render({ id: 'user-1', role: 'admin' },
-  { status: 'Done', type: 'Bug', closed_at: ago(9 * DAY), submitted_date: ago(10 * DAY) })
+  { status: 'Done', severity: 'Critical', closed_at: ago(9 * DAY), submitted_date: ago(10 * DAY) })
 check('closed ticket freezes elapsed at close time',
   elapsedBox().value === '1d', `elapsed box shows "${elapsedBox().value}"`)
 check('closed ticket is not still counting to 10d',
@@ -189,18 +209,24 @@ check('closed ticket shows the stopped-clock state',
 
 // closed within target -> met
 await render({ id: 'user-1', role: 'admin' },
-  { status: 'Done', type: 'Bug', closed_at: ago(9 * DAY), submitted_date: ago(9 * DAY + 2 * HR) })
+  { status: 'Done', severity: 'Critical', closed_at: ago(9 * DAY), submitted_date: ago(9 * DAY + 2 * HR) })
 check('closed inside target shows "Met SLA"', body().includes('Met SLA'), body().slice(0, 200))
 
-// no SLA configured for this type
+// a severity that carries no target at all
 await render({ id: 'user-1', role: 'admin' },
-  { status: 'In Progress', type: 'Question', closed_at: null, submitted_date: ago(2 * HR) })
-check('type without an SLA says so', body().includes('No SLA set'), body().slice(0, 200))
+  { status: 'In Progress', severity: 'Moderate', closed_at: null, submitted_date: ago(2 * HR) })
+check('severity without an SLA says so', body().includes('No SLA set'), body().slice(0, 200))
+
+// and a ticket nobody has triaged is measured against nothing yet
+await render({ id: 'user-1', role: 'admin' },
+  { status: 'New', severity: null, closed_at: null, submitted_date: ago(2 * HR) })
+check('an untriaged ticket has no target either',
+  body().includes('No SLA set'), body().slice(0, 200))
 
 // ---------- 6. Paused: clock stops, colour is orange ----------
-// Bug has an 8h target. Submitted 20h ago but 16h of that was paused -> 4h counted.
+// Critical has an 8h target. Submitted 20h ago, 16h of it paused -> 4h counted.
 await render({ id: 'user-1', role: 'admin' }, {
-  status: 'On Hold', type: 'Bug', closed_at: null,
+  status: 'On Hold', severity: 'Critical', closed_at: null,
   submitted_date: ago(20 * HR), paused_ms: 16 * HR, paused_since: null,
 })
 // 4h of an 8h target is 50% -> the Watch band. The point is that subtracting
@@ -216,7 +242,7 @@ check('paused: status field explains the stopped clock',
 
 // a live pause is subtracted too
 await render({ id: 'user-1', role: 'admin' }, {
-  status: 'On Hold', type: 'Bug', closed_at: null,
+  status: 'On Hold', severity: 'Critical', closed_at: null,
   submitted_date: ago(20 * HR), paused_ms: 10 * HR, paused_since: ago(6 * HR),
 })
 check('paused: an in-flight pause is subtracted',
@@ -224,7 +250,7 @@ check('paused: an in-flight pause is subtracted',
 
 // without the pause the same ticket would have breached
 await render({ id: 'user-1', role: 'admin' }, {
-  status: 'In Progress', type: 'Bug', closed_at: null,
+  status: 'In Progress', severity: 'Critical', closed_at: null,
   submitted_date: ago(20 * HR), paused_ms: 0, paused_since: null,
 })
 check('same age without a pause DOES breach',

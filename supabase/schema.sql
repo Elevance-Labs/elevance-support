@@ -67,21 +67,32 @@ create index if not exists project_members_user_idx on public.project_members(us
 --
 -- `status_type` applies to status rows only: it is what the workflow rules and
 -- the SLA clock actually read, so a status is free to be named anything.
--- `sla_hours` applies to request types.
+-- `sla_hours` and `behavior` apply to severities: the hours from submission the
+-- team commits to, and the one sentence that says what that commitment means.
+-- Both are read wherever a severity is picked. The SLA hangs off severity and
+-- not off the request type because what a ticket costs the customer is what the
+-- team answers for; what kind of request it is is only how it is filed.
 create table if not exists public.list_items (
   id          uuid primary key default gen_random_uuid(),
-  list_type   text not null check (list_type in ('type','product','area','priority','status','labels','source')),
+  list_type   text not null check (list_type in ('type','product','area','priority','severity','status','labels','source')),
   name        text not null,
   color       text,
   status_type text check (status_type is null or status_type in ('new','in_progress','paused','closed')),
   sla_hours   numeric check (sla_hours is null or sla_hours > 0),
+  behavior    text,
   sort_order  int  not null default 0,
   is_active   boolean not null default true,
   created_at  timestamptz not null default now(),
   unique (list_type, name),
   -- A status row must declare its type; other list types never use the column.
   constraint list_items_status_needs_type
-    check (list_type <> 'status' or status_type is not null)
+    check (list_type <> 'status' or status_type is not null),
+  -- A severity that does not say what it means is just a second priority list.
+  constraint list_items_severity_needs_behavior
+    check (list_type <> 'severity' or nullif(btrim(behavior), '') is not null),
+  -- Only a severity carries an SLA target; nothing else is committed to.
+  constraint list_items_sla_only_on_severity
+    check (sla_hours is null or list_type = 'severity')
 );
 
 -- ---------- companies ----------
@@ -108,11 +119,27 @@ create table if not exists public.issues (
   -- Public: it names the ticket (ACME-42) and addresses its share link
   -- (/i/ACME/42), so it is never reassigned once given out.
   number          bigint not null,
-  -- request details
+  -- request details, as the team works the ticket now.
+  -- `type` and `priority` are the request's own account of itself and are
+  -- frozen after insert; `product` and `area` are where the ticket is filed and
+  -- anyone signed in may correct them at any point.
   type            text,
   product         text,
   area            text,
   priority        text,
+  -- The same four as the request arrived with. Stamped once by
+  -- stamp_issue_origin() and never written again, so "filed as one thing and
+  -- worked as another" is a question the row can answer. Null on tickets that
+  -- predate the snapshot: unknown, not unchanged.
+  submitted_type     text,
+  submitted_product  text,
+  submitted_area     text,
+  submitted_priority text,
+  -- The team's own reading of the ticket, from the `severity` list: what it
+  -- costs the customer, and what the team therefore commits to. Internal —
+  -- never set by a public submission, never sent to the public ticket view —
+  -- and required before the ticket may move to In Progress or Paused.
+  severity        text,
   -- issue details
   title           text not null,
   description     text,
@@ -480,12 +507,17 @@ create trigger issues_default_status before insert on public.issues
 -- can know: an anonymous insert is stamped with it, and a signed-in one may not
 -- claim it. The same rule pins an anonymous submission's date to now — staff may
 -- back-date a ticket they are logging for a customer, the public form may not.
+--
+-- Everything else an anonymous insert may not decide for itself lives here too:
+-- severity is the team's judgement, so whatever a public submission sends is
+-- dropped rather than rejected.
 create or replace function public.stamp_issue_origin()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
   if auth.uid() is null then
     new.source         := 'Form';
     new.submitted_date := now();
+    new.severity       := null;
   else
     if new.source = 'Form' then
       raise exception '`Form` is reserved for requests submitted through the public form';
@@ -494,6 +526,15 @@ begin
       new.submitted_date := now();
     end if;
   end if;
+
+  -- What the request said about itself, kept whatever happens to it later.
+  -- Always taken from the live fields, never from the client: a caller that
+  -- sends its own submitted_* is describing a submission it did not make.
+  new.submitted_type     := new.type;
+  new.submitted_product  := new.product;
+  new.submitted_area     := new.area;
+  new.submitted_priority := new.priority;
+
   return new;
 end $$;
 
@@ -559,22 +600,44 @@ begin
     end if;
   end if;
 
-  -- Request fields are only editable by an admin or manager, and only while
-  -- the ticket is still in a "new" status. They follow the effective type, so
-  -- pausing a new ticket does not quietly lock them.
-  if (new.type    is distinct from old.type
-   or new.product is distinct from old.product
-   or new.area    is distinct from old.area) then
-    if eff_type is distinct from 'new' then
-      raise exception
-        'Request fields can only be changed while the ticket is in a New status'
-        using errcode = 'check_violation';
-    end if;
-    if actor_role is null or actor_role not in ('admin','manager') then
-      raise exception
-        'Only an admin or manager can change the request fields'
-        using errcode = 'check_violation';
-    end if;
+  -- Severity is the team's own reading of the ticket, so it takes a team
+  -- member to set it. Anyone signed in may: severity gates starting work, and
+  -- members are who start work.
+  if new.severity is distinct from old.severity and actor_role is null then
+    raise exception 'Only a signed-in team member can set a ticket''s severity'
+      using errcode = 'check_violation';
+  end if;
+
+  -- The submitted snapshot is history. Nobody edits it, including an admin.
+  if new.submitted_type     is distinct from old.submitted_type
+  or new.submitted_product  is distinct from old.submitted_product
+  or new.submitted_area     is distinct from old.submitted_area
+  or new.submitted_priority is distinct from old.submitted_priority then
+    raise exception
+      'The submitted classification is a record of the request and cannot be changed'
+      using errcode = 'check_violation';
+  end if;
+
+  -- Type and priority are the request's own account of itself. The team
+  -- records its reading of the ticket in severity, and where it belongs in
+  -- product and area; neither is a reason to overwrite what was asked for.
+  if new.type is distinct from old.type then
+    raise exception 'A ticket''s type is set when it is submitted and cannot be changed'
+      using errcode = 'check_violation';
+  end if;
+  if new.priority is distinct from old.priority then
+    raise exception 'Priority is the requester''s own ranking and cannot be changed'
+      using errcode = 'check_violation';
+  end if;
+
+  -- Product and area are where the ticket is filed, which is a judgement that
+  -- improves as the ticket is understood. Anyone signed in may re-file one, at
+  -- any point in its life — the submitted values above are what makes that safe.
+  if (new.product is distinct from old.product
+   or new.area    is distinct from old.area)
+     and actor_role is null then
+    raise exception 'Only a signed-in team member can re-file a ticket'
+      using errcode = 'check_violation';
   end if;
 
   -- Pause clock: bank the elapsed pause on the way out, start it on the way in.
@@ -618,6 +681,53 @@ end $$;
 drop trigger if exists issues_closed_at_insert on public.issues;
 create trigger issues_closed_at_insert before insert on public.issues
   for each row execute function public.set_closed_at_on_insert();
+
+-- ---------- no severity, no work ----------
+-- Triage has to happen before work does: a ticket cannot enter an `in_progress`
+-- or `paused` status until someone has said how bad it is. `closed` is
+-- deliberately not gated — a request can always be answered or rejected
+-- outright without being triaged first.
+--
+-- Fires on insert and on update, but only when the status or the severity
+-- actually moved, so a ticket that predates the rule stays editable in every
+-- other way until someone tries to change where it stands.
+create or replace function public.enforce_severity_gate()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  t text;
+begin
+  if tg_op = 'UPDATE'
+     and new.status   is not distinct from old.status
+     and new.severity is not distinct from old.severity then
+    return new;
+  end if;
+
+  t := public.status_type_of(new.status);
+  if t in ('in_progress', 'paused')
+     and nullif(btrim(coalesce(new.severity, '')), '') is null then
+    -- Two ways to break the same rule: moving an untriaged ticket into a gated
+    -- status, or taking the severity back off one already there.
+    if tg_op = 'UPDATE' and new.status is not distinct from old.status then
+      raise exception
+        'This ticket is in % and must keep a severity — % statuses need one',
+        new.status, t
+        using errcode = 'check_violation';
+    end if;
+    raise exception
+      'Assign a severity before moving this ticket to % — % statuses need one',
+      new.status, t
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end $$;
+
+-- Named to sort last among the before-row triggers on `issues` (they fire in
+-- alphabetical order), so it judges the status the other triggers settled on:
+-- the default status a new ticket is given, and the severity
+-- stamp_issue_origin() may just have dropped.
+drop trigger if exists issues_verify_severity on public.issues;
+create trigger issues_verify_severity before insert or update on public.issues
+  for each row execute function public.enforce_severity_gate();
 
 -- ---------- every status change is recorded on the timeline ----------
 create or replace function public.log_status_event()
@@ -874,10 +984,10 @@ create policy avatar_remove on storage.objects for delete to authenticated
 -- own. Everything here is editable on the Configuration page afterwards.
 -- ============================================================
 insert into public.list_items (list_type, name, color, status_type, sla_hours, sort_order) values
-  ('type','Bug',             '#d32f2f', null, 8,  1),
-  ('type','Feature Request', '#1976d2', null, 72, 2),
-  ('type','Question',        '#7b1fa2', null, 24, 3),
-  ('type','Data Issue',      '#f57c00', null, 24, 4),
+  ('type','Bug',             '#d32f2f', null, null, 1),
+  ('type','Feature Request', '#1976d2', null, null, 2),
+  ('type','Question',        '#7b1fa2', null, null, 3),
+  ('type','Data Issue',      '#f57c00', null, null, 4),
   ('priority','Urgent', '#d32f2f', null, null, 1),
   ('priority','High',   '#f57c00', null, null, 2),
   ('priority','Medium', '#fbc02d', null, null, 3),
@@ -902,6 +1012,20 @@ insert into public.list_items (list_type, name, color, status_type, sla_hours, s
   ('source','SMS',      '#388e3c', null, null, 4),
   ('source','Call',     '#f57c00', null, null, 5),
   ('source','Internal', '#616161', null, null, 6)
+on conflict (list_type, name) do nothing;
+
+-- Severities carry a sentence and a target of their own, so they seed
+-- separately: the behaviour is what the team promises when it picks one, and
+-- the hours are that promise in a number the SLA clock can read.
+insert into public.list_items (list_type, name, color, behavior, sla_hours, sort_order) values
+  ('severity','Critical', '#b71c1c',
+   'Service is down or unusable. Work starts immediately and continues until it is restored.', 4, 1),
+  ('severity','High',     '#e64a19',
+   'A core workflow is broken with no practical workaround. Picked up the same working day.', 8, 2),
+  ('severity','Moderate', '#f9a825',
+   'Something is wrong but there is a workaround. Scheduled into the current queue.', 24, 3),
+  ('severity','Low',      '#546e7a',
+   'Cosmetic or an inconvenience. Batched into planned work; nothing else is interrupted.', 72, 4)
 on conflict (list_type, name) do nothing;
 
 -- ---------- a starter project ----------

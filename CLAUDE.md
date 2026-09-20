@@ -83,9 +83,14 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 
 - `permissions.js` — **the** role matrix (`admin` / `manager` / `member`) as the
   `can.*` predicate object. Roles are global; project membership decides *which*
-  tickets you see. Also owns the 5-minute comment edit window.
+  tickets you see. Also owns the 5-minute comment edit window, and `setSeverity`
+  / `refile` — internal vs. the public form, not a role distinction.
 - `sla.js` — status types (`new` → `in_progress` → `closed`, with `paused`
-  outside the ladder), legal transitions, SLA bands and colours.
+  outside the ladder), legal transitions, SLA bands and colours. Also the
+  severity gate: no ticket enters `in_progress` or `paused` untriaged. The SLA
+  target comes from the ticket's **severity**, not its type; the clock still runs
+  from submission, so an untriaged ticket counts against no target. A ticket in a
+  `new` status is offered no `new` status to move to (a UI nudge, not a DB rule).
 - `reports.js` — every aggregation the Report page draws. Pure functions.
 - `projects.js` — key format/normalisation, ticket refs, embed and share URLs.
 - `format.js` — timestamp parsing (all `timestamptz`, shown local), durations,
@@ -107,8 +112,19 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `project_members` — who may see a project's tickets.
 - `issues` — the ticket. Request fields, submission details, workflow fields,
   `project_id` + per-project `number` (which also addresses the share link),
-  SLA bookkeeping, the company (`company` name + `company_code`), and the
-  `source` channel it arrived through. `Form` means the
+  SLA bookkeeping, the company (`company` name + `company_code`), the
+  `source` channel it arrived through, and `severity`.
+  `submitted_type` / `submitted_product` / `submitted_area` /
+  `submitted_priority` are the classification the request **arrived** with,
+  stamped at insert and frozen by trigger — the basis for reporting how often a
+  ticket is filed as one thing and worked as another. Null on rows predating
+  them: unknown, not unchanged. `type` and `priority` are frozen too, so only
+  `product` and `area` move, and any signed-in user may move them at any point
+  (the old admin/manager + New-only lock is gone).
+  `severity` is internal: an anonymous insert never carries one (the trigger
+  drops it), only a signed-in user may change it, and a trigger refuses any move
+  into an `in_progress` or `paused` status while it is empty. It is deliberately
+  absent from the `public-issue` allow-list. `Form` means the
   public embed form: a trigger stamps it on anonymous inserts (pinning their
   `submitted_date` to now) and refuses it from a signed-in one, so staff pick
   from the other channels and may back-date what they log.
@@ -120,8 +136,10 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   Everything that draws a person goes through `components/UserAvatar.jsx`; only
   `/profile` writes one.
 - `list_items` — one table backing every dropdown (`type`, `product`, `area`,
-  `priority`, `status`, `labels`, `source`), plus per-status type and per-type
-  SLA target.
+  `priority`, `severity`, `status`, `labels`, `source`), plus per-status type and,
+  on severity rows only (a check constraint), `sla_hours` + `behavior` — the
+  target and the sentence a severity commits the team to, which the pickers show
+  beside the name.
 - `profiles` — mirrors auth users; carries the role and `avatar_url`. First
   account becomes admin. Self-writes are allowed, but a trigger freezes `role`,
   `is_active` and `email` for non-admins — only `admin-users` writes a role.
