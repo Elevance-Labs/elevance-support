@@ -54,6 +54,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 ## 4. Routes and pages
 
 - `/login` — email/password sign-in.
+- `/dashboard` — the selected project's open work: your queue, what is close to
+  breaching, and status/assignee/severity breakdowns. No role guard.
 - `/issues` — filterable DataGrid of tickets; admins/managers save **views**.
 - `/board` — kanban by status; drag between lanes to change status.
 - `/report` — manager/admin analytics over the selected range.
@@ -92,6 +94,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   from submission, so an untriaged ticket counts against no target. A ticket in a
   `new` status is offered no `new` status to move to (a UI nudge, not a DB rule).
 - `reports.js` — every aggregation the Report page draws. Pure functions.
+- `dashboard.js` — the Dashboard's aggregations, all over **open tickets only**:
+  one person's queue, the SLA watch-list and its threshold, and breakdowns with
+  shares. Builds on `reports.js`'s `decorate`.
 - `projects.js` — key format/normalisation, ticket refs, embed and share URLs.
 - `format.js` — timestamp parsing (all `timestamptz`, shown local), durations,
   initials, hashed colours.
@@ -169,6 +174,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   triggers assign the project number, the default status and the first
   status event, then fire the Google Chat notification (queued via `pg_net`, so
   it can never fail the insert).
+- **Dashboard** opens on the same rows, decorated the same way, and counts only
+  the ones that aren't closed — so a tile and a breakdown on it always add up.
 - Staff work it on **Issues** or **Board** → both open the same `IssueDetail`
   dialog → which composes `CommentsThread` and `StatusTimeline`.
 - **Report** re-reads the same rows and derives everything through

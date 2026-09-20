@@ -4,6 +4,7 @@ import {
   Alert, AppBar, Box, Button, Divider, Drawer, IconButton, List, ListItemButton,
   ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Typography,
 } from '@mui/material'
+import DashboardIcon from '@mui/icons-material/Dashboard'
 import ListAltIcon from '@mui/icons-material/ListAlt'
 import BarChartIcon from '@mui/icons-material/BarChart'
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
@@ -25,6 +26,7 @@ const WIDTH = 224
 
 // `show` decides visibility per role; see src/lib/permissions.js.
 const NAV = [
+  { to: '/dashboard', label: 'Dashboard',  icon: <DashboardIcon /> },
   { to: '/issues', label: 'Issues',        icon: <ListAltIcon /> },
   { to: '/board',  label: 'Board',         icon: <ViewKanbanIcon /> },
   { to: '/report', label: 'Report',        icon: <BarChartIcon />,  show: can.seeReports },

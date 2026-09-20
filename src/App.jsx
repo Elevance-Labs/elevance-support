@@ -7,6 +7,7 @@ import { ConfigProvider } from './context/ConfigContext'
 import { ProjectProvider } from './context/ProjectContext'
 import AppLayout from './components/AppLayout'
 import Login from './pages/Login'
+import Dashboard from './pages/Dashboard'
 import Issues from './pages/Issues'
 import Board from './pages/Board'
 import Report from './pages/Report'
@@ -72,6 +73,7 @@ export default function App() {
                 </Protected>
               }
             >
+              <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/issues" element={<Issues />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/board" element={<Board />} />

@@ -9,6 +9,7 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 
 | Page | What it does |
 |---|---|
+| **Dashboard** | The selected project's open work at a glance: your own queue, the tickets closest to breaching, and where the rest of it is sitting. |
 | **Issues** | Every request in a filterable table. Admins save filter sets as **views** everyone can load. |
 | **Board** | Jira-style kanban by status. Drag a card between lanes to change its status. Each card leads with its ticket reference and type. |
 | **Report** | Volume, breakdowns and SLA performance for the selected range. |
@@ -307,9 +308,39 @@ decision is being made, not a rule.
 [Severity](#severity) above. That rule sits on top of the ladder rather than
 replacing it: assigning a severity never unlocks a move backwards.
 
+## Dashboard
+
+Everyone's landing point for **one project's open work**. Everything on it
+counts **only tickets that are not done** — a closed ticket has no queue
+position, no running clock and no share of what is left — so a tile and a
+breakdown on the page always add up to the same number.
+
+- **Tiles** — open tickets, how many are assigned to you, how many have used
+  75% or more of their SLA target, how many are unassigned, and how many are
+  still untriaged.
+- **My issues** — your open tickets with their severity and the time on their
+  SLA clock, the most of a target consumed first. Untriaged tickets sort last:
+  nothing has been promised about them yet, so they cannot be more urgent than
+  something that has. The clock is SLA-elapsed, not age — a pause stops it.
+- **Breaching SLA** — open tickets that have used **75% or more** of their
+  target, worst first, with the percentage consumed. That is deliberately
+  tighter than the 70% *At risk* band: the band is a colour on a ticket you are
+  already looking at, this is a list you are meant to work through. An untriaged
+  ticket is never on it — with no severity there is no target, and a ticket
+  cannot be late for a promise nobody made.
+- **Breakdowns** — open tickets by status (in the configured workflow order, not
+  by size), by assignee (unassigned included, because that is the slice worth
+  acting on) and by severity (untriaged gets its own grey slice). Each bar
+  carries its count and its share of the open queue.
+
+Click any row to open the ticket. Both lists cap at eight rows and say how many
+more they are holding back. The maths lives in
+[`src/lib/dashboard.js`](src/lib/dashboard.js) as plain functions, covered by
+[`test/dashboard.test.js`](test/dashboard.test.js).
+
 ## Reports
 
-Managers and admins get a read-only dashboard over **one project's** tickets,
+Managers and admins get a read-only report over **one project's** tickets,
 filtered by **range** (7 / 30 / 90 days or all time), and optionally by type and
 product.
 Everything on the page is derived from the same rows, so a tile, a chart and a

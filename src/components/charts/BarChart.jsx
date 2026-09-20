@@ -23,16 +23,21 @@ function barPath(x, y, w, h, r = RADIUS) {
  * channel on information the chart is showing twice. Pass a per-datum `color`
  * only when the categories are genuinely ordered (age bands), where the ramp
  * carries the order.
+ *
+ * `valueWidth` is the gutter the value label is drawn into — widen it when the
+ * label says more than a count, or the longest bar pushes its own label off the
+ * edge of the plot.
  */
 export default function BarChart({
   data, color = SERIES_1, formatValue = (v) => v.toLocaleString(), tooltipLabel = 'Tickets',
+  valueWidth = 44,
 }) {
   const [wrapRef, width] = useContainerWidth()
   const [hover, setHover] = useState(null)
 
   const longest = data.reduce((n, d) => Math.max(n, d.name.length), 0)
   const labelW = Math.min(150, Math.max(72, longest * 6.6))
-  const valueW = 44
+  const valueW = valueWidth
   const plotW = Math.max(width - labelW - valueW - 8, 10)
   const max = Math.max(...data.map((d) => d.value), 1)
   const height = data.length * ROW
