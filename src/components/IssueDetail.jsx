@@ -20,13 +20,16 @@ import { jiraKey, jiraUrl } from '../lib/jira'
 import { copyText } from '../lib/publicLink'
 import { issueRef, publicIssueUrl } from '../lib/projects'
 import { useProject } from '../context/ProjectContext'
-import { byDisplayName } from '../lib/users'
+import { byDisplayName, departmentOf, displayName } from '../lib/users'
+import {
+  assigneesOf, canJoin, hasAssignees, MAX_ASSIGNEES, normalizeAssignees, sharedDepartment,
+} from '../lib/assignees'
 import {
   allowedStatuses, slaStatus, statusTypeOf, hasSeverity, slaHoursBySeverity,
 } from '../lib/sla'
 import StatusTimeline from './StatusTimeline'
 import CommentsThread from './CommentsThread'
-import { UserChip } from './UserAvatar'
+import UserAvatar, { UserOption } from './UserAvatar'
 import { StatusLabel } from './StatusDot'
 import { SeverityOption, SeverityValue } from './SeverityOption'
 import Tag from './Tag'
@@ -34,7 +37,7 @@ import Tag from './Tag'
 /**
  * Three-column ticket view:
  *   left   — submission, the request as it arrived, then how the team files it
- *   centre — assignee and status, the description, then the comment thread
+ *   centre — assignees and status, the description, then the comment thread
  *   right  — status timeline and total elapsed time
  *
  * The left column draws the line this app cares about. "Request" is the
@@ -77,8 +80,12 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
   // would be rejected.
   const severities = lists.severity ?? []
   const triaged = hasSeverity(issue?.severity)
+  const assignees = assigneesOf(issue)
+  const assigned = hasAssignees(issue)
   const statusOptions = issue
-    ? allowedStatuses(lists.status ?? [], issue.status, events, { severity: issue.severity })
+    ? allowedStatuses(lists.status ?? [], issue.status, events, {
+        severity: issue.severity, assignees,
+      })
     : []
   const currentStatusType = issue ? statusTypeOf(lists.status ?? [], issue.status) : null
   // A New ticket is offered no New status, so the field is sitting on a value
@@ -89,6 +96,23 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
   // Where the ticket is filed is the team's own reading, so anyone signed in may
   // correct it. What the request said about itself is not, and never changes.
   const canRefile = can.refile(profile)
+
+  // Picking up a ticket nobody holds is work; changing who is on one that is
+  // already assigned is scheduling, and belongs to an admin or a manager.
+  const canAssign = can.setAssignees(profile, issue)
+
+  // The roster the picker offers: everyone still active, plus anyone already on
+  // this ticket, so a disabled account never silently drops off it.
+  const assignable = users
+    .filter((u) => u.is_active !== false || assignees.includes(u.id))
+    .sort(byDisplayName)
+
+  // The people currently on it, as profiles — what the department rule reads.
+  const assignedPeople = assignees.map((id) => userById[id]).filter(Boolean)
+  // A pair written before somebody moved department can sit here breaking the
+  // rule. It is grandfathered, so the field says so rather than silently
+  // refusing the next save.
+  const clash = sharedDepartment(assignedPeople)
 
   // The SLA target follows the severity, so an untriaged ticket is counting but
   // measured against nothing until someone says how bad it is.
@@ -107,7 +131,10 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
     setSaving(true); setError('')
     const { error } = await supabase.from('issues').update({
       status: issue.status,
-      assignee_id: issue.assignee_id || null,
+      // Left out entirely when this person may not change it: sending the value
+      // back unchanged is still an update the database would judge, and one it
+      // would refuse for a member on an already-assigned ticket.
+      ...(canAssign ? { assignee_ids: assignees } : {}),
       labels: issue.labels ?? [],
       jira_ticket: jiraKey(issue.jira_ticket) || null,
       // Internal-only: the public form never sends one, and the database
@@ -247,7 +274,10 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
                       },
                       inputLabel: { shrink: true },
                     }}
-                    error={!triaged}>
+                    error={!triaged}
+                    helperText={triaged
+                      ? undefined
+                      : 'Needed before this ticket can be started or paused.'}>
                     <MenuItem value=""><em>Not triaged</em></MenuItem>
                     {severities.filter((sv) => sv.is_active || sv.name === issue.severity).map((sv) => (
                       <MenuItem key={sv.id} value={sv.name}>
@@ -307,20 +337,51 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
                 gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
                 gap: 2,
               }}>
-                <TextField select size="small" label="Assignee" value={issue.assignee_id ?? ''}
-                  onChange={(e) => patch('assignee_id', e.target.value)}
-                  slotProps={{
-                    // Without renderValue the closed field would fall back to the
-                    // option's text and lose the face the open list just showed.
-                    select: { renderValue: (id) => <UserChip user={userById[id]} size={22} /> },
-                  }}>
-                  <MenuItem value=""><em>Unassigned</em></MenuItem>
-                  {users.filter((u) => u.is_active !== false).sort(byDisplayName).map((u) => (
-                    <MenuItem key={u.id} value={u.id}>
-                      <UserChip user={u} size={22} />
-                    </MenuItem>
-                  ))}
-                </TextField>
+                {/* Up to two people, in the order they were picked: the first
+                    is who the ticket is mainly on. The list stops offering a
+                    third rather than accepting one and having the database
+                    refuse the save. */}
+                <Autocomplete multiple size="small" disableCloseOnSelect
+                  options={assignable}
+                  value={assignees.map((id) => userById[id]).filter(Boolean)}
+                  disabled={!canAssign}
+                  isOptionEqualToValue={(o, v) => o.id === v.id}
+                  getOptionLabel={(u) => displayName(u)}
+                  // Two things close an option: no seat left, and a department
+                  // already spoken for. Anyone already on it stays clickable,
+                  // or there would be no way to take them off.
+                  getOptionDisabled={(u) => !canJoin(assignedPeople, u)}
+                  onChange={(_e, picked) =>
+                    patch('assignee_ids', normalizeAssignees(picked.map((u) => u.id)))}
+                  renderOption={({ key, ...props }, u) => (
+                    <li key={key} {...props}><UserOption user={u} size={22} /></li>
+                  )}
+                  renderValue={(selected, getItemProps) =>
+                    selected.map((u, i) => {
+                      const { key, ...chipProps } = getItemProps({ index: i })
+                      return (
+                        <Chip key={key} {...chipProps} size="small"
+                          label={departmentOf(u) ? `${displayName(u)} · ${departmentOf(u)}` : displayName(u)}
+                          avatar={<UserAvatar user={u} size={22} />} />
+                      )
+                    })
+                  }
+                  renderInput={(p) => (
+                    <TextField {...p} label="Assignees"
+                      placeholder={assignees.length ? '' : 'Unassigned'}
+                      error={!assigned || Boolean(clash)}
+                      helperText={
+                        clash
+                          ? `Both are in ${clash} — a pair must come from two departments. Change one before saving.`
+                          : !canAssign
+                            ? 'Already assigned — an admin or a manager changes who is on it'
+                            : !assigned
+                              ? 'Assign someone before moving this ticket on'
+                              : assignees.length >= MAX_ASSIGNEES
+                                ? 'Two people is the most a ticket carries'
+                                : 'One more may be added, from another department'
+                      } />
+                  )} />
                 <TextField select size="small" label="Status"
                   value={statusListed ? (issue.status ?? '') : ''}
                   onChange={(e) => patch('status', e.target.value)}
@@ -342,6 +403,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
                   helperText={
                     currentStatusType === 'closed' ? 'Closed — this ticket cannot be reopened'
                     : currentStatusType === 'paused' ? 'Paused — the SLA clock is stopped'
+                    : !assigned ? 'Assign someone before moving this ticket out of New'
                     : !triaged ? 'Assign a severity to start or pause this ticket'
                     : currentStatusType === 'new' ? 'Still New — move it on, or close it'
                     : undefined}>

@@ -14,6 +14,25 @@
 -- ============================================================
 
 create extension if not exists "pgcrypto";
+-- `project_id with =` and `daterange(...) with &&` share one index in the
+-- exclusion constraint that keeps a project's schedules from overlapping.
+create extension if not exists btree_gist;
+
+-- ============================================================
+-- Shared helpers the tables below constrain themselves with
+-- ============================================================
+
+-- One definition of "a valid set of assignees", used by `issues` and by
+-- `project_schedules`: at most two people, no nulls, nobody twice. `min_size` is
+-- what separates the two — a ticket may have nobody on it, a schedule that
+-- names nobody is not a schedule.
+create or replace function public.assignee_set_ok(ids uuid[], min_size int default 0)
+returns boolean language sql immutable as $$
+  select ids is not null
+     and coalesce(array_length(ids, 1), 0) between min_size and 2
+     and array_position(ids, null) is null
+     and coalesce(array_length(ids, 1), 0) = (select count(distinct x) from unnest(ids) x);
+$$;
 
 -- ============================================================
 -- Tables
@@ -28,6 +47,15 @@ create table if not exists public.profiles (
   full_name   text not null default '',
   email       text not null,
   role        text not null default 'member' check (role in ('admin','manager','member')),
+  -- Which department this person works in. A fixed list, not a configuration
+  -- one: departments are the shape of the organisation rather than vocabulary
+  -- the team tunes, so a sixth is a migration. Two assignees on a ticket must
+  -- come from two different departments, which is why this column exists.
+  -- Defaults to Support so an account created outside the app is still
+  -- assignable; an admin corrects it on the Users page.
+  department  text not null default 'Support'
+              constraint profiles_department_check
+              check (department in ('Product','Design','Support','Engineering','Quality')),
   is_active   boolean not null default true,
   -- Public URL of the profile photo in the `avatars` bucket, or null. The photo
   -- is the one thing on a profile its owner may change themselves.
@@ -61,6 +89,40 @@ create table if not exists public.project_members (
   primary key (project_id, user_id)
 );
 create index if not exists project_members_user_idx on public.project_members(user_id);
+
+-- ---------- project_schedules (the support rota) ----------
+-- Who is on support for a project, and when. A ticket submitted inside a range
+-- is assigned to that range's people by stamp_issue_schedule() below, so the
+-- rota is what puts names on a ticket nobody has looked at yet.
+--
+-- Ranges are inclusive on both ends, and two of them in the same project may
+-- never overlap — otherwise "who is on for this day" has two answers and the
+-- trigger would quietly pick one.
+create table if not exists public.project_schedules (
+  id           uuid primary key default gen_random_uuid(),
+  project_id   uuid not null references public.projects(id) on delete cascade,
+  starts_on    date not null,
+  ends_on      date not null,
+  assignee_ids uuid[] not null,
+  created_by   uuid references public.profiles(id) on delete set null,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  constraint project_schedules_range check (ends_on >= starts_on),
+  constraint project_schedules_assignees check (public.assignee_set_ok(assignee_ids, 1))
+);
+create index if not exists project_schedules_project_idx
+  on public.project_schedules(project_id, starts_on desc);
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'project_schedules_no_overlap') then
+    alter table public.project_schedules add constraint project_schedules_no_overlap
+      exclude using gist (
+        project_id with =,
+        daterange(starts_on, ends_on, '[]') with &&
+      );
+  end if;
+end $$;
 
 -- ---------- configuration lists ----------
 -- One table drives every configurable dropdown.
@@ -157,7 +219,13 @@ create table if not exists public.issues (
   -- internal
   submitted_date  timestamptz not null default now(),
   status          text not null default 'New',
-  assignee_id     uuid references public.profiles(id) on delete set null,
+  -- Who is working it: nobody, one person or two, in the order they were
+  -- picked. One field because "who is on it" is one question; the cap of two is
+  -- the check constraint below, not a second column. An array cannot carry a
+  -- foreign key, so prune_deleted_assignee() is what `on delete set null` was.
+  assignee_ids    uuid[] not null default '{}'
+                  constraint issues_assignees_valid
+                  check (public.assignee_set_ok(assignee_ids, 0)),
   labels          text[] not null default '{}',
   jira_ticket     text,
   notes           text,
@@ -172,7 +240,7 @@ create table if not exists public.issues (
 );
 
 create index if not exists issues_status_idx    on public.issues(status);
-create index if not exists issues_assignee_idx  on public.issues(assignee_id);
+create index if not exists issues_assignees_idx on public.issues using gin (assignee_ids);
 create index if not exists issues_submitted_idx on public.issues(submitted_date desc);
 create index if not exists issues_project_idx   on public.issues(project_id);
 create index if not exists issues_source_idx    on public.issues(source);
@@ -260,6 +328,41 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 
+create or replace function public.department_of(p_user uuid)
+returns text language sql stable security definer set search_path = public as $$
+  select department from public.profiles where id = p_user;
+$$;
+
+/*
+ * The department more than one of these people belong to, or null.
+ *
+ * A ticket's two assignees must come from two different departments: a pair is
+ * meant to be two readings of the same problem, and two people from one
+ * department is the same reading twice. Null is the answer for a set of one —
+ * the rule only has something to say about a second name.
+ *
+ * Takes the array rather than a row so `issues` and `project_schedules` can
+ * share it.
+ */
+create or replace function public.shared_department(ids uuid[])
+returns text language plpgsql stable security definer set search_path = public as $$
+declare
+  dupe text;
+begin
+  if coalesce(array_length(ids, 1), 0) < 2 then
+    return null;
+  end if;
+
+  select p.department into dupe
+  from unnest(ids) as u(id)
+  join public.profiles p on p.id = u.id
+  group by p.department
+  having count(*) > 1
+  limit 1;
+
+  return dupe;
+end $$;
+
 create or replace function public.can_see_issue(p_issue uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
@@ -340,6 +443,35 @@ create trigger comments_touch before update on public.comments
 drop trigger if exists projects_touch on public.projects;
 create trigger projects_touch before update on public.projects
   for each row execute function public.touch_updated_at();
+
+drop trigger if exists project_schedules_touch on public.project_schedules;
+create trigger project_schedules_touch before update on public.project_schedules
+  for each row execute function public.touch_updated_at();
+
+-- An assignee array cannot carry a foreign key, so this is what the old
+-- `assignee_id references profiles on delete set null` used to do: a deleted
+-- account leaves the tickets it was on, and takes with it any schedule it was
+-- the only name on.
+create or replace function public.prune_deleted_assignee()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  update public.issues
+  set assignee_ids = array_remove(assignee_ids, old.id)
+  where assignee_ids @> array[old.id];
+
+  delete from public.project_schedules
+  where assignee_ids <@ array[old.id];
+
+  update public.project_schedules
+  set assignee_ids = array_remove(assignee_ids, old.id)
+  where assignee_ids @> array[old.id];
+
+  return old;
+end $$;
+
+drop trigger if exists profiles_prune_assignments on public.profiles;
+create trigger profiles_prune_assignments after delete on public.profiles
+  for each row execute function public.prune_deleted_assignee();
 
 -- ============================================================
 -- Projects: immutable keys and per-project ticket numbering
@@ -542,6 +674,66 @@ drop trigger if exists issues_stamp_origin on public.issues;
 create trigger issues_stamp_origin before insert on public.issues
   for each row execute function public.stamp_issue_origin();
 
+-- ---------- who was on support that day ----------
+-- At most one row can match: project_schedules_no_overlap is what makes the
+-- `limit 1` honest rather than a coin toss.
+create or replace function public.scheduled_assignees(p_project uuid, p_on date)
+returns uuid[] language sql stable security definer set search_path = public as $$
+  select s.assignee_ids
+  from public.project_schedules s
+  where s.project_id = p_project
+    and daterange(s.starts_on, s.ends_on, '[]') @> p_on
+  limit 1;
+$$;
+
+-- ---------- a new ticket is assigned by the rota it arrived in ----------
+-- Reads `submitted_date`, not now(): a request logged by hand against last
+-- Tuesday belongs to whoever was on last Tuesday. Only ever fills an empty set,
+-- so a ticket created with someone already on it keeps them.
+--
+-- The date is taken in UTC — that is what the database stores, and a rota
+-- boundary has to fall on the same day for everyone reading the schedule.
+--
+-- Named to sort after `issues_stamp_origin` among the before-insert triggers
+-- (they fire in alphabetical order), because that is what pins an anonymous
+-- submission's date to now, and before `issues_verify_assignees`, which is the
+-- rule this may be what satisfies.
+create or replace function public.stamp_issue_schedule()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  rota uuid[];
+begin
+  if coalesce(array_length(new.assignee_ids, 1), 0) > 0 then
+    return new;
+  end if;
+
+  rota := public.scheduled_assignees(
+    new.project_id,
+    (coalesce(new.submitted_date, now()) at time zone 'UTC')::date
+  );
+
+  if rota is null then
+    return new;
+  end if;
+
+  -- A schedule is checked for the department rule when it is written, but
+  -- somebody can move department afterwards and leave a valid rota naming two
+  -- colleagues. Refusing the insert would mean a customer's request failing to
+  -- file because of an HR change, so the rota gives way instead: the first name
+  -- is applied and the second left off. The Projects page flags a schedule in
+  -- that state, which is the thing to fix.
+  if public.shared_department(rota) is not null then
+    rota := rota[1:1];
+  end if;
+
+  new.assignee_ids := rota;
+  return new;
+end $$;
+
+drop trigger if exists issues_stamp_schedule on public.issues;
+create trigger issues_stamp_schedule before insert on public.issues
+  for each row execute function public.stamp_issue_schedule();
+
 -- ---------- which company a ticket belongs to ----------
 -- A client may send the name or the code. Whichever arrives is resolved against
 -- `companies`, so the two can never disagree; a company typed before the list
@@ -606,6 +798,23 @@ begin
   if new.severity is distinct from old.severity and actor_role is null then
     raise exception 'Only a signed-in team member can set a ticket''s severity'
       using errcode = 'check_violation';
+  end if;
+
+  -- Who is on the ticket. Picking up one nobody holds is ordinary work, so
+  -- anyone signed in may. Changing a set that already names somebody is a
+  -- scheduling decision — taking work off a colleague, or handing yours away —
+  -- so that takes an admin or a manager.
+  if new.assignee_ids is distinct from old.assignee_ids then
+    if actor_role is null then
+      raise exception 'Only a signed-in team member can assign a ticket'
+        using errcode = 'check_violation';
+    end if;
+    if coalesce(array_length(old.assignee_ids, 1), 0) > 0
+       and actor_role not in ('admin', 'manager') then
+      raise exception
+        'This ticket is already assigned — only an admin or a manager can change who is on it'
+        using errcode = 'check_violation';
+    end if;
   end if;
 
   -- The submitted snapshot is history. Nobody edits it, including an admin.
@@ -729,6 +938,100 @@ drop trigger if exists issues_verify_severity on public.issues;
 create trigger issues_verify_severity before insert or update on public.issues
   for each row execute function public.enforce_severity_gate();
 
+-- ---------- no owner, no progress ----------
+-- A ticket cannot leave a `new` status with nobody on it — including into a
+-- closed one: answering or rejecting a request is work somebody did, and the
+-- ticket should say who. That is the one place this differs from the severity
+-- gate above, which lets an untriaged request be closed outright.
+--
+-- Same shape otherwise: only checks when the status or the assignees actually
+-- moved, so a ticket that predates the rule stays editable in every other way
+-- until someone tries to change where it stands.
+create or replace function public.enforce_assignee_gate()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  t text;
+begin
+  if tg_op = 'UPDATE'
+     and new.status       is not distinct from old.status
+     and new.assignee_ids is not distinct from old.assignee_ids then
+    return new;
+  end if;
+
+  t := public.status_type_of(new.status);
+  if t is not null and t <> 'new'
+     and coalesce(array_length(new.assignee_ids, 1), 0) = 0 then
+    -- Two ways to break the same rule: moving an unowned ticket on, or taking
+    -- the last person off one that has already moved.
+    if tg_op = 'UPDATE' and new.status is not distinct from old.status then
+      raise exception
+        'This ticket is in % and must keep an assignee — only a New ticket may have nobody on it',
+        new.status
+        using errcode = 'check_violation';
+    end if;
+    raise exception
+      'Assign someone before moving this ticket to % — only a New ticket may have nobody on it',
+      new.status
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists issues_verify_assignees on public.issues;
+create trigger issues_verify_assignees before insert or update on public.issues
+  for each row execute function public.enforce_assignee_gate();
+
+-- ---------- a pair is two departments, not two colleagues ----------
+-- Its own trigger rather than a clause in the gate above: that one fires when
+-- the status moves too, and re-judging an untouched set would block a status
+-- change on a ticket paired before this rule existed. This fires only when
+-- somebody actually writes the assignees, so an old pair is left alone until
+-- the next person to touch it has to fix it.
+create or replace function public.enforce_assignee_departments()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  dupe text;
+begin
+  if tg_op = 'UPDATE' and new.assignee_ids is not distinct from old.assignee_ids then
+    return new;
+  end if;
+
+  dupe := public.shared_department(new.assignee_ids);
+  if dupe is not null then
+    raise exception
+      'Both assignees are in % — a ticket''s two assignees must come from different departments',
+      dupe
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists issues_verify_departments on public.issues;
+create trigger issues_verify_departments before insert or update on public.issues
+  for each row execute function public.enforce_assignee_departments();
+
+-- The same rule on a rota, because a rota is where most pairs come from: one
+-- naming two engineers would mint tickets that break the rule above.
+create or replace function public.enforce_schedule_departments()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  dupe text;
+begin
+  dupe := public.shared_department(new.assignee_ids);
+  if dupe is not null then
+    raise exception
+      'Both people on this schedule are in % — a rota pairs two departments, not two colleagues',
+      dupe
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists project_schedules_verify_departments on public.project_schedules;
+create trigger project_schedules_verify_departments
+  before insert or update on public.project_schedules
+  for each row execute function public.enforce_schedule_departments();
+
 -- ---------- every status change is recorded on the timeline ----------
 create or replace function public.log_status_event()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -753,6 +1056,7 @@ create trigger issues_log_status after insert or update of status on public.issu
 alter table public.profiles        enable row level security;
 alter table public.projects        enable row level security;
 alter table public.project_members enable row level security;
+alter table public.project_schedules enable row level security;
 alter table public.list_items      enable row level security;
 alter table public.companies       enable row level security;
 alter table public.issues          enable row level security;
@@ -783,8 +1087,10 @@ create policy profiles_admin_all on public.profiles for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
 
 -- `profiles_self_update` exists so you can save your own avatar. It must not
--- become a self-promotion: role, is_active and email are pinned back to their
--- old values whenever you write your own row and you are not an admin. The
+-- become a self-promotion: role, is_active, email and department are pinned
+-- back to their old values whenever you write your own row and you are not an
+-- admin. Department is in that list because it decides who you can be paired
+-- with, which makes it the team's fact about you rather than yours. The
 -- admin-users function runs as `service_role` (auth.uid() is null) and is
 -- unaffected.
 create or replace function public.profiles_freeze_privileged_fields()
@@ -795,9 +1101,10 @@ set search_path = public
 as $$
 begin
   if auth.uid() = old.id and not public.is_admin() then
-    new.role      := old.role;
-    new.is_active := old.is_active;
-    new.email     := old.email;
+    new.role       := old.role;
+    new.is_active  := old.is_active;
+    new.email      := old.email;
+    new.department := old.department;
   end if;
   return new;
 end;
@@ -829,6 +1136,20 @@ create policy project_members_read on public.project_members
 
 drop policy if exists project_members_admin_write on public.project_members;
 create policy project_members_admin_write on public.project_members for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+-- Members of a project read its rota — it is who to expect a ticket from, and
+-- what explains an assignment nobody made by hand. Only admins write one: a
+-- schedule is project configuration, and the Projects page it lives on is
+-- admin-only. stamp_issue_schedule() reads it as `security definer`, so an
+-- anonymous submission is still assigned by a rota it cannot see.
+drop policy if exists project_schedules_read on public.project_schedules;
+create policy project_schedules_read on public.project_schedules
+  for select to authenticated using (public.is_project_member(project_id));
+
+drop policy if exists project_schedules_admin_write on public.project_schedules;
+create policy project_schedules_admin_write on public.project_schedules
+  for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
 
 -- ---------- list_items: public form needs to read them; only admins write ----------

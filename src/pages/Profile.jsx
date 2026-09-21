@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/permissions'
 import { initials } from '../lib/format'
-import { displayName } from '../lib/users'
+import { departmentOf, displayName } from '../lib/users'
 
 const MAX_BYTES = 2 * 1024 * 1024        // matches the `avatars` bucket limit
 const ACCEPT = 'image/png,image/jpeg,image/gif,image/webp'
@@ -17,7 +17,7 @@ const MIN_PASSWORD = 8                   // Supabase's own default minimum
 /**
  * Your own account.
  *
- * Name, email and role belong to whoever administers the team — they identify
+ * Name, email, role and department belong to whoever administers the team — they identify
  * you to everybody else, and the share link, the roster and the Google Chat
  * card all read them. So they are shown here, not edited here. The two things
  * that are genuinely yours are your photo and your password.
@@ -109,16 +109,23 @@ function AvatarCard({ profile, email, onSaved }) {
         <Box sx={{ minWidth: 0 }}>
           <Typography variant="h6" noWrap>{name}</Typography>
           <Typography variant="body2" color="text.secondary" noWrap>{email}</Typography>
-          {profile?.role && (
-            <Chip size="small" sx={{ mt: 1 }}
-              label={ROLE_LABELS[profile.role] ?? profile.role} />
-          )}
+          <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', gap: 1 }}>
+            {profile?.role && (
+              <Chip size="small" label={ROLE_LABELS[profile.role] ?? profile.role} />
+            )}
+            {/* Read-only, like the role beside it: your department decides who
+                you can be paired with on a ticket, so it is the team's fact
+                about you rather than yours. */}
+            {departmentOf(profile) && (
+              <Chip size="small" variant="outlined" label={departmentOf(profile)} />
+            )}
+          </Stack>
         </Box>
       </Stack>
 
       <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-        Your name and email are managed by an administrator. You can change your
-        photo here.
+        Your name, email and department are managed by an administrator. You can
+        change your photo here.
       </Typography>
 
       <Stack direction="row" spacing={1} sx={{ mt: 2 }}>

@@ -6,6 +6,10 @@
  *
  *   new (0) ──▶ in_progress (1) ──▶ closed (2)
  *
+ * Two things gate a move out of `new`, and both are enforced by the database
+ * too: a severity (how bad it is) and an assignee (who has it). See
+ * `needsSeverity` and `needsAssignee` below — they differ over `closed`.
+ *
  * The SLA clock starts when the ticket is submitted and stops the moment it
  * reaches a status of type `closed`. Its target comes from the ticket's
  * severity: an untriaged ticket keeps counting but is measured against nothing,
@@ -14,6 +18,7 @@
  */
 
 import { toMillis } from './format'
+import { hasAssignees } from './assignees'
 
 export const STATUS_TYPES = ['new', 'in_progress', 'paused', 'closed']
 
@@ -56,6 +61,17 @@ export const needsSeverity = (statusType) =>
 export const hasSeverity = (severity) =>
   typeof severity === 'string' && severity.trim() !== ''
 
+/**
+ * Whether entering this status type needs somebody on the ticket first.
+ *
+ * Everything but `new` does — including `closed`, which is where this parts
+ * company with the severity gate above. An untriaged request can be rejected
+ * outright, because nobody had to judge it to say no; but somebody did say no,
+ * and the ticket should record who.
+ */
+export const needsAssignee = (statusType) =>
+  Boolean(statusType) && statusType !== 'new'
+
 // Paused deliberately has no rank: it suspends whatever the ticket was doing
 // rather than being a step in the workflow.
 const RANK = { new: 0, in_progress: 1, closed: 2 }
@@ -91,14 +107,17 @@ export function effectiveStatusType(statuses, currentStatus, events = []) {
  * before it was paused. Unknown statuses are permitted so a misconfigured list
  * can't lock a ticket in place.
  *
- * `severity` is the ticket's severity, and is checked only against the types
- * that need one. Omitting it means "not being checked here" rather than "the
- * ticket has none" — the database is the real guard, and defaulting to a block
- * would quietly freeze every caller that doesn't know about severities yet.
+ * `severity` is the ticket's severity and `assignees` the people on it, each
+ * checked only against the types that need one. Omitting either means "not
+ * being checked here" rather than "the ticket has none" — the database is the
+ * real guard, and defaulting to a block would quietly freeze every caller that
+ * doesn't know about these gates yet.
  */
-export function canTransition(fromType, toType, { severity } = {}) {
+export function canTransition(fromType, toType, { severity, assignees } = {}) {
   if (!fromType || !toType) return true
   if (severity !== undefined && needsSeverity(toType) && !hasSeverity(severity)) return false
+  if (assignees !== undefined && needsAssignee(toType) && !hasAssignees({ assignee_ids: assignees }))
+    return false
   if (toType === 'paused') return fromType !== 'closed'
   if (fromType === 'paused') return true   // caller should pass the effective type
   return statusRank(toType) >= statusRank(fromType)
@@ -106,8 +125,8 @@ export function canTransition(fromType, toType, { severity } = {}) {
 
 /**
  * The statuses a ticket may move to. Pass the timeline so a paused ticket is
- * judged against the status it was paused from, and the ticket's severity so
- * the ones that need one are withheld until it has been assigned.
+ * judged against the status it was paused from, and the ticket's severity and
+ * assignees so the ones that need them are withheld until they are set.
  *
  * A ticket that is still New is offered no New status at all — not even the one
  * it is sitting in. New means nobody has looked at it yet, so opening it and
@@ -116,7 +135,9 @@ export function canTransition(fromType, toType, { severity } = {}) {
  * allows New → New (a ticket has to be able to sit in the queue), so this is a
  * nudge in the one place a human is making the decision, not a rule.
  */
-export function allowedStatuses(statuses, currentStatus, events = [], { severity } = {}) {
+export function allowedStatuses(
+  statuses, currentStatus, events = [], { severity, assignees } = {},
+) {
   const fromType = effectiveStatusType(statuses, currentStatus, events)
   const stuckInNew = fromType === 'new'
   return statuses.filter((s) => {
@@ -124,7 +145,7 @@ export function allowedStatuses(statuses, currentStatus, events = [], { severity
     // Otherwise the current value always stays selectable, so an inactive or
     // unrecognised status never disappears from under the person reading it.
     return s.name === currentStatus
-      || (s.is_active && canTransition(fromType, s.status_type, { severity }))
+      || (s.is_active && canTransition(fromType, s.status_type, { severity, assignees }))
   })
 }
 

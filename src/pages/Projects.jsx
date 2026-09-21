@@ -10,6 +10,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import LinkIcon from '@mui/icons-material/Link'
 import CheckIcon from '@mui/icons-material/Check'
 import LockIcon from '@mui/icons-material/Lock'
+import EventNoteIcon from '@mui/icons-material/EventNote'
 import { supabase } from '../lib/supabase'
 import { useConfig } from '../context/ConfigContext'
 import { useProject } from '../context/ProjectContext'
@@ -17,6 +18,7 @@ import { formatDateTime } from '../lib/format'
 import { byDisplayName, displayName } from '../lib/users'
 import { copyText } from '../lib/publicLink'
 import UserAvatar, { UserChip } from '../components/UserAvatar'
+import ScheduleDialog from '../components/ScheduleDialog'
 import {
   PROJECT_STATUSES, PROJECT_STATUS_COLORS, PROJECT_STATUS_LABELS,
   embedFormUrl, isValidKey, normalizeKey,
@@ -42,6 +44,9 @@ export default function Projects() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(null)
+  // Which project's support rota is open. Its own dialog rather than a tab in
+  // the edit one: a schedule is changed far more often than a project is.
+  const [scheduling, setScheduling] = useState(null)
 
   const load = useCallback(async () => {
     const [{ data: projects, error: err }, { data: members }, { data: issues }] =
@@ -149,7 +154,8 @@ export default function Projects() {
           <Typography variant="h5">Projects</Typography>
           <Typography variant="body2" color="text.secondary">
             Every ticket belongs to a project. Members see its tickets; their role
-            decides what they may do with them.
+            decides what they may do with them, and its schedule decides who a
+            new request lands on.
           </Typography>
         </Box>
         <Button variant="contained" startIcon={<AddIcon />}
@@ -170,7 +176,7 @@ export default function Projects() {
               <TableCell width={180}>Members</TableCell>
               <TableCell width={90}>Tickets</TableCell>
               <TableCell>Created</TableCell>
-              <TableCell align="right" width={120}>Actions</TableCell>
+              <TableCell align="right" width={160}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -214,6 +220,11 @@ export default function Projects() {
                   <TableCell>{ticketCounts[r.id] ?? 0}</TableCell>
                   <TableCell>{formatDateTime(r.created_at)}</TableCell>
                   <TableCell align="right">
+                    <Tooltip title="Support schedule — who new requests land on">
+                      <IconButton size="small" onClick={() => setScheduling(r)}>
+                        <EventNoteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                     <Tooltip title={copied === r.key ? 'Link copied' : 'Copy this project’s embed form link'}>
                       <IconButton size="small" onClick={() => copyEmbed(r.key)}>
                         {copied === r.key ? <CheckIcon fontSize="small" color="success" /> : <LinkIcon fontSize="small" />}
@@ -247,6 +258,9 @@ export default function Projects() {
           </TableBody>
         </Table>
       </Paper>
+
+      <ScheduleDialog project={scheduling} open={Boolean(scheduling)}
+        onClose={() => setScheduling(null)} />
 
       <Dialog open={Boolean(dialog)} onClose={() => setDialog(null)} fullWidth maxWidth="sm">
         <DialogTitle>{editing ? 'Edit project' : 'New project'}</DialogTitle>

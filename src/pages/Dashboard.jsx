@@ -16,12 +16,13 @@ import { displayName } from '../lib/users'
 import Tag from '../components/Tag'
 import IssueDetail from '../components/IssueDetail'
 import ProjectFilter, { NoProject } from '../components/ProjectFilter'
-import { UserChip } from '../components/UserAvatar'
+import { AssigneeChip } from '../components/UserAvatar'
 import ChartCard, { NoData } from '../components/charts/ChartCard'
 import BarChart from '../components/charts/BarChart'
 import StatTile from '../components/charts/StatTile'
 import { CHART } from '../components/charts/palette'
 import { issueRef } from '../lib/projects'
+import { assigneesOf } from '../lib/assignees'
 
 /** How many rows a list card shows before it says how many it is holding back. */
 const LIST_LIMIT = 8
@@ -83,8 +84,8 @@ export default function Dashboard() {
   // An assignee we can't resolve to a profile is still somebody: "Unassigned"
   // is the one reading that would definitely be wrong, so it falls back to the
   // same "Unknown user" every other page shows.
-  const assigneeName = useCallback(
-    (id) => (id ? displayName(userById[id]) : null),
+  const assigneeNames = useCallback(
+    (issue) => assigneesOf(issue).map((id) => displayName(userById[id])),
     [userById],
   )
 
@@ -98,9 +99,18 @@ export default function Dashboard() {
 
   // Assignees are identities, not an order, and the bar length already carries
   // the size — so one colour for the whole series, per the palette's rules.
+  //
+  // A ticket on two people is counted against both: it is work on both their
+  // plates, and showing it against one would understate the other. That is the
+  // one breakdown on this page whose shares can add past 100%, which the card
+  // says out loud rather than quietly rounding away.
   const byAssignee = useMemo(
-    () => breakdown(open, (r) => assigneeName(r.assignee_id), { unset: UNASSIGNED }),
-    [open, assigneeName],
+    () => breakdown(open, assigneeNames, { unset: UNASSIGNED }),
+    [open, assigneeNames],
+  )
+  const shared = useMemo(
+    () => open.filter((r) => assigneesOf(r).length > 1).length,
+    [open],
   )
 
   const bySeverity = useMemo(
@@ -174,13 +184,12 @@ export default function Dashboard() {
           subtitle={`Open tickets that have used ${PCT} or more of their target`}
           rows={breaching}
           empty="Nothing is close to its target."
-          columns={['Title', 'Assignee', 'Consumed']}
+          columns={['Title', 'Assignees', 'Consumed']}
           renderRow={(r) => (
             <>
               <TitleCell project={project} issue={r} />
               <TableCell>
-                <UserChip user={userById[r.assignee_id]}
-                  name={assigneeName(r.assignee_id) ?? undefined} size={22} />
+                <AssigneeChip users={assigneesOf(r).map((id) => userById[id])} size={22} />
               </TableCell>
               <ConsumedCell sla={r.sla} />
             </>
@@ -194,7 +203,11 @@ export default function Dashboard() {
         gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
       }}>
         <Breakdown title="By status" subtitle="Open tickets, in workflow order" data={byStatus} />
-        <Breakdown title="By assignee" subtitle="Who is holding the open work" data={byAssignee} />
+        <Breakdown title="By assignee"
+          subtitle={shared
+            ? `Who is holding the open work — ${shared} ticket${shared === 1 ? ' is' : 's are'} on two people, and counts for both`
+            : 'Who is holding the open work'}
+          data={byAssignee} />
         <Breakdown title="By severity" subtitle="What the open work has been judged to be"
           data={bySeverity} />
       </Box>

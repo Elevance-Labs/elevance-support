@@ -74,10 +74,10 @@ const grid = dom.window.document.querySelector('[class*="MuiDialog"] .MuiBox-roo
 check('left column: details', body().includes('Details'))
 check('left column: submission details', body().includes('Submission') && body().includes('Acme'))
 check('notes are gone from the ticket', !body().includes('Reproduced on staging.'))
-check('centre: assignee and status side by side', (() => {
+check('centre: assignees and status side by side', (() => {
   const labels = [...dom.window.document.querySelectorAll('.MuiFormLabel-root')]
     .map((l) => l.textContent.replace(/\s*\*$/, '').trim())
-  return labels.includes('Assignee') && labels.includes('Status')
+  return labels.includes('Assignees') && labels.includes('Status')
 })())
 check('centre: comments', body().includes('Comments'))
 check('centre: existing comment shown', body().includes('Looking into this.'))

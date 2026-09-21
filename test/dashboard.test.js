@@ -21,22 +21,22 @@ const ME = 'user-1', OTHER = 'user-2'
 const ISSUES = [
   // mine, 7.2h of an 8h target — 90% gone, the most urgent open ticket
   { id: 'a', number: 1, title: 'Export spins', severity: 'High', status: 'Triaged',
-    assignee_id: ME, submitted_date: ago(7.2 * HR), closed_at: null },
+    assignee_ids: [ME], submitted_date: ago(7.2 * HR), closed_at: null },
   // mine, 2h of an 8h target — 25%, nowhere near
   { id: 'b', number: 2, title: 'Typo on invoice', severity: 'High', status: 'New',
-    assignee_id: ME, submitted_date: ago(2 * HR), closed_at: null },
+    assignee_ids: [ME], submitted_date: ago(2 * HR), closed_at: null },
   // mine, untriaged and very old: no target, so it can never be "breaching"
   { id: 'c', number: 3, title: 'Odd log line', severity: null, status: 'New',
-    assignee_id: ME, submitted_date: ago(40 * DAY), closed_at: null },
+    assignee_ids: [ME], submitted_date: ago(40 * DAY), closed_at: null },
   // someone else's, 5 days into a 24h target — breached
   { id: 'd', number: 4, title: 'Payments down', severity: 'Moderate', status: 'Triaged',
-    assignee_id: OTHER, submitted_date: ago(5 * DAY), closed_at: null },
+    assignee_ids: [OTHER], submitted_date: ago(5 * DAY), closed_at: null },
   // unassigned and paused: still open, and the pause does not remove it
   { id: 'e', number: 5, title: 'Waiting on customer', severity: 'Moderate', status: 'On Hold',
-    assignee_id: null, submitted_date: ago(2 * DAY), closed_at: null, paused_ms: 2 * DAY },
+    assignee_ids: [], submitted_date: ago(2 * DAY), closed_at: null, paused_ms: 2 * DAY },
   // mine, but closed — done work is not queue work anywhere on this page
   { id: 'f', number: 6, title: 'Old bug', severity: 'High', status: 'Done',
-    assignee_id: ME, submitted_date: ago(9 * DAY), closed_at: ago(8 * DAY) },
+    assignee_ids: [ME], submitted_date: ago(9 * DAY), closed_at: ago(8 * DAY) },
 ]
 
 const rows = decorate(ISSUES, {
@@ -50,7 +50,7 @@ check('a paused ticket is still open', notDone(rows).some((r) => r.id === 'e'))
 
 // ---------------- my issues ----------------
 const mine = myIssues(rows, ME)
-check('only my open tickets', mine.every((r) => r.assignee_id === ME))
+check('only my open tickets', mine.every((r) => r.assignee_ids.includes(ME)))
 check('my closed ticket is not in my queue', !mine.some((r) => r.id === 'f'))
 check('most of the target consumed comes first', ids(mine) === 'a,b,c')
 check('a ticket with no target sorts last', mine[mine.length - 1].id === 'c')
@@ -86,7 +86,7 @@ check('shares are of the open tickets only',
 check('closed tickets are not in the denominator',
   byStatus.reduce((n, d) => n + d.value, 0) === 5)
 
-const byAssignee = breakdown(open, (r) => (r.assignee_id === ME ? 'Ada' : r.assignee_id),
+const byAssignee = breakdown(open, (r) => r.assignee_ids.map((id) => (id === ME ? 'Ada' : id)),
   { unset: 'Unassigned' })
 check('a breakdown can group by something off the row',
   JSON.stringify(byAssignee.map((d) => [d.name, d.value, d.pct]))
@@ -123,5 +123,33 @@ check('breaching matches the list', stats.breaching === hot.length)
 check('breached is a subset of breaching', stats.breached === 1 && stats.breached <= stats.breaching)
 check('the tiles and the status breakdown agree',
   stats.open === byStatus.reduce((n, d) => n + d.value, 0))
+
+// ---------------- a ticket on two people ----------------
+// Its own rows rather than a seventh fixture above: every count on this page is
+// a count of open work, and quietly adding one would move all of them.
+const SHARED = decorate([
+  { id: 'p', number: 7, title: 'Pair work', severity: 'High', status: 'Triaged',
+    assignee_ids: [ME, OTHER], submitted_date: ago(1 * HR), closed_at: null },
+  { id: 'q', number: 8, title: 'Solo work', severity: 'High', status: 'Triaged',
+    assignee_ids: [OTHER], submitted_date: ago(1 * HR), closed_at: null },
+], { statusTypeByName: STATUS_TYPES, slaHoursBySeverity: SLA_HOURS, now: NOW })
+
+check('a shared ticket is on the first assignee\'s queue',
+  ids(myIssues(SHARED, ME)) === 'p')
+check('a shared ticket is on the second assignee\'s queue too',
+  ids(myIssues(SHARED, OTHER)) === 'p,q')
+check('a shared ticket is not unassigned', summarise(SHARED, ME).unassigned === 0)
+
+const sharedByAssignee = breakdown(SHARED, 'assignee_ids', { unset: 'Unassigned' })
+check('an array field counts the row in every slice it names',
+  JSON.stringify(sharedByAssignee.map((d) => [d.name, d.value]))
+    === JSON.stringify([[OTHER, 2], [ME, 1]]),
+  JSON.stringify(sharedByAssignee))
+check('shares stay measured against the tickets, so they may add past 100%',
+  sharedByAssignee.reduce((n, d) => n + d.pct, 0) === 150,
+  String(sharedByAssignee.reduce((n, d) => n + d.pct, 0)))
+check('an empty array reads as unassigned, not as a missing slice',
+  breakdown([{ assignee_ids: [] }], 'assignee_ids', { unset: 'Unassigned' })[0].name
+    === 'Unassigned')
 
 done()

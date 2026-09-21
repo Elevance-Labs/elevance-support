@@ -11,9 +11,9 @@ import KeyIcon from '@mui/icons-material/Key'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useConfig } from '../context/ConfigContext'
-import { formatDateTime } from '../lib/format'
+import { formatDateTime, stringColor } from '../lib/format'
 import { can, ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS } from '../lib/permissions'
-import { displayName } from '../lib/users'
+import { DEPARTMENTS, departmentOf, displayName } from '../lib/users'
 import UserAvatar from '../components/UserAvatar'
 
 /** Account changes need the service_role key, so they go through an Edge Function. */
@@ -35,7 +35,10 @@ async function adminCall(body) {
   return json
 }
 
-const blank = { full_name: '', email: '', password: '', role: 'member' }
+// Everyone has a department — it decides who they can be paired with on a
+// ticket — so a new account starts on the same default the database uses
+// rather than on an empty field somebody can skip past.
+const blank = { full_name: '', email: '', password: '', role: 'member', department: 'Support' }
 
 export default function Users() {
   const { profile } = useAuth()
@@ -69,6 +72,7 @@ export default function Users() {
       await adminCall({
         action: 'update', id,
         full_name: values.full_name,
+        department: values.department,
         ...(can.changeRole(profile) ? { role: values.role } : {}),
       })
     }
@@ -124,6 +128,7 @@ export default function Users() {
               <TableCell>Full name</TableCell>
               <TableCell>Email</TableCell>
               <TableCell>Role</TableCell>
+              <TableCell width={130}>Department</TableCell>
               <TableCell width={110}>Active</TableCell>
               <TableCell>Created</TableCell>
               <TableCell align="right" width={140}>Actions</TableCell>
@@ -150,6 +155,15 @@ export default function Users() {
                         label={ROLE_LABELS[r.role] ?? r.role}
                         color={r.role === 'admin' ? 'primary' : r.role === 'manager' ? 'info' : 'default'} />
                     </Tooltip>
+                  </TableCell>
+                  <TableCell>
+                    {/* Hashed from the name, like every other unconfigured
+                        label in the app: departments are a fixed list with no
+                        configuration row to hang a colour off. */}
+                    <Chip size="small" variant="outlined" label={departmentOf(r) ?? '—'}
+                      sx={departmentOf(r)
+                        ? { color: stringColor(r.department), borderColor: stringColor(r.department) }
+                        : undefined} />
                   </TableCell>
                   <TableCell>
                     <Tooltip title={
@@ -181,7 +195,10 @@ export default function Users() {
                         <IconButton size="small" disabled={!can.editUser(profile, r)}
                           onClick={() => setDialog({
                             mode: 'edit', id: r.id,
-                            values: { full_name: r.full_name, email: r.email, password: '', role: r.role },
+                            values: {
+                              full_name: r.full_name, email: r.email, password: '',
+                              role: r.role, department: r.department ?? 'Support',
+                            },
                           })}>
                           <EditIcon fontSize="small" />
                         </IconButton>
@@ -203,7 +220,7 @@ export default function Users() {
             })}
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7}>
+                <TableCell colSpan={8}>
                   <Box sx={{ py: 3, textAlign: 'center', color: 'text.secondary' }}>No users yet.</Box>
                 </TableCell>
               </TableRow>
@@ -229,6 +246,11 @@ export default function Users() {
                 value={dialog?.values.password ?? ''} onChange={patch('password')}
                 helperText="Minimum 6 characters" />
             )}
+            <TextField select label="Department" fullWidth required
+              value={dialog?.values.department ?? 'Support'} onChange={patch('department')}
+              helperText="A ticket's two assignees must come from two different departments, so this decides who they can be paired with.">
+              {DEPARTMENTS.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+            </TextField>
             <TextField select label="Role" fullWidth
               value={dialog?.values.role ?? 'member'} onChange={patch('role')}
               disabled={!can.changeRole(profile)}
@@ -242,7 +264,8 @@ export default function Users() {
         <DialogActions>
           <Button onClick={() => setDialog(null)}>Cancel</Button>
           <Button variant="contained" onClick={save}
-            disabled={busy || !(dialog?.values.full_name ?? '').trim()}>
+            disabled={busy || !(dialog?.values.full_name ?? '').trim()
+              || !DEPARTMENTS.includes(dialog?.values.department)}>
             {busy ? 'Saving…' : 'Save'}
           </Button>
         </DialogActions>

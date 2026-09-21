@@ -13,6 +13,7 @@
  */
 
 import { UNSET } from './reports'
+import { hasAssignees, isAssignedTo } from './assignees'
 
 /** Still in flight: anything whose status type isn't `closed`, pauses included. */
 export const notDone = (rows) => rows.filter((r) => !r.isClosed)
@@ -51,7 +52,9 @@ export function byUrgency(a, b) {
  */
 export function myIssues(rows, userId) {
   if (!userId) return []
-  return notDone(rows).filter((r) => r.assignee_id === userId).sort(byUrgency)
+  // A ticket can be on two people at once, and it is on both their queues:
+  // being the second name is not being a spectator.
+  return notDone(rows).filter((r) => isAssignedTo(r, userId)).sort(byUrgency)
 }
 
 /**
@@ -76,6 +79,12 @@ export function breachingSla(rows, { ratio = BREACHING_RATIO } = {}) {
  * the ticket. Empty values collapse into one named slice rather than vanishing:
  * "unassigned" is a real state of the queue and the one worth acting on.
  *
+ * A `field` that yields an **array** counts the row once in every slice it
+ * names — a ticket on two people is work on both their plates, and showing it
+ * against one of them would understate the other. Shares stay measured against
+ * the number of rows, so such a breakdown can add past 100%: that is the
+ * honest reading, and the card that draws one says so.
+ *
  * `order` is the sequence to read the slices in — the configured workflow, for
  * a breakdown by status, where biggest-first would shuffle the stages of a
  * process. Anything not in it falls to the back, biggest first.
@@ -88,8 +97,12 @@ export function breakdown(rows, field, { unset = UNSET, order = [] } = {}) {
   const pick = typeof field === 'function' ? field : (r) => r[field]
   const counts = new Map()
   for (const row of rows) {
-    const name = pick(row) || unset
-    counts.set(name, (counts.get(name) ?? 0) + 1)
+    const picked = pick(row)
+    const names = Array.isArray(picked) ? picked.filter(Boolean) : [picked]
+    for (const name of names.length ? names : [null]) {
+      const slice = name || unset
+      counts.set(slice, (counts.get(slice) ?? 0) + 1)
+    }
   }
 
   const total = rows.length
@@ -119,7 +132,7 @@ export function summarise(rows, userId, { ratio = BREACHING_RATIO } = {}) {
   return {
     open: open.length,
     mine: myIssues(rows, userId).length,
-    unassigned: open.filter((r) => !r.assignee_id).length,
+    unassigned: open.filter((r) => !hasAssignees(r)).length,
     untriaged: open.filter((r) => !r.severity).length,
     breaching: breachingSla(rows, { ratio }).length,
     breached: open.filter((r) => r.sla?.state === 'breached').length,

@@ -20,13 +20,14 @@ import { can } from '../lib/permissions'
 import { formatDuration, formatDate, toMillis } from '../lib/format'
 import Tag from '../components/Tag'
 import IssueDetail from '../components/IssueDetail'
-import { UserChip } from '../components/UserAvatar'
+import { AssigneeChip, UserChip } from '../components/UserAvatar'
 import { byDisplayName, displayName } from '../lib/users'
 import { slaStatus, slaBand, statusColor, slaHoursBySeverity } from '../lib/sla'
 import { useProject } from '../context/ProjectContext'
 import ProjectFilter, { NoProject } from '../components/ProjectFilter'
 import { issueRef } from '../lib/projects'
 import { companyOptions } from '../lib/companies'
+import { assigneesOf, hasAssignees } from '../lib/assignees'
 
 // `resolvedWithin` hides tickets closed longer ago than this many days; '' is
 // "no limit". Only closed tickets are ever affected — open work always shows.
@@ -37,6 +38,9 @@ const RESOLVED_WINDOWS = [
   { value: '', label: 'All time' },
 ]
 
+// `assignee_id` is singular on purpose, though it now filters against the
+// ticket's whole set: these keys are what a saved view stores, and renaming one
+// would silently drop that filter from every view already saved.
 const EMPTY_FILTERS = {
   search: '', status: '', type: '', priority: '', severity: '', assignee_id: '',
   product: '', company: '', resolvedWithin: '7',
@@ -166,9 +170,12 @@ export default function Issues() {
       if (filters.severity && r.severity !== filters.severity) return false
       if (filters.product && r.product !== filters.product) return false
       if (filters.company && r.company !== filters.company) return false
+      // A ticket can be on two people; it belongs in either of their filters.
       if (filters.assignee_id) {
-        if (filters.assignee_id === 'unassigned' ? r.assignee_id : r.assignee_id !== filters.assignee_id)
-          return false
+        const match = filters.assignee_id === 'unassigned'
+          ? !hasAssignees(r)
+          : assigneesOf(r).includes(filters.assignee_id)
+        if (!match) return false
       }
       if (q) {
         const hay = [r.title, r.description, r.company, r.requester_name,
@@ -252,11 +259,13 @@ export default function Issues() {
     {
       // valueGetter still yields the name, so sorting, filtering and export keep
       // working on what the column actually means; renderCell only adds the face.
-      field: 'assignee_id', headerName: 'Assignee', width: 170,
-      valueGetter: (v) => userName(v) || '—',
+      field: 'assignee_ids', headerName: 'Assignees', width: 190,
+      // Sorting, filtering and export run off the names, so a column that reads
+      // "Ada +1" still sorts and exports as the people it means.
+      valueGetter: (v) => (v ?? []).map(userName).filter(Boolean).join(', ') || '—',
       renderCell: (p) => (
-        <UserChip user={userById[p.row.assignee_id]} size={24} empty="—" italicWhenEmpty={false}
-          sx={{ height: '100%' }} />
+        <AssigneeChip users={assigneesOf(p.row).map((id) => userById[id])}
+          size={24} empty="—" italicWhenEmpty={false} sx={{ height: '100%' }} />
       ),
     },
     { field: 'company', headerName: 'Company', width: 140 },

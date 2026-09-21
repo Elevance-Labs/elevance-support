@@ -43,6 +43,16 @@ export const COMPANIES = [
 export const PROJECT_MEMBERS = [
   { project_id: 'proj-1', user_id: 'user-1' },
   { project_id: 'proj-1', user_id: 'user-2' },
+  { project_id: 'proj-1', user_id: 'user-3' },
+]
+
+// The support rota. One range in the past and one running now, so the dialog
+// has something in every group it draws and `phaseOf` is exercised both ways.
+export const PROJECT_SCHEDULES = [
+  { id: 'sch-1', project_id: 'proj-1', starts_on: '2026-01-05', ends_on: '2026-01-11',
+    assignee_ids: ['user-1'], created_by: 'user-1' },
+  { id: 'sch-2', project_id: 'proj-1', starts_on: '2026-01-12', ends_on: '2026-01-18',
+    assignee_ids: ['user-1', 'user-2'], created_by: 'user-1' },
 ]
 
 export const captured = { inserts: [], updates: [], uploads: [], auth: [], functionCalls: [] }
@@ -73,6 +83,7 @@ const tableData = (table) => {
   if (table === 'profiles') return FIXTURES.profiles
   if (table === 'projects') return PROJECTS
   if (table === 'project_members') return PROJECT_MEMBERS
+  if (table === 'project_schedules') return PROJECT_SCHEDULES
   if (table === 'companies') return COMPANIES
   return []
 }
@@ -150,7 +161,7 @@ export const FIXTURES = {
     type: 'Bug', product: 'Mobile App', area: 'Billing', priority: 'High',
     // Deliberately untriaged: a New ticket that cannot yet be started.
     severity: null,
-    status: 'New', assignee_id: null, labels: [], jira_ticket: null,
+    status: 'New', assignee_ids: [], labels: [], jira_ticket: null,
     company: 'Globex', requester_name: 'Sam', requester_email: 'sam@globex.com',
     source_url: null, submitted_date: iso(1 * DAY),
   },
@@ -164,7 +175,7 @@ export const FIXTURES = {
     submitted_type: 'Bug', submitted_product: 'Mobile App', submitted_area: 'Billing',
     submitted_priority: 'High',
     severity: 'Critical',
-    status: 'In Progress', assignee_id: 'user-1', labels: ['regression'],
+    status: 'In Progress', assignee_ids: ['user-1'], labels: ['regression'],
     jira_ticket: 'ENG-77', notes: 'Reproduced on staging.',
     company: 'Acme', requester_name: 'Jane', requester_email: 'jane@acme.com',
     source_url: 'https://acme.com/billing', submitted_date: iso(3 * DAY),
@@ -186,12 +197,19 @@ export const FIXTURES = {
   profiles: [
     // Ada has uploaded a photo; Grace has not — so every avatar site is exercised
     // in both states by the same fixture list.
+    //
+    // Departments are picked so the pair rule has something to say: Ada and
+    // Grace can be assigned together, Kay cannot join Ada — she is the second
+    // engineer.
     { id: 'user-1', full_name: 'Ada Lovelace', email: 'ada@co.com', role: 'admin', is_active: true,
+      department: 'Engineering',
       avatar_url: 'https://public.example/avatars/user-1/avatar?v=1' },
     // Deliberately nameless — mirrors an account created from the Supabase
     // dashboard, which is what made emails show up in the UI.
     { id: 'user-2', full_name: '', email: 'grace.hopper@co.com', role: 'member', is_active: true,
-      avatar_url: null },
+      department: 'Quality', avatar_url: null },
+    { id: 'user-3', full_name: 'Kay Antonelli', email: 'kay@co.com', role: 'member', is_active: true,
+      department: 'Engineering', avatar_url: null },
   ],
 }
 

@@ -17,6 +17,7 @@
  */
 
 import { toMillis } from './format'
+import { hasAssignees } from './assignees'
 
 export const ROLES = ['admin', 'manager', 'member']
 
@@ -67,6 +68,23 @@ export const can = {
    * `submitted_*` keeps the original either way.
    */
   refile: (p) => Boolean(p),
+
+  /**
+   * Putting people on a ticket — up to two of them.
+   *
+   * Picking up a ticket nobody holds is ordinary work, so anyone signed in may.
+   * Changing a set that already names somebody is a different act: it takes
+   * work off a colleague, or hands yours to one, and that is a scheduling
+   * decision rather than a working one — so an admin or a manager.
+   *
+   * Which is also why the rota lives on the Projects page: assigning in bulk,
+   * ahead of time, is the same decision made once instead of per ticket.
+   */
+  setAssignees: (p, issue) =>
+    Boolean(p) && (isManagerOrAdmin(p) || !hasAssignees(issue)),
+
+  /** Creating, editing and retiring a project's support rota. */
+  manageSchedules: isAdmin,
 
   // ---- saved views ----
   manageViews: isManagerOrAdmin,

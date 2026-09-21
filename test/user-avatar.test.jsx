@@ -86,20 +86,28 @@ check('assignee chip fills the row height', chipStyle?.height === '100%',
 check('assignee chip centres on that height', chipStyle?.alignItems === 'center',
   chipStyle?.alignItems ?? '')
 
-// ---- the assignee picker: options and the closed field ----
+// ---- the assignee picker: options and the selected chips ----
+// A ticket carries up to two people, so this is a multi-select: each person
+// already on it is a chip in the field, and each has to carry their own face.
 const IssueDetail = (await import('../src/components/IssueDetail')).default
 await mount(authed(ada,
   <IssueDetail issueId="issue-1" open onClose={() => {}} onSaved={() => {}} />))
 
-// The dialog portals to body; issue-1 is assigned to Ada, so the closed field
-// must already be showing her face without the list ever being opened.
-const field = [...D.querySelectorAll('.MuiSelect-select')]
-  .find((n) => n.textContent.includes('Ada Lovelace'))
-check('selected assignee shows in the closed field', Boolean(field), 'no field found')
-check('closed field shows the photo, not just the name',
-  Boolean(field?.querySelector('img')), field?.innerHTML?.slice(0, 200) ?? '')
+const assigneeField = [...D.querySelectorAll('.MuiFormLabel-root')]
+  .find((l) => l.textContent.replace(/\s*\*$/, '').trim() === 'Assignees')
+  ?.closest('.MuiFormControl-root')
+// issue-1 is assigned to Ada, so her chip must be there before the list is
+// ever opened.
+const selectedChip = [...(assigneeField?.querySelectorAll('.MuiChip-root') ?? [])]
+  .find((c) => c.textContent.includes('Ada Lovelace'))
+check('selected assignee shows in the field', Boolean(selectedChip), 'no chip found')
+check('the selected chip shows the photo, not just the name',
+  Boolean(selectedChip?.querySelector('img')), selectedChip?.innerHTML?.slice(0, 200) ?? '')
 
-await act(async () => { field?.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true })) })
+const opener = assigneeField?.querySelector('.MuiAutocomplete-popupIndicator')
+await act(async () => {
+  opener?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+})
 await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
 const options = [...D.querySelectorAll('[role="option"]')]
 check('picker lists the roster', options.length >= 2, String(options.length))

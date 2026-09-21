@@ -59,7 +59,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `/issues` — filterable DataGrid of tickets; admins/managers save **views**.
 - `/board` — kanban by status; drag between lanes to change status.
 - `/report` — manager/admin analytics over the selected range.
-- `/projects` — admin-only CRUD over projects and their members.
+- `/projects` — admin-only CRUD over projects, their members and their
+  **support schedule** (the rota dialog; see `schedules.js`).
 - `/users` — admin/manager CRUD over accounts.
 - `/config` — admin-only CRUD over the dropdown lists.
 - `/profile` — your own account: shows name/email/role, changes photo and
@@ -88,22 +89,34 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   tickets you see. Also owns the 5-minute comment edit window, and `setSeverity`
   / `refile` — internal vs. the public form, not a role distinction.
 - `sla.js` — status types (`new` → `in_progress` → `closed`, with `paused`
-  outside the ladder), legal transitions, SLA bands and colours. Also the
-  severity gate: no ticket enters `in_progress` or `paused` untriaged. The SLA
+  outside the ladder), legal transitions, SLA bands and colours. Also the two
+  gates on leaving `new`: the severity gate (no ticket enters `in_progress` or
+  `paused` untriaged) and the assignee gate (nothing leaves `new` at all with
+  nobody on it — `closed` included, which is where the two differ). The SLA
   target comes from the ticket's **severity**, not its type; the clock still runs
   from submission, so an untriaged ticket counts against no target. A ticket in a
   `new` status is offered no `new` status to move to (a UI nudge, not a DB rule).
 - `reports.js` — every aggregation the Report page draws. Pure functions.
 - `dashboard.js` — the Dashboard's aggregations, all over **open tickets only**:
   one person's queue, the SLA watch-list and its threshold, and breakdowns with
-  shares. Builds on `reports.js`'s `decorate`.
+  shares. Builds on `reports.js`'s `decorate`. A breakdown field may yield an
+  **array** — a ticket on two people counts for both, so that one breakdown's
+  shares can add past 100%.
+- `assignees.js` — who is on a ticket: the cap of two, normalising a picker's
+  selection, comparing sets, and the **one-per-department** rule (`sharedDepartment`,
+  `canJoin`). Order matters — the first name is who it is mainly on.
+- `schedules.js` — the support rota: day keys (plain `YYYY-MM-DD` strings, never
+  parsed into instants), which schedule covers a date, overlap detection, and
+  past/current/upcoming.
 - `projects.js` — key format/normalisation, ticket refs, embed and share URLs.
 - `format.js` — timestamp parsing (all `timestamptz`, shown local), durations,
   initials, hashed colours.
 - `companies.js` — resolving a company from a code or a name, and what the
   pickers and filters may offer.
 - `users.js` — how a person is displayed; derives a name from an email when a
-  profile has none.
+  profile has none. Also `DEPARTMENTS` — a **hardcoded** five (Product, Design,
+  Support, Engineering, Quality), mirrored by a check constraint and by
+  `admin-users`; a sixth is a migration, not a Configuration row.
 - `publicLink.js` — calls the `public-issue` function; clipboard helper.
 - `jira.js`, `supabase.js` — Jira link building; the shared client.
 
@@ -115,10 +128,18 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   deliberately **not** in Configuration — maintained with `service_role`. A trigger
   resolves whichever identifier a client sends and stores both on the issue.
 - `project_members` — who may see a project's tickets.
+- `project_schedules` — the support rota: a project, an inclusive `starts_on` /
+  `ends_on` date range and the one or two `assignee_ids` on support for it.
+  Ranges may not overlap within a project — an exclusion constraint, so "who is
+  on for this day" always has exactly one answer — and a pair on one must span
+  two departments, same rule as a ticket. Read by project members,
+  written by admins only. A ticket's `submitted_date` (taken in **UTC**) is what
+  the insert trigger looks up, so a back-dated ticket lands on whoever was on
+  then, not on today's pair.
 - `issues` — the ticket. Request fields, submission details, workflow fields,
   `project_id` + per-project `number` (which also addresses the share link),
   SLA bookkeeping, the company (`company` name + `company_code`), the
-  `source` channel it arrived through, and `severity`.
+  `source` channel it arrived through, `severity`, and `assignee_ids`.
   `submitted_type` / `submitted_product` / `submitted_area` /
   `submitted_priority` are the classification the request **arrived** with,
   stamped at insert and frozen by trigger — the basis for reporting how often a
@@ -129,7 +150,17 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `severity` is internal: an anonymous insert never carries one (the trigger
   drops it), only a signed-in user may change it, and a trigger refuses any move
   into an `in_progress` or `paused` status while it is empty. It is deliberately
-  absent from the `public-issue` allow-list. `Form` means the
+  absent from the `public-issue` allow-list.
+  `assignee_ids` is a `uuid[]` of at most two, replacing the old single
+  `assignee_id`. An array carries no foreign key, so a trigger prunes deleted
+  accounts out of it. A trigger fills an empty set from the project's schedule
+  at insert; after that anyone signed in may pick up a ticket nobody holds, but
+  **only an admin or manager may change a set that already names somebody**. A
+  second trigger refuses any move out of a `new` status while it is empty —
+  `closed` included, unlike the severity gate. A third refuses a pair from one
+  **department**: two assignees must come from two different ones, checked only
+  when the set is actually written, so a pair predating a department change is
+  grandfathered until someone next touches it. `Form` means the
   public embed form: a trigger stamps it on anonymous inserts (pinning their
   `submitted_date` to now) and refuses it from a signed-in one, so staff pick
   from the other channels and may back-date what they log.
@@ -145,15 +176,17 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   on severity rows only (a check constraint), `sla_hours` + `behavior` — the
   target and the sentence a severity commits the team to, which the pickers show
   beside the name.
-- `profiles` — mirrors auth users; carries the role and `avatar_url`. First
-  account becomes admin. Self-writes are allowed, but a trigger freezes `role`,
-  `is_active` and `email` for non-admins — only `admin-users` writes a role.
+- `profiles` — mirrors auth users; carries the role, `avatar_url` and
+  `department` (`not null`, default `Support`, one of the five in `users.js`).
+  First account becomes admin. Self-writes are allowed, but a trigger freezes
+  `role`, `is_active`, `email` and `department` for non-admins — only
+  `admin-users` writes a role, and it writes departments too.
 - `views` — saved Issues filter sets.
 
 ## 8. Edge Functions
 
-- `admin-users` — create/delete accounts, change roles, reset passwords, ban and
-  unban. Needed because `service_role` must never reach a browser.
+- `admin-users` — create/delete accounts, change roles and departments, reset
+  passwords, ban and unban. Needed because `service_role` must never reach a browser.
 - `public-issue` — resolves `(project key, ticket number)` to a **field allow-list** for
   the sign-in-free page. Returns attachments as signed URLs.
 - `notify-issue` — posts a Google Chat card for each new ticket. Called by an
@@ -171,8 +204,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   dialog) → both render the same `IssueForm` — which in `staff` mode also asks
   for source, labels, submission date and a mandatory attachment of the
   customer's original request → row inserted into `issues` →
-  triggers assign the project number, the default status and the first
-  status event, then fire the Google Chat notification (queued via `pg_net`, so
+  triggers assign the project number, the default status, the assignees from
+  the project's schedule covering the submitted date, and the first status event, then fire the Google Chat notification (queued via `pg_net`, so
   it can never fail the insert).
 - **Dashboard** opens on the same rows, decorated the same way, and counts only
   the ones that aren't closed — so a tile and a breakdown on it always add up.

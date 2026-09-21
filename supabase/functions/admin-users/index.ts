@@ -21,6 +21,15 @@ const json = (body: unknown, status = 200) =>
 const BAN_FOREVER = "876000h";
 const UNBAN = "none";
 
+/**
+ * Mirrors DEPARTMENTS in src/lib/users.js and the check constraint on
+ * `profiles.department` — a Deno function cannot import from src/. Validated
+ * here so a bad value comes back as a sentence rather than as a constraint
+ * violation from a table the caller never named.
+ */
+const DEPARTMENTS = ["Product", "Design", "Support", "Engineering", "Quality"];
+const DEFAULT_DEPARTMENT = "Support";
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
@@ -46,7 +55,11 @@ Deno.serve(async (req) => {
   if (!isAdmin && !isManager) return json({ error: "Not permitted" }, 403);
 
   const body = await req.json();
-  const { action, id, email, password, full_name, role, is_active } = body;
+  const { action, id, email, password, full_name, role, is_active, department } = body;
+
+  if (department !== undefined && !DEPARTMENTS.includes(department)) {
+    return json({ error: `Department must be one of: ${DEPARTMENTS.join(", ")}` }, 400);
+  }
 
   // Managers may only act on managers and members, never on admins.
   const loadTarget = async (targetId: string) => {
@@ -78,6 +91,9 @@ Deno.serve(async (req) => {
         const { error: pErr } = await admin.from("profiles").upsert({
           id: data.user.id, email, full_name: derived,
           role: role ?? "member", is_active: true,
+          // Everyone has one: it decides who they can be paired with on a
+          // ticket, and the column is `not null`.
+          department: department ?? DEFAULT_DEPARTMENT,
         }, { onConflict: "id" });
         if (pErr) {
           await admin.auth.admin.deleteUser(data.user.id); // no orphaned auth user
@@ -140,6 +156,9 @@ Deno.serve(async (req) => {
         const patch: Record<string, unknown> = {};
         if (full_name !== undefined) patch.full_name = full_name;
         if (role !== undefined && isAdmin) patch.role = role;
+        // Same boundary as editing anything else about the account: an admin
+        // for anyone, a manager for managers and members.
+        if (department !== undefined) patch.department = department;
         if (Object.keys(patch).length) {
           const { error } = await admin.from("profiles").update(patch).eq("id", id);
           if (error) throw error;

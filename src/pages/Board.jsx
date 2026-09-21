@@ -12,7 +12,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import { supabase } from '../lib/supabase'
 import { useConfig } from '../context/ConfigContext'
 import { useRefreshSignal } from '../context/RefreshContext'
-import UserAvatar from '../components/UserAvatar'
+import { AssigneeChip } from '../components/UserAvatar'
 import StatusDot from '../components/StatusDot'
 import { elapsed, toMillis } from '../lib/format'
 import Tag from '../components/Tag'
@@ -24,6 +24,7 @@ import { useProject } from '../context/ProjectContext'
 import ProjectFilter, { NoProject } from '../components/ProjectFilter'
 import { issueRef } from '../lib/projects'
 import { companyOptions } from '../lib/companies'
+import { assigneesOf, hasAssignees } from '../lib/assignees'
 
 /** A closed ticket drops off the board once it has been resolved this long. */
 const CLOSED_VISIBLE_DAYS = 7
@@ -115,8 +116,12 @@ export default function Board() {
     for (const i of issues) {
       if (type && i.type !== type) continue
       if (company && i.company !== company) continue
+      // A ticket can be on two people; it belongs in either of their filters.
       if (assignee) {
-        if (assignee === 'unassigned' ? i.assignee_id : i.assignee_id !== assignee) continue
+        const match = assignee === 'unassigned'
+          ? !hasAssignees(i)
+          : assigneesOf(i).includes(assignee)
+        if (!match) continue
       }
       if (q && ![i.title, i.company, i.requester_name, i.jira_ticket, issueRef(project, i)]
         .join(' ').toLowerCase().includes(q)) continue
@@ -208,7 +213,7 @@ export default function Board() {
                 <BoardCard
                   key={issue.id} issue={issue}
                   reference={issueRef(project, issue)}
-                  assignee={userById[issue.assignee_id]}
+                  assignees={assigneesOf(issue).map((id) => userById[id])}
                   attachments={attachmentCounts[issue.id] ?? 0}
                   typeColor={colorOf('type', issue.type)}
                   severityColor={colorOf('severity', issue.severity)}
@@ -242,7 +247,7 @@ export default function Board() {
 }
 
 function BoardCard({
-  issue, reference, assignee, attachments, typeColor, severityColor, colorOf,
+  issue, reference, assignees, attachments, typeColor, severityColor, colorOf,
   sla, onOpen, onDragStart,
 }) {
   const link = jiraUrl(issue.jira_ticket)
@@ -292,11 +297,10 @@ function BoardCard({
         )}
 
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          <Tooltip title={assignee ? displayName(assignee) : 'Unassigned'}>
-            <Box sx={{ display: 'flex' }}>
-              <UserAvatar user={assignee} size={22} />
-            </Box>
-          </Tooltip>
+          {/* Faces only: a card is too narrow for two names, and the chip's
+              own tooltip says who they are. */}
+          <AssigneeChip users={assignees} size={22} empty="Unassigned"
+            sx={{ maxWidth: 120 }} />
 
           {attachments > 0 && (
             <Tooltip title={`${attachments} attachment(s)`}>

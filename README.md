@@ -13,8 +13,8 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | **Issues** | Every request in a filterable table. Admins save filter sets as **views** everyone can load. |
 | **Board** | Jira-style kanban by status. Drag a card between lanes to change its status. Each card leads with its ticket reference and type. |
 | **Report** | Volume, breakdowns and SLA performance for the selected range. |
-| **Projects** | Admin-only CRUD over projects, their keys and their members. |
-| **Users** | Admin-only CRUD over who can sign in and be assigned work. |
+| **Projects** | Admin-only CRUD over projects, their keys, their members and their **support schedule**. |
+| **Users** | Admin-only CRUD over who can sign in and be assigned work, and which department they are in. |
 | **Configuration** | Admin-only CRUD over the lists that drive every dropdown — types, products, areas, priorities, severities, statuses, labels and sources. |
 | **Profile** | Your own account — reached from the avatar in the header. Shows your name, email and role; lets you change your photo and your password. |
 
@@ -24,6 +24,9 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 |---|:--:|:--:|:--:|
 | Work tickets on Issues and Board | ✅ | ✅ | ✅ |
 | Assign a ticket's severity | ✅ | ✅ | ✅ |
+| Pick up a ticket nobody is on | ✅ | ✅ | ✅ |
+| Set someone's department (managers: non-admins) | — | ✅ | ✅ |
+| Change who is on an **already-assigned** ticket | — | ✅ | ✅ |
 | Re-file a ticket (product, area) | ✅ | ✅ | ✅ |
 | Comment (edit/delete own for 5 min) | ✅ | ✅ | ✅ |
 | Load saved views | ✅ | ✅ | ✅ |
@@ -34,6 +37,7 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | Reset password / disable an **admin** | — | — | ✅ |
 | Create or delete accounts, change roles | — | — | ✅ |
 | Create projects, set members, close them | — | — | ✅ |
+| Manage a project's support schedule | — | — | ✅ |
 | **Delete tickets** | — | — | ✅ |
 | Configuration lists | — | — | ✅ |
 
@@ -64,6 +68,7 @@ A project has four things:
 | **Key** | Three or four letters — `ACME`. Unique, and **permanent**. |
 | **Members** | Who can see its tickets. |
 | **Status** | Incoming, In Progress or Closed. |
+| **Schedule** | Who is on support, and when. See [The support schedule](#the-support-schedule). |
 
 ### The key
 
@@ -98,6 +103,51 @@ Membership is enforced by row-level security, not just by the filter — the
 `issues` policy, and the policies on comments, attachments and the status
 timeline, all check membership of the ticket's project. Admins are exempt, since
 they create projects and would otherwise be locked out of their own.
+
+### The support schedule
+
+Most tickets should not need assigning by hand. A project keeps a **rota**: a
+date range and the one or two people on support for it. When a request arrives,
+the database finds the schedule covering its **submitted date** and puts those
+people on the ticket.
+
+Open it from the calendar button on a project's row. Schedules are grouped the
+way a rota is read — **On now**, **Coming up**, **Past** — and any of them can be
+edited or deleted; past ones are kept because they are the answer to "who had
+this ticket in January".
+
+| | |
+|---|---|
+| **From / To** | Inclusive at both ends. A one-day rota has the same date twice. |
+| **On support** | One or two people, from different [departments](#departments). |
+
+A rota carries the same department rule a ticket does — it is where most pairs
+come from, and one naming two engineers would mint tickets that break the rule.
+If somebody moves department after a rota is written, that schedule is flagged
+*"Both in Engineering"* in this dialog, and a ticket arriving in its range is
+assigned **only the first of the two** rather than failing to file: a customer's
+request must never be lost to an HR change.
+
+**Two schedules in a project may never cover the same day.** Otherwise "who is
+on today" would have two answers and the trigger would quietly pick one. The
+dialog names the schedule in the way before you can save — *"12 Jan 2026 – 18 Jan
+2026 is already covered by Ada Lovelace and Grace Hopper"* — and a database
+exclusion constraint refuses the overlap however the row arrives.
+
+Three things worth knowing about how a schedule reaches a ticket:
+
+- It reads **`submitted_date`, not the time of the insert**. A ticket you log by
+  hand against last Tuesday lands on whoever was on last Tuesday. Public
+  submissions have their date pinned to now by a trigger, so they always land on
+  today's pair.
+- It **only ever fills an empty set**. A ticket created with someone already on
+  it keeps them.
+- Days are compared in **UTC** — a rota boundary has to fall on the same day for
+  everyone reading the schedule.
+
+Deleting a schedule does not touch tickets it already assigned; those people
+were genuinely on them. Only admins create or change a rota, but every member of
+the project can read it.
 
 ## Companies
 
@@ -149,9 +199,10 @@ Opening a ticket gives a three-column view:
   you paste is reduced to the ticket key (`ENG-1234`) when you leave the field
   and again when you save, so the "Open in Jira" link is always well formed.
   Text with no key in it is left exactly as you wrote it.
-- **Centre** — **assignee and status side by side** at the top — the assignee
-  picker shows each person's photo, and the status picker a coloured dot for the
-  status *type*, the same dot the board columns use — then the description,
+- **Centre** — **assignees and status side by side** at the top — the assignee
+  picker shows each person's photo and holds **up to two** of them, and the
+  status picker a coloured dot for the status *type*, the same dot the board
+  columns use — then the description,
   then the **comment** thread with the composer beneath the existing comments.
   Anyone signed in can comment; the author can edit or delete their own comment
   for **5 minutes**, after which the buttons disappear on their own. The
@@ -170,6 +221,86 @@ see [Share links](#share-links) below.
 New tickets automatically start at the first status in sort order, and every
 status change is recorded by a database trigger — so tickets submitted through
 the public form get a timeline too.
+
+## Departments
+
+Everyone belongs to exactly one of five departments:
+
+**Product · Design · Support · Engineering · Quality**
+
+It is a **fixed list**, not a Configuration one. Types, severities and statuses
+are vocabulary the team tunes; departments are the shape of the organisation, so
+they live in a check constraint on `profiles.department`, a constant in
+[`src/lib/users.js`](src/lib/users.js) and a mirror of it in the `admin-users`
+function. Adding a sixth is a migration and two edits, deliberately.
+
+A department is set on the **Users** page, by an admin — or by a manager, for
+managers and members, the same boundary as editing anything else about an
+account. You cannot change your own: a database trigger pins it back on a
+self-write, alongside role, email and active status, because your department
+decides who you can be paired with and that is the team's call rather than
+yours. Your own shows read-only on [your profile](#your-profile).
+
+Every account has one. Accounts that existed before departments did were
+backfilled to **Support**, and an account created straight from the Supabase
+dashboard gets the same default — a placeholder so the rule below is enforceable
+from day one, not a finding. Correct them on the Users page.
+
+## Assignees
+
+A ticket carries **up to two people**. Two, because support here is worked in
+pairs — someone holding it and someone who can pick it up — and a list with no
+ceiling is a list nobody owns. Both names count equally: a shared ticket is on
+both their Dashboard queues, matches both their filters on Issues and Board, and
+counts for both in the *By assignee* breakdown (which is why that breakdown's
+shares can add past 100%, and says so). The order is still a decision — the
+first name is who it is mainly on.
+
+**The two must come from two different [departments](#departments).** A pair is
+meant to be two readings of the same problem — engineering and quality, support
+and product — so two people from one department is not a pair, it is the same
+reading twice. One assignee is always fine; the rule only has anything to say
+about a second.
+
+The picker enforces it by closing options rather than by complaining after the
+fact: each person's department is shown under their name, and once somebody is
+on the ticket everyone else from their department greys out. Anyone already on
+it stays clickable, or there would be no way to take them off. The chips read
+*"Ada Lovelace · Engineering"*, so a pair is legible as two departments without
+looking anyone up. A database trigger refuses a same-department pair however the
+update arrives, on tickets and on schedules alike.
+
+One wrinkle worth knowing: the rule is checked when the assignee set is
+**written**, not continuously. If somebody moves department afterwards, a pair
+that was valid stays on its ticket — rewriting history is not the answer — but
+the field says *"Both are in Engineering"*, and the next real change to that
+ticket's assignees has to fix it.
+
+Most tickets are assigned before anyone opens them, by the project's
+[support schedule](#the-support-schedule). The ticket is where that gets
+corrected.
+
+**Picking up a ticket nobody is on is ordinary work**, so anyone signed in may.
+**Changing a set that already names somebody is not** — it takes work off a
+colleague, or hands yours to one — so that is an admin or a manager. The picker
+goes read-only for a member on an assigned ticket and says why rather than just
+sitting there dead. Taking yourself off a ticket is the same act, and gets the
+same answer.
+
+**A ticket cannot leave a New status with nobody on it.** The status dropdown
+offers nothing to move to, the field says *"Assign someone before moving this
+ticket on"*, and a database trigger refuses the update however it arrives.
+Unlike the severity gate, this one **does** cover Closed: a request can be
+rejected without ever being triaged, but somebody did the rejecting and the
+ticket should say who.
+
+Where a ticket shows two people, there is only room for one name — the Issues
+grid, board cards and the Dashboard lists draw both faces and read
+*"Ada Lovelace +1"*, with both names in the tooltip. Sorting and export still
+run off the names, so the column means what it says.
+
+Deleting an account takes it off the tickets it was on, rather than leaving an
+id that resolves to nobody.
 
 ## Severity
 
@@ -313,12 +444,14 @@ replacing it: assigning a severity never unlocks a move backwards.
 Everyone's landing point for **one project's open work**. Everything on it
 counts **only tickets that are not done** — a closed ticket has no queue
 position, no running clock and no share of what is left — so a tile and a
-breakdown on the page always add up to the same number.
+breakdown on the page always add up to the same number — with one stated
+exception, the *By assignee* breakdown, below.
 
 - **Tiles** — open tickets, how many are assigned to you, how many have used
   75% or more of their SLA target, how many are unassigned, and how many are
   still untriaged.
-- **My issues** — your open tickets with their severity and the time on their
+- **My issues** — your open tickets — including the ones you are the *second*
+  name on — with their severity and the time on their
   SLA clock, the most of a target consumed first. Untriaged tickets sort last:
   nothing has been promised about them yet, so they cannot be more urgent than
   something that has. The clock is SLA-elapsed, not age — a pause stops it.
@@ -331,7 +464,10 @@ breakdown on the page always add up to the same number.
 - **Breakdowns** — open tickets by status (in the configured workflow order, not
   by size), by assignee (unassigned included, because that is the slice worth
   acting on) and by severity (untriaged gets its own grey slice). Each bar
-  carries its count and its share of the open queue.
+  carries its count and its share of the open queue. A ticket on
+  [two people](#assignees) counts for **both** — it is work on both their plates
+  — so that one breakdown can add past 100%, and its subtitle says how many
+  tickets are shared rather than leaving the arithmetic to look wrong.
 
 Click any row to open the ticket. Both lists cap at eight rows and say how many
 more they are holding back. The maths lives in
@@ -436,9 +572,11 @@ be your own user id. Because the path never changes, the saved URL carries a
 `?v=` cache-buster.
 
 Saving your own profile row goes through the `profiles_self_update` policy. A
-trigger pins `role`, `is_active` and `email` back to their old values on any
-self-write by a non-admin, so that policy cannot be used from the browser to
-promote yourself — the `admin-users` function stays the only writer of `role`.
+trigger pins `role`, `is_active`, `email` and `department` back to their old
+values on any self-write by a non-admin, so that policy cannot be used from the
+browser to promote yourself, or to move yourself into a department you would
+rather be paired from — the `admin-users` function stays the only writer of
+`role`.
 
 ## Setup
 
