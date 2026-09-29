@@ -163,10 +163,15 @@ export default function IssueForm({
       if (staff && files.length === 0) {
         throw new Error("Attach the customer's original request before creating the ticket.")
       }
-      const { data: issue, error: insertErr } = await supabase
+      // The id is minted here, not read back: `.select()` after an insert needs
+      // a SELECT policy, and anon deliberately has none — asking for the row
+      // back is what fails a public submission with 42501.
+      const issueId = crypto.randomUUID()
+      const { error: insertErr } = await supabase
         .from('issues')
         .insert({
           ...values,
+          id: issueId,
           project_id: projectId,
           title: values.title.trim(),
           ...(staff ? {
@@ -185,23 +190,21 @@ export default function IssueForm({
             ? new Date(values.submitted_date).toISOString()
             : new Date().toISOString(),
         })
-        .select('id')
-        .single()
       if (insertErr) throw insertErr
 
       for (const file of files) {
-        const path = `${issue.id}/${crypto.randomUUID()}-${file.name}`
+        const path = `${issueId}/${crypto.randomUUID()}-${file.name}`
         const { error: upErr } = await supabase.storage
           .from('attachments').upload(path, file, { contentType: file.type })
         if (upErr) throw upErr
         const { error: attErr } = await supabase.from('attachments').insert({
-          issue_id: issue.id, file_name: file.name, file_path: path,
+          issue_id: issueId, file_name: file.name, file_path: path,
           mime_type: file.type, size_bytes: file.size,
         })
         if (attErr) throw attErr
       }
       setValues(seed); setFiles([])
-      onSubmitted?.(issue.id)
+      onSubmitted?.(issueId)
     } catch (err) {
       setError(err.message ?? 'Something went wrong. Please try again.')
     } finally {
