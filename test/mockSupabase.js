@@ -122,6 +122,9 @@ export const supabase = {
       createSignedUrl: async (path) => ({
         data: { signedUrl: `https://signed.example/${path}` }, error: null,
       }),
+      createSignedUrls: async (paths) => ({
+        data: paths.map((path) => ({ path, signedUrl: `https://signed.example/${path}` })), error: null,
+      }),
       getPublicUrl: (path) => ({
         data: { publicUrl: `https://public.example/${bucket}/${path}` },
       }),

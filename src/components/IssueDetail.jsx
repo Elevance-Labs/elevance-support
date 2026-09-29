@@ -5,9 +5,6 @@ import {
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import LockIcon from '@mui/icons-material/Lock'
-import DescriptionIcon from '@mui/icons-material/Description'
-import ImageIcon from '@mui/icons-material/Image'
-import MovieIcon from '@mui/icons-material/Movie'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import LinkIcon from '@mui/icons-material/Link'
 import CheckIcon from '@mui/icons-material/Check'
@@ -28,6 +25,7 @@ import {
   allowedStatuses, slaStatus, statusTypeOf, hasSeverity, slaHoursBySeverity,
 } from '../lib/sla'
 import StatusTimeline from './StatusTimeline'
+import AttachmentGallery from './AttachmentGallery'
 import CommentsThread from './CommentsThread'
 import UserAvatar, { UserOption } from './UserAvatar'
 import { StatusLabel } from './StatusDot'
@@ -63,10 +61,10 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
     setLoading(true); setError(''); setCopied(false)
     const [{ data: i }, { data: a }, { data: e }] = await Promise.all([
       supabase.from('issues').select('*').eq('id', issueId).single(),
-      supabase.from('attachments').select('*').eq('issue_id', issueId),
+      supabase.from('attachments').select('*').eq('issue_id', issueId).order('created_at'),
       supabase.from('status_events').select('*').eq('issue_id', issueId).order('created_at'),
     ])
-    setIssue(i); setAttachments(a ?? []); setEvents(e ?? [])
+    setIssue(i); setAttachments(await signAttachments(a ?? [])); setEvents(e ?? [])
     setLoading(false)
   }, [issueId])
 
@@ -164,13 +162,6 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
       // No Clipboard API (an insecure origin, usually) — show it to copy by hand.
       setError(`Copy this link: ${shareUrl}`)
     }
-  }
-
-  const openAttachment = async (path) => {
-    // Private bucket — hand out a short-lived signed URL.
-    const { data, error } = await supabase.storage.from('attachments').createSignedUrl(path, 60)
-    if (error) return setError(error.message)
-    window.open(data.signedUrl, '_blank', 'noopener')
   }
 
   const remove = async () => {
@@ -423,14 +414,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
                 {attachments.length > 0 && (
                   <>
                     <Divider sx={{ my: 2 }} />
-                    <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
-                      {attachments.map((a) => (
-                        <Chip key={a.id}
-                          icon={attachmentIcon(a.mime_type)}
-                          label={a.file_name} variant="outlined"
-                          onClick={() => openAttachment(a.file_path)} />
-                      ))}
-                    </Stack>
+                    <AttachmentGallery items={attachments} />
                   </>
                 )}
               </Paper>
@@ -499,10 +483,17 @@ const Field = ({ label, value }) => (
   </Stack>
 )
 
-// A PDF, a screen recording and a screenshot are three different things to open,
-// so the chip says which before it is clicked.
-function attachmentIcon(mime) {
-  if (mime === 'application/pdf') return <DescriptionIcon />
-  if (mime?.startsWith('video/')) return <MovieIcon />
-  return <ImageIcon />
+// The bucket is private, so every attachment needs a signed URL before it can
+// be drawn as a thumbnail. One batch call; an hour covers a long look at a ticket.
+const SIGNED_URL_TTL_SECONDS = 60 * 60
+
+async function signAttachments(rows) {
+  if (rows.length === 0) return []
+  const { data } = await supabase.storage.from('attachments')
+    .createSignedUrls(rows.map((r) => r.file_path), SIGNED_URL_TTL_SECONDS)
+  const urlByPath = Object.fromEntries((data ?? []).map((d) => [d.path, d.signedUrl]))
+  return rows.map((r) => ({
+    key: r.id, name: r.file_name, mime: r.mime_type, size: r.size_bytes,
+    url: urlByPath[r.file_path] ?? null,
+  }))
 }

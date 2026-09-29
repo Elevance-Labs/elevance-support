@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Alert, Autocomplete, Box, Button, Chip, CircularProgress, Divider, MenuItem,
+  Alert, Autocomplete, Box, Button, CircularProgress, Divider, MenuItem,
   Stack, TextField, Typography,
 } from '@mui/material'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
-import CloseIcon from '@mui/icons-material/Close'
 import { supabase } from '../lib/supabase'
 import { useConfig, PUBLIC_SOURCE } from '../context/ConfigContext'
 import { toInputDateTime } from '../lib/format'
 import { activeCompanies, findCompany } from '../lib/companies'
 import { SeverityOption, SeverityValue } from './SeverityOption'
+import AttachmentGallery from './AttachmentGallery'
 
 const MAX_FILES = 5
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
@@ -25,6 +25,10 @@ const MAX_VIDEO_BYTES = 30 * 1024 * 1024
 // so a 30MB screenshot is still refused.
 const limitFor = (type) => (VIDEO_TYPES.includes(type) ? MAX_VIDEO_BYTES : MAX_BYTES)
 const asMb = (bytes) => Math.round(bytes / (1024 * 1024))
+// Null where there is no object URL support (tests); the tile falls back to an icon.
+const objectUrl = (file) => {
+  try { return URL.createObjectURL(file) } catch { return null }
+}
 
 export const EMPTY_ISSUE = {
   type: '', product: '', area: '', priority: '', title: '', description: '',
@@ -122,6 +126,15 @@ export default function IssueForm({
     }
     setFiles(next)
   }
+
+  // Local previews of what is about to be uploaded. Each object URL is released
+  // when its file leaves the list, or the form goes away.
+  const previews = useMemo(() => files.map((f, i) => ({
+    key: `${f.name}-${f.size}-${i}`, name: f.name, mime: f.type, size: f.size,
+    // Only images get a preview URL; a video or PDF tile is just an icon.
+    url: f.type.startsWith('image/') ? objectUrl(f) : null,
+  })), [files])
+  useEffect(() => () => previews.forEach((p) => p.url && URL.revokeObjectURL(p.url)), [previews])
 
   const addFiles = (e) => {
     acceptFiles(Array.from(e.target.files ?? []))
@@ -361,14 +374,11 @@ export default function IssueForm({
             )}
             <input ref={fileInput} type="file" hidden multiple
               accept={ACCEPT.join(',')} onChange={addFiles} />
-            {files.length > 0 && (
-              <Stack direction="row" sx={{ mt: 1.5, flexWrap: 'wrap', gap: 1 }}>
-                {files.map((f, i) => (
-                  <Chip key={`${f.name}-${i}`} label={f.name} size="small"
-                    onDelete={() => setFiles(files.filter((_, j) => j !== i))}
-                    deleteIcon={<CloseIcon />} />
-                ))}
-              </Stack>
+            {previews.length > 0 && (
+              <Box sx={{ mt: 1.5 }}>
+                <AttachmentGallery items={previews} size="small"
+                  onRemove={(i) => setFiles(files.filter((_, j) => j !== i))} />
+              </Box>
             )}
           </Box>
         </Section>
