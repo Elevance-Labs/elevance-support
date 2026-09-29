@@ -117,6 +117,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   profile has none. Also `DEPARTMENTS` — a **hardcoded** five (Product, Design,
   Support, Engineering, Quality), mirrored by a check constraint and by
   `admin-users`; a sixth is a migration, not a Configuration row.
+- `attachments.js` — what kind an attachment is (image / video / pdf) and its
+  size label. Feeds `AttachmentGallery` + `AttachmentViewer`, the one thumbnail
+  grid and lightbox used by the form, the ticket dialog and the share page.
 - `publicLink.js` — calls the `public-issue` function; clipboard helper.
 - `jira.js`, `supabase.js` — Jira link building; the shared client.
 

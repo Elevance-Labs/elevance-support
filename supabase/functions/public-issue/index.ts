@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
 
   const [{ data: attachments }, { data: comments }] = await Promise.all([
     admin.from("attachments")
-      .select("id, file_name, file_path, mime_type")
+      .select("id, file_name, file_path, mime_type, size_bytes")
       .eq("issue_id", issue.id)
       .order("created_at"),
     admin.from("comments")
@@ -111,6 +111,7 @@ Deno.serve(async (req) => {
       id: a.id,
       file_name: a.file_name,
       mime_type: a.mime_type,
+      size_bytes: a.size_bytes,
       url: data?.signedUrl ?? null,
     };
   }));

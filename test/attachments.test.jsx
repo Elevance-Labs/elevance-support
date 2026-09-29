@@ -39,7 +39,7 @@ const fakeFile = (name, type, size = 1000) => {
   return f
 }
 
-const chips = () => [...D.querySelectorAll('.MuiChip-label')].map((c) => c.textContent)
+const chips = () => [...D.querySelectorAll('[data-attachment-name]')].map((c) => c.textContent)
 const errorText = () => D.querySelector('.MuiAlert-message')?.textContent ?? ''
 
 // Paste into the description, carrying whatever the clipboard holds.
@@ -102,5 +102,15 @@ await pick([fakeFile('macro.exe', 'application/x-msdownload')])
 check('an executable is refused', chips().length === 0, chips().join(', '))
 check('and says what is allowed',
   /PDF, image or video/.test(errorText()), errorText())
+
+// 7. Each attachment is a tile that can be taken off again
+await mount()
+await pick([fakeFile('one.png', 'image/png'), fakeFile('two.pdf', 'application/pdf')])
+check('two files make two tiles', chips().length === 2, chips().join(', '))
+const removeOne = D.querySelector('button[aria-label="Remove one.png"]')
+check('each tile has a remove button', Boolean(removeOne))
+await act(async () => { removeOne.click() })
+check('removing a tile drops just that file',
+  chips().length === 1 && chips()[0] === 'two.pdf', chips().join(', '))
 
 done()
