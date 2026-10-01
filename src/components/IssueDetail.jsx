@@ -20,7 +20,8 @@ import { issueRef, publicIssueUrl } from '../lib/projects'
 import { useProject } from '../context/ProjectContext'
 import { byDisplayName, departmentOf, displayName } from '../lib/users'
 import {
-  assigneesOf, canJoin, hasAssignees, MAX_ASSIGNEES, normalizeAssignees, sharedDepartment,
+  assigneesOf, canJoin, hasAssignees, MAX_ASSIGNEES, normalizeAssignees, sameAssignees,
+  sharedDepartment,
 } from '../lib/assignees'
 import {
   allowedStatuses, slaStatus, statusTypeOf, hasSeverity, slaHoursBySeverity,
@@ -49,6 +50,11 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
   const userById = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u])), [users])
   const { profile } = useAuth()
   const { project } = useProject()
+  // Two copies of the ticket: `saved` is the row as the database has it, `issue`
+  // is the draft the fields edit. Anything that states a fact about the ticket —
+  // its SLA, its timeline, what it may move to — reads `saved`, so a choice that
+  // has not been saved never looks like one that has.
+  const [saved, setSaved] = useState(null)
   const [issue, setIssue] = useState(null)
   const [attachments, setAttachments] = useState([])
   const [events, setEvents] = useState([])
@@ -67,7 +73,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
         .is('comment_id', null).order('created_at'),
       supabase.from('status_events').select('*').eq('issue_id', issueId).order('created_at'),
     ])
-    setIssue(i); setAttachments(await signAttachments(a ?? [])); setEvents(e ?? [])
+    setSaved(i); setIssue(i); setAttachments(await signAttachments(a ?? [])); setEvents(e ?? [])
     setLoading(false)
   }, [issueId])
 
@@ -84,11 +90,13 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
   const assignees = assigneesOf(issue)
   const assigned = hasAssignees(issue)
   const statusOptions = issue
-    ? allowedStatuses(lists.status ?? [], issue.status, events, {
+    // From the status the ticket is really in, but gated on the draft's
+    // severity and assignees: all three are written by the one save.
+    ? allowedStatuses(lists.status ?? [], saved.status, events, {
         severity: issue.severity, assignees,
       })
     : []
-  const currentStatusType = issue ? statusTypeOf(lists.status ?? [], issue.status) : null
+  const currentStatusType = issue ? statusTypeOf(lists.status ?? [], saved.status) : null
   // A New ticket is offered no New status, so the field is sitting on a value
   // its own menu does not list. Rather than hand the select a choice it can't
   // find, it holds nothing and draws the real status itself.
@@ -100,7 +108,9 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
 
   // Picking up a ticket nobody holds is work; changing who is on one that is
   // already assigned is scheduling, and belongs to an admin or a manager.
-  const canAssign = can.setAssignees(profile, issue)
+  // Judged on the saved row: picking yourself in the draft must not lock the
+  // field, or drop the pick from the save.
+  const canAssign = can.setAssignees(profile, saved)
 
   // The roster the picker offers: everyone still active, plus anyone already on
   // this ticket, so a disabled account never silently drops off it.
@@ -119,14 +129,41 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
   // measured against nothing until someone says how bad it is.
   const sla = issue
     ? slaStatus({
-        submittedAt: issue.submitted_date,
-        closedAt: issue.closed_at,
+        submittedAt: saved.submitted_date,
+        closedAt: saved.closed_at,
         statusType: currentStatusType,
-        slaHours: slaHoursBySeverity(severities)[issue.severity] ?? null,
-        pausedMs: issue.paused_ms,
-        pausedSince: issue.paused_since,
+        slaHours: slaHoursBySeverity(severities)[saved.severity] ?? null,
+        pausedMs: saved.paused_ms,
+        pausedSince: saved.paused_since,
       })
     : null
+
+  // Whether the draft differs from the row in anything a save would write.
+  const dirty = Boolean(issue && saved) && (
+    issue.status !== saved.status
+    || (issue.severity || null) !== (saved.severity || null)
+    || issue.product !== saved.product
+    || issue.area !== saved.area
+    || (jiraKey(issue.jira_ticket) || null) !== (saved.jira_ticket || null)
+    || !sameAssignees(assignees, assigneesOf(saved))
+    || !sameAssignees(issue.labels ?? [], saved.labels ?? [])
+  )
+
+  // Every way out of the dialog — the close button, Escape, a click outside —
+  // comes through here, so none of them can drop an edit without saying so.
+  const close = () => {
+    if (dirty && !confirm('You have unsaved changes. Discard them and close?')) return
+    onClose()
+  }
+
+  // The same question for a reload or a closed tab, which the browser asks in
+  // its own words.
+  useEffect(() => {
+    if (!open || !dirty) return
+    const warn = (e) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [open, dirty])
 
   const save = async () => {
     setSaving(true); setError('')
@@ -175,7 +212,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
   }
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xl"
+    <Dialog open={open} onClose={close} fullWidth maxWidth="xl"
       slotProps={{ paper: { sx: { height: '92vh' } } }}>
       {loading || !issue ? (
         <Box sx={{ display: 'grid', placeItems: 'center', height: '100%' }}>
@@ -202,13 +239,13 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
                 </IconButton>
               </span>
             </Tooltip>
-            <Button variant="contained" onClick={save} disabled={saving}>
+            <Button variant="contained" onClick={save} disabled={saving || !dirty}>
               {saving ? 'Saving…' : 'Save changes'}
             </Button>
             {can.deleteIssue(profile) && (
               <Button color="error" onClick={remove}>Delete</Button>
             )}
-            <IconButton onClick={onClose}><CloseIcon /></IconButton>
+            <IconButton onClick={close}><CloseIcon /></IconButton>
           </Stack>
 
           {error && <Alert severity="error" sx={{ m: 2, mb: 0 }} onClose={() => setError('')}>{error}</Alert>}
@@ -429,8 +466,8 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
             <Box>
               <StatusTimeline
                 statuses={statuses} events={events} users={users}
-                currentStatus={issue.status} submittedAt={issue.submitted_date}
-                closedAt={issue.closed_at} sla={sla}
+                currentStatus={saved.status} submittedAt={saved.submitted_date}
+                closedAt={saved.closed_at} sla={sla}
               />
             </Box>
           </Box>

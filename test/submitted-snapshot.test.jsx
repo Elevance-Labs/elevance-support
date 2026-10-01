@@ -1,4 +1,4 @@
-import { setupDom, reporter } from './setup.js'
+import { setupDom, reporter, touchTicket } from './setup.js'
 const dom = setupDom('http://localhost/issues')
 
 const { createRoot } = await import('react-dom/client')
@@ -57,6 +57,8 @@ const fieldFor = (label) => {
 
 async function save() {
   captured.updates.length = 0
+  // Save is only offered once something has changed.
+  await act(async () => { touchTicket(dom) })
   await act(async () => {
     ;[...D.querySelectorAll('button')]
       .find((b) => b.textContent.trim().startsWith('Save changes'))

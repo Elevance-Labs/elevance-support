@@ -35,6 +35,18 @@ export function setupDom(url = 'http://localhost/') {
   return dom
 }
 
+/**
+ * Make an open ticket differ from its saved row, so Save is enabled. Types a
+ * Jira key: the one field every role may edit and no test of a save is about.
+ */
+export function touchTicket(dom) {
+  const input = dom.window.document
+    .querySelector('input[placeholder="ENG-1234 or a pasted Jira link"]')
+  Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')
+    .set.call(input, 'TOUCH-1')
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+}
+
 export function reporter() {
   const state = { fail: 0 }
   return {
