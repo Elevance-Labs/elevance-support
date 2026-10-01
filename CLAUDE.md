@@ -59,8 +59,11 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `/issues` — filterable DataGrid of tickets; admins/managers save **views**.
 - `/board` — kanban by status; drag between lanes to change status.
 - `/report` — manager/admin analytics over the selected range.
+- `/schedule` — the selected project's **support rota**; manager/admin. Exists
+  because Projects is admin-only and running the rota is not the same power as
+  renaming or deleting a project. Same `ScheduleManager` as the Projects dialog.
 - `/projects` — admin-only CRUD over projects, their members and their
-  **support schedule** (the rota dialog; see `schedules.js`).
+  **support schedule** (a dialog wrapping the same `ScheduleManager`).
 - `/users` — admin/manager CRUD over accounts.
 - `/config` — admin-only CRUD over the dropdown lists.
 - `/profile` — your own account: shows name/email/role, changes photo and
@@ -139,8 +142,11 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `ends_on` date range and the one or two `assignee_ids` on support for it.
   Ranges may not overlap within a project — an exclusion constraint, so "who is
   on for this day" always has exactly one answer — and a pair on one must span
-  two departments, same rule as a ticket. Read by project members,
-  written by admins only. A ticket's `submitted_date` (taken in **UTC**) is what
+  two departments, same rule as a ticket. Read by project members. **Admins**
+  create, update and delete any; **managers** create any and update/delete only
+  current and upcoming ones (`can.changeSchedule`), in projects they belong to.
+  "Past" is judged on the UTC day. RLS refuses by matching no rows, so the UI
+  withholds the controls and reports a write that came back empty. A ticket's `submitted_date` (taken in **UTC**) is what
   the insert trigger looks up, so a back-dated ticket lands on whoever was on
   then, not on today's pair.
 - `issues` — the ticket. Request fields, submission details, workflow fields,

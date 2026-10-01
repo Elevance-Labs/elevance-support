@@ -46,13 +46,33 @@ export const PROJECT_MEMBERS = [
   { project_id: 'proj-1', user_id: 'user-3' },
 ]
 
-// The support rota. One range in the past and one running now, so the dialog
-// has something in every group it draws and `phaseOf` is exercised both ways.
+/**
+ * The support rota: one range that has run, one running now, one still ahead.
+ *
+ * Anchored to the day the suite runs rather than to fixed dates, because which
+ * group a schedule falls into — and, since managers only reach the live ones,
+ * who may edit it — is a question about today. Fixed dates would quietly all
+ * become "past" and stop testing the rule.
+ */
+export const dayKey = (offset) =>
+  new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10)
+
+export const SCHEDULE_DAYS = {
+  pastStart: dayKey(-30), pastEnd: dayKey(-24),
+  liveStart: dayKey(-2),  liveEnd: dayKey(4),
+  nextStart: dayKey(10),  nextEnd: dayKey(16),
+}
+
 export const PROJECT_SCHEDULES = [
-  { id: 'sch-1', project_id: 'proj-1', starts_on: '2026-01-05', ends_on: '2026-01-11',
+  { id: 'sch-past', project_id: 'proj-1',
+    starts_on: SCHEDULE_DAYS.pastStart, ends_on: SCHEDULE_DAYS.pastEnd,
     assignee_ids: ['user-1'], created_by: 'user-1' },
-  { id: 'sch-2', project_id: 'proj-1', starts_on: '2026-01-12', ends_on: '2026-01-18',
+  { id: 'sch-live', project_id: 'proj-1',
+    starts_on: SCHEDULE_DAYS.liveStart, ends_on: SCHEDULE_DAYS.liveEnd,
     assignee_ids: ['user-1', 'user-2'], created_by: 'user-1' },
+  { id: 'sch-next', project_id: 'proj-1',
+    starts_on: SCHEDULE_DAYS.nextStart, ends_on: SCHEDULE_DAYS.nextEnd,
+    assignee_ids: ['user-2'], created_by: 'user-1' },
 ]
 
 export const captured = {
@@ -81,6 +101,29 @@ const chain = (data) => {
   p.maybeSingle = () => Promise.resolve({ data: rows[0] ?? null, error: null })
   return p
 }
+/**
+ * What a write resolves to: one affected row, whatever was filtered.
+ *
+ * Separate from `chain` because a write's `.eq()` says which row to change, not
+ * which of the returned rows to keep — and the app reads the returned rows to
+ * tell a write row-level security refused (zero rows, no error) from one that
+ * landed. A test that wants the refusal simulates it with `refuseWrites`.
+ */
+const writeChain = (row) => {
+  const rows = refuseWrites.on ? [] : [row]
+  const p = Promise.resolve({ data: rows, error: null })
+  p.select = () => writeChain(row)
+  p.order = () => writeChain(row)
+  p.eq = () => writeChain(row)
+  p.in = () => writeChain(row)
+  p.single = () => Promise.resolve({ data: rows[0] ?? {}, error: null })
+  p.maybeSingle = () => Promise.resolve({ data: rows[0] ?? null, error: null })
+  return p
+}
+
+/** Flip on to make every write come back having changed nothing, as RLS does. */
+export const refuseWrites = { on: false }
+
 const tableData = (table) => {
   if (table === 'list_items') return LIST_ITEMS
   if (table === 'issues') return FIXTURES.issues
@@ -99,8 +142,8 @@ export const supabase = {
   from(table) {
     return {
       select: () => chain(tableData(table)),
-      insert: (row) => { captured.inserts.push({ table, row }); return chain([{ id: 'new-issue' }]) },
-      update: (row) => { captured.updates.push({ table, row }); return chain([]) },
+      insert: (row) => { captured.inserts.push({ table, row }); return writeChain({ id: 'new-issue' }) },
+      update: (row) => { captured.updates.push({ table, row }); return writeChain({ id: 'updated' }) },
       // Hands back the rows it matched, as `.delete().eq(…).select()` does, and
       // records which table it was asked of.
       delete: () => { captured.deletes.push({ table }); return chain(tableData(table)) },

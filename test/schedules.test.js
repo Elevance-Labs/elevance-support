@@ -3,6 +3,7 @@ import {
   byStartDesc, covers, formatRange, isValidRange, lengthInDays, overlapping,
   overlaps, phaseOf, scheduleFor, toDateKey,
 } from '../src/lib/schedules.js'
+import { can } from '../src/lib/permissions.js'
 
 const { check, done } = reporter()
 
@@ -69,6 +70,29 @@ check('a range yet to start is upcoming', phaseOf(WEEK_2, '2026-01-08') === 'upc
 // Both ends are inclusive, so the last day is still "on now", not "past".
 check('the last day is still on now', phaseOf(WEEK_1, '2026-01-11') === 'current')
 check('the first day is already on now', phaseOf(WEEK_1, '2026-01-05') === 'current')
+
+// ---------------- who may change one ----------------
+const admin   = { id: 'a', role: 'admin' }
+const manager = { id: 'm', role: 'manager' }
+const member  = { id: 'u', role: 'member' }
+const DAY = '2026-01-14'   // WEEK_1 has ended; WEEK_2 is running; MARCH is ahead.
+
+check('a manager may create schedules', can.manageSchedules(manager))
+check('an admin may create schedules', can.manageSchedules(admin))
+check('a member may not', !can.manageSchedules(member))
+check('signed out, nobody may', !can.manageSchedules(null))
+
+check('a manager may change the schedule running now',
+  can.changeSchedule(manager, WEEK_2, DAY))
+check('and one still ahead', can.changeSchedule(manager, MARCH, DAY))
+check('but not one that has already ended', !can.changeSchedule(manager, WEEK_1, DAY))
+check('an admin may change even one that has ended', can.changeSchedule(admin, WEEK_1, DAY))
+check('a member may change none of them',
+  [WEEK_1, WEEK_2, MARCH].every((s) => !can.changeSchedule(member, s, DAY)))
+// Both ends of a range count, so a schedule ending today is still current.
+check('a manager keeps a schedule on its last day',
+  can.changeSchedule(manager, WEEK_1, '2026-01-11'))
+check('and loses it the day after', !can.changeSchedule(manager, WEEK_1, '2026-01-12'))
 
 // ---------------- shape and display ----------------
 check('a range needs both ends', !isValidRange({ starts_on: '2026-01-05', ends_on: '' }))

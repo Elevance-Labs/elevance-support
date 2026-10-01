@@ -12,6 +12,7 @@ import Issues from './pages/Issues'
 import Board from './pages/Board'
 import Report from './pages/Report'
 import Projects from './pages/Projects'
+import Schedule from './pages/Schedule'
 import Users from './pages/Users'
 import Profile from './pages/Profile'
 import Configuration from './pages/Configuration'
@@ -78,6 +79,7 @@ export default function App() {
               <Route path="/profile" element={<Profile />} />
               <Route path="/board" element={<Board />} />
               <Route path="/report" element={<Protected require={can.seeReports}><Report /></Protected>} />
+              <Route path="/schedule" element={<Protected require={can.seeSchedules}><Schedule /></Protected>} />
               <Route path="/projects" element={<Protected require={can.seeProjects}><Projects /></Protected>} />
               <Route path="/users" element={<Protected require={can.seeUsers}><Users /></Protected>} />
               <Route path="/config" element={<Protected require={can.seeConfig}><Configuration /></Protected>} />

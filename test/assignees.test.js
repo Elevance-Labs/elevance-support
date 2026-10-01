@@ -62,8 +62,9 @@ check('an admin may change an owned ticket', can.setAssignees(admin, owned))
 // Taking yourself off a ticket is still changing an owned one.
 check('a member cannot unassign themselves either',
   !can.setAssignees({ id: ADA, role: 'member' }, owned))
-check('only an admin runs the rota',
-  can.manageSchedules(admin) && !can.manageSchedules(manager) && !can.manageSchedules(member))
+// The rota splits by role *and* by time; see test/schedules.test.js.
+check('an admin and a manager run the rota, a member does not',
+  can.manageSchedules(admin) && can.manageSchedules(manager) && !can.manageSchedules(member))
 
 // ---------------- departments: a pair is two of them ----------------
 const ada   = { id: ADA,   full_name: 'Ada Lovelace',  department: 'Engineering' }

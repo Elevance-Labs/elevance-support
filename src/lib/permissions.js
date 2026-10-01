@@ -18,6 +18,7 @@
 
 import { toMillis } from './format'
 import { hasAssignees } from './assignees'
+import { toDateKey } from './schedules'
 
 export const ROLES = ['admin', 'manager', 'member']
 
@@ -83,8 +84,39 @@ export const can = {
   setAssignees: (p, issue) =>
     Boolean(p) && (isManagerOrAdmin(p) || !hasAssignees(issue)),
 
-  /** Creating, editing and retiring a project's support rota. */
-  manageSchedules: isAdmin,
+  /**
+   * Seeing a project's support rota at all, and the page it lives on.
+   *
+   * Managers get their own route for it rather than the Projects page, which
+   * stays admin-only: running the rota is not the same power as renaming or
+   * deleting the project it belongs to.
+   */
+  seeSchedules: isManagerOrAdmin,
+
+  /**
+   * Creating a schedule. Admins and managers, any dates.
+   *
+   * Called with no arguments it also answers "may this person manage the rota
+   * at all", which is what shows the New button.
+   */
+  manageSchedules: isManagerOrAdmin,
+
+  /**
+   * Editing or deleting an existing schedule.
+   *
+   * An admin may change any of them. A manager may change current and upcoming
+   * ones — anything whose last day is today or later. Past ones are an admin's.
+   *
+   * "Today" is the UTC day, because that is the day row-level security judges
+   * against; a local day would offer buttons the database then refuses for a
+   * few hours either side of midnight. `day` exists so a test can pick one.
+   */
+  changeSchedule: (p, schedule, day = new Date().toISOString().slice(0, 10)) => {
+    if (isAdmin(p)) return true
+    if (!isManager(p)) return false
+    const ends = toDateKey(schedule?.ends_on)
+    return Boolean(ends) && ends >= day
+  },
 
   // ---- saved views ----
   manageViews: isManagerOrAdmin,

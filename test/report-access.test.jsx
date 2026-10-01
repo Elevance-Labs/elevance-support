@@ -94,12 +94,20 @@ check('member nav has no Report link', !memberNav.includes('Report'), memberNav.
 check('the member still gets the pages they may use',
   memberNav.includes('Issues') && memberNav.includes('Board'), memberNav.join(', '))
 
-// ---- Projects is admin-only, and sits between Report and Users ----
+// ---- Projects is admin-only; Schedule is the manager's way to the rota ----
 check('admin nav offers Projects', adminNav.includes('Projects'), adminNav.join(', '))
 check('manager nav has no Projects link', !managerNav.includes('Projects'), managerNav.join(', '))
 check('member nav has no Projects link', !memberNav.includes('Projects'), memberNav.join(', '))
-check('Projects sits between Report and Users in the nav',
-  adminNav.indexOf('Projects') === adminNav.indexOf('Report') + 1
+
+// Running the rota is not the same power as renaming or deleting the project
+// its tickets belong to, so a manager gets the one and not the other.
+check('manager nav offers Schedule', managerNav.includes('Schedule'), managerNav.join(', '))
+check('admin nav offers Schedule too', adminNav.includes('Schedule'), adminNav.join(', '))
+check('member nav has no Schedule link', !memberNav.includes('Schedule'), memberNav.join(', '))
+
+check('Schedule and Projects sit between Report and Users in the nav',
+  adminNav.indexOf('Schedule') === adminNav.indexOf('Report') + 1
+  && adminNav.indexOf('Projects') === adminNav.indexOf('Schedule') + 1
   && adminNav.indexOf('Users') === adminNav.indexOf('Projects') + 1,
   adminNav.join(', '))
 

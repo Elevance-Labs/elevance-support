@@ -696,6 +696,14 @@ create trigger issues_stamp_origin before insert on public.issues
 -- ---------- who was on support that day ----------
 -- At most one row can match: project_schedules_no_overlap is what makes the
 -- `limit 1` honest rather than a coin toss.
+-- Whether a schedule's last day is behind us, in UTC — the day the assignment
+-- below uses. Inclusive: one ending today is current. Read by the manager
+-- write policies further down.
+create or replace function public.schedule_is_past(p_ends_on date)
+returns boolean language sql stable as $$
+  select p_ends_on < (now() at time zone 'UTC')::date;
+$$;
+
 create or replace function public.scheduled_assignees(p_project uuid, p_on date)
 returns uuid[] language sql stable security definer set search_path = public as $$
   select s.assignee_ids
@@ -1158,10 +1166,16 @@ create policy project_members_admin_write on public.project_members for all to a
   using (public.is_admin()) with check (public.is_admin());
 
 -- Members of a project read its rota — it is who to expect a ticket from, and
--- what explains an assignment nobody made by hand. Only admins write one: a
--- schedule is project configuration, and the Projects page it lives on is
--- admin-only. stamp_issue_schedule() reads it as `security definer`, so an
--- anonymous submission is still assigned by a rota it cannot see.
+-- what explains an assignment nobody made by hand. stamp_issue_schedule() reads
+-- it as `security definer`, so an anonymous submission is still assigned by a
+-- rota it cannot see.
+--
+-- Writing it:
+--
+--   admin    — create, update and delete any schedule
+--   manager  — create any schedule; update and delete only current and upcoming
+--              ones (last day today or later, UTC), in projects they belong to
+--   member   — none
 drop policy if exists project_schedules_read on public.project_schedules;
 create policy project_schedules_read on public.project_schedules
   for select to authenticated using (public.is_project_member(project_id));
@@ -1170,6 +1184,38 @@ drop policy if exists project_schedules_admin_write on public.project_schedules;
 create policy project_schedules_admin_write on public.project_schedules
   for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
+
+-- Split per command because the time rule applies to the row already there —
+-- which existing schedules a manager may touch — not to what they write.
+drop policy if exists project_schedules_manager_insert on public.project_schedules;
+create policy project_schedules_manager_insert on public.project_schedules
+  for insert to authenticated
+  with check (
+    public.my_role() = 'manager'
+    and public.is_project_member(project_id)
+  );
+
+drop policy if exists project_schedules_manager_update on public.project_schedules;
+create policy project_schedules_manager_update on public.project_schedules
+  for update to authenticated
+  using (
+    public.my_role() = 'manager'
+    and public.is_project_member(project_id)
+    and not public.schedule_is_past(ends_on)
+  )
+  with check (
+    public.my_role() = 'manager'
+    and public.is_project_member(project_id)
+  );
+
+drop policy if exists project_schedules_manager_delete on public.project_schedules;
+create policy project_schedules_manager_delete on public.project_schedules
+  for delete to authenticated
+  using (
+    public.my_role() = 'manager'
+    and public.is_project_member(project_id)
+    and not public.schedule_is_past(ends_on)
+  );
 
 -- ---------- list_items: public form needs to read them; only admins write ----------
 drop policy if exists lists_read on public.list_items;

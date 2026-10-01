@@ -13,6 +13,7 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | **Issues** | Every request in a filterable table. Admins save filter sets as **views** everyone can load. |
 | **Board** | Jira-style kanban by status. Drag a card between lanes to change its status. Each card leads with its ticket reference and type. |
 | **Report** | Volume, breakdowns and SLA performance for the selected range. |
+| **Schedule** | The selected project's support rota — who is on, and when. Managers and admins. |
 | **Projects** | Admin-only CRUD over projects, their keys, their members and their **support schedule**. |
 | **Users** | Admin-only CRUD over who can sign in and be assigned work, and which department they are in. |
 | **Configuration** | Admin-only CRUD over the lists that drive every dropdown — types, products, areas, priorities, severities, statuses, labels and sources. |
@@ -37,7 +38,8 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | Reset password / disable an **admin** | — | — | ✅ |
 | Create or delete accounts, change roles | — | — | ✅ |
 | Create projects, set members, close them | — | — | ✅ |
-| Manage a project's support schedule | — | — | ✅ |
+| Create schedules; edit or delete current and upcoming ones | — | ✅ | ✅ |
+| Edit or delete a **past** schedule | — | — | ✅ |
 | **Delete tickets** | — | — | ✅ |
 | Configuration lists | — | — | ✅ |
 
@@ -111,10 +113,15 @@ date range and the one or two people on support for it. When a request arrives,
 the database finds the schedule covering its **submitted date** and puts those
 people on the ticket.
 
-Open it from the calendar button on a project's row. Schedules are grouped the
-way a rota is read — **On now**, **Coming up**, **Past** — and any of them can be
-edited or deleted; past ones are kept because they are the answer to "who had
-this ticket in January".
+It has a page of its own — **Schedule** in the nav — showing the selected
+project's rota. Admins can also open it from the calendar button on a project's
+row on the Projects page; it is the same thing either way. The page exists
+because Projects is admin-only, and running the rota is not the same power as
+renaming or deleting the project those tickets belong to.
+
+Schedules are grouped the way a rota is read — **On now**, **Coming up**,
+**Past** — and past ones are kept, because they are the answer to "who had this
+ticket in January".
 
 | | |
 |---|---|
@@ -127,6 +134,25 @@ If somebody moves department after a rota is written, that schedule is flagged
 *"Both in Engineering"* in this dialog, and a ticket arriving in its range is
 assigned **only the first of the two** rather than failing to file: a customer's
 request must never be lost to an HR change.
+
+#### Who may change one
+
+| | Member | Manager | Admin |
+|---|:--:|:--:|:--:|
+| See the rota (projects you belong to) | ✅ | ✅ | ✅ |
+| Create a schedule, any dates | — | ✅ | ✅ |
+| Edit or delete a **current or upcoming** schedule | — | ✅ | ✅ |
+| Edit or delete a **past** schedule | — | — | ✅ |
+
+A schedule is past once its last day is behind us — both ends count, so one
+ending today is still current. The day is taken in **UTC**, the same day the
+assignment trigger uses. A manager only reaches the rotas of projects they
+belong to.
+
+For a manager, past rows show a padlock instead of edit and delete buttons.
+Row-level security enforces the rule, and because RLS refuses an update by
+matching no rows rather than by raising, the page checks what came back and
+says *"Nothing was saved"* rather than reporting a success that changed nothing.
 
 **Two schedules in a project may never cover the same day.** Otherwise "who is
 on today" would have two answers and the trigger would quietly pick one. The
@@ -146,8 +172,7 @@ Three things worth knowing about how a schedule reaches a ticket:
   everyone reading the schedule.
 
 Deleting a schedule does not touch tickets it already assigned; those people
-were genuinely on them. Only admins create or change a rota, but every member of
-the project can read it.
+were genuinely on them.
 
 ## Companies
 

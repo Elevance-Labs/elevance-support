@@ -10,6 +10,7 @@ import BarChartIcon from '@mui/icons-material/BarChart'
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
 import PeopleIcon from '@mui/icons-material/People'
 import FolderIcon from '@mui/icons-material/Folder'
+import EventNoteIcon from '@mui/icons-material/EventNote'
 import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
 import PersonIcon from '@mui/icons-material/Person'
@@ -30,6 +31,7 @@ const NAV = [
   { to: '/issues', label: 'Issues',        icon: <ListAltIcon /> },
   { to: '/board',  label: 'Board',         icon: <ViewKanbanIcon /> },
   { to: '/report', label: 'Report',        icon: <BarChartIcon />,  show: can.seeReports },
+  { to: '/schedule', label: 'Schedule',    icon: <EventNoteIcon />, show: can.seeSchedules },
   { to: '/projects', label: 'Projects',    icon: <FolderIcon />,    show: can.seeProjects },
   { to: '/users',  label: 'Users',         icon: <PeopleIcon />,    show: can.seeUsers },
   { to: '/config', label: 'Configuration', icon: <SettingsIcon />,  show: can.seeConfig },
