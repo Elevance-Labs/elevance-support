@@ -27,6 +27,28 @@ export async function fetchPublicIssue(key, number) {
 }
 
 /**
+ * The read-only payload behind a company page: every ticket filed for one
+ * company, as the `public-company` edge function chooses to show it.
+ *
+ * Same arrangement as above, for the same reason — the allow-list is
+ * server-side. `company` is whatever the link carried: a code, or a name.
+ *
+ * Resolves to `null` when it doesn't match a company on the list.
+ */
+export async function fetchCompanyTickets(company) {
+  const { data, error } = await supabase.functions.invoke('public-company', {
+    body: { company },
+  })
+  if (error) {
+    const status = error.context?.status
+    if (status === 404 || status === 400) return null
+    throw error
+  }
+  if (!data || data.error) return null
+  return data
+}
+
+/**
  * Copy text to the clipboard, reporting whether it worked. The Clipboard API is
  * missing outside secure contexts, so callers need a way to fall back to
  * showing the link rather than silently doing nothing.

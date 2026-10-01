@@ -191,6 +191,14 @@ export const supabase = {
   functions: {
     invoke: async (name, { body } = {}) => {
       captured.functionCalls.push({ name, body })
+      // The company page's function resolves a code, or a name, ignoring case.
+      if (name === 'public-company') {
+        const v = String(body?.company ?? '').toLowerCase()
+        const { company } = COMPANY_PAYLOAD
+        return v === company.code || v === company.name.toLowerCase()
+          ? { data: COMPANY_PAYLOAD, error: null }
+          : { data: null, error: Object.assign(new Error('not_found'), { context: { status: 404 } }) }
+      }
       if (name !== 'public-issue') return { data: null, error: new Error('unknown function') }
       // The pair has to match: the same number under a different project key is
       // a different ticket, or none at all.
@@ -316,5 +324,44 @@ export const PUBLIC_PAYLOAD = {
         { id: 'a2', file_name: 'staging.png', mime_type: 'image/png',
           url: 'https://signed.example/issue-1/staging.png' },
       ] },
+  ],
+}
+
+// ---- the company-page payload the `public-company` edge function returns ----
+// Three tickets across two projects, newest first — which is deliberately not
+// their status order, so the page's default sort has work to do — spread over statuses, products
+// and areas so each grouping has something to split — and one with no area.
+export const COMPANY_PAYLOAD = {
+  company: { name: 'Acme', code: 'acme' },
+  statuses: [
+    { name: 'New', status_type: 'new' },
+    { name: 'Triaged', status_type: 'in_progress' },
+    { name: 'In Progress', status_type: 'in_progress' },
+    { name: 'On Hold', status_type: 'paused' },
+    { name: 'Done', status_type: 'closed' },
+  ],
+  truncated: false,
+  closed_visible_days: 14,
+  tickets: [
+    { project: { name: 'Billing', key: 'BILL' }, number: 7,
+      title: 'Refund shows twice', description: 'Two rows for one refund.',
+      product: 'Web Portal', area: null, status: 'Done',
+      company: 'Acme', requester_name: 'Sam', source: 'Email', source_url: null,
+      submitted_date: iso(1 * DAY), attachments: [] },
+    { project: { name: 'Acme Support', key: 'ACME' }, number: 42,
+      title: 'Cannot export invoice', description: 'The export button spins forever.',
+      product: 'Mobile App', area: 'Billing', status: 'In Progress',
+      company: 'Acme', requester_name: 'Jane', source: 'Form',
+      source_url: 'https://acme.com/billing',
+      submitted_date: iso(3 * DAY),
+      attachments: [
+        { id: 'a1', file_name: 'screenshot.png', mime_type: 'image/png',
+          url: 'https://signed.example/issue-1/screenshot.png' },
+      ] },
+    { project: { name: 'Acme Support', key: 'ACME' }, number: 12,
+      title: 'Login loops back', description: 'Sign-in returns to the sign-in page.',
+      product: 'Mobile App', area: 'Accounts', status: 'New',
+      company: 'Acme', requester_name: 'Jane', source: 'Form', source_url: null,
+      submitted_date: iso(9 * DAY), attachments: [] },
   ],
 }

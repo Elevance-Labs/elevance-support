@@ -83,6 +83,7 @@ why it can never be changed once the project exists:
 ACME-42                          the ticket identifier
 /embed/ACME/form                 the embeddable intake form
 /i/ACME/42                       a ticket's share link
+/tickets?company=wupi            a company's own ticket list
 ```
 
 A customer may have pasted that embed URL into their own page and been sent that
@@ -667,6 +668,14 @@ supabase functions deploy public-issue
 Until this is deployed, share links work for signed-in staff but show a dead end
 to everyone else.
 
+[Company pages](#company-pages) are served by a third, again for the same reason:
+
+```bash
+supabase functions deploy public-company
+```
+
+Until this is deployed, every company page shows an error.
+
 ### 4c. Deploy the new-ticket notification
 
 Whenever a ticket is created — from the embed form or from Create Issue — a card
@@ -847,6 +856,59 @@ If you later want these links to be private again, the shape to go back to is a
 per-ticket random token in place of the number — `/i/ACME/8f2c1a4b…`. That was
 the original design: an unguessable `public_token` column on `issues`, dropped
 before go-live because nothing read it any more.
+
+## Company pages
+
+Each company has a read-only page listing every ticket filed for it, across all
+projects. It is addressed by the same `company` parameter an embed link carries:
+
+```
+https://support.yourcompany.com/tickets?company=wupi
+```
+
+The value is the company's **code** (or its name, ignoring case — and `org`,
+`company_code` and `code` are accepted as the parameter name, as on the embed
+form). Send a company its own link; there is nothing to generate.
+
+The page is a list sorted by status, in workflow order, newest first within a
+status. Each row shows the ticket reference, title, product, area and submission
+date, with the status at the far right, coloured by its type as it is in the
+app. A search box narrows the list by title, description or requester name. A
+row opens to the description, the
+request's attachments and the submission details — company, requester name,
+channel, source URL and date. The **Group by** control splits the list by
+status, product or area; the choice is kept in the URL (`&group=status`), so a
+link can be sent already grouped.
+
+What is deliberately **not** on it: comments and their attachments, assignees,
+severity, priority, type, labels, internal notes, the Jira ticket, the status
+timeline, SLA — and the requester's **email**. Signed-in staff see the same
+page a customer does.
+
+### These links are guessable too
+
+A company code is a short word and the URL holds no secret, so **anyone who
+knows or guesses a code can read that company's list** — including another
+customer. This is the same trade as [share links](#share-links), and the same
+thing limits it: the page is served by the `public-company` Edge Function, which
+reads with `service_role` and returns only the fields above. Nothing was opened
+in row-level security. Treat an addition to that allow-list as a decision to
+publish the field; the requester's email is left off it for exactly that reason.
+
+A ticket **closed more than 14 days ago is not shown**. The function filters on
+`closed_at`, so an old closed ticket never reaches the browser, and a reopened
+one comes back. The footer of the page says so. The window is
+`CLOSED_VISIBLE_DAYS` in the function.
+
+Attachments come back as one-hour signed URLs, and the list stops at the 500
+most recent tickets.
+
+Tickets logged before the company list existed carry only a name; they appear on
+the page of the company whose name matches. A company that is not on the list
+has no page.
+
+If these pages need to be private, the shape to move to is a per-company random
+token in the link in place of the code, kept in a table the anon key cannot read.
 
 ## The embeddable form
 

@@ -35,7 +35,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   are never changed; they live in customers' embed snippets and sent links.
   A share link is the ticket reference (`/i/ACME/42`) and carries no secret, so
   the public view of any ticket is guessable — the `public-issue` allow-list is
-  the only thing limiting what that exposes.
+  the only thing limiting what that exposes. A company page (`?company=wupi`) is
+  the same bargain, guarded by the `public-company` allow-list.
 
 ## 3. Layout
 
@@ -71,6 +72,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `/embed/:key/form` — public, no auth, no chrome; one form per project.
 - `/i/:key/:number` — share link, addressed by ticket reference: staff get
   redirected to the editable view, everyone else gets a read-only page.
+- `/tickets?company=<code>` — public, read-only list of one company's tickets
+  across all projects, groupable by status, product or area (`&group=`). Staff
+  see the same page; no redirect.
 - Guarding happens in `src/App.jsx` via `<Protected require={can.x}>`.
 
 ## 5. Contexts — the app's shared state
@@ -117,7 +121,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `format.js` — timestamp parsing (all `timestamptz`, shown local), durations,
   initials, hashed colours.
 - `companies.js` — resolving a company from a code or a name, and what the
-  pickers and filters may offer.
+  pickers and filters may offer. Also the company page's URL and its grouping.
 - `users.js` — how a person is displayed; derives a name from an email when a
   profile has none. Also `DEPARTMENTS` — a **hardcoded** five (Product, Design,
   Support, Engineering, Quality), mirrored by a check constraint and by
@@ -129,7 +133,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   one thumbnail grid and lightbox used by the form, the ticket dialog, the
   comment thread and the share page.
 - `storage.js` — uploading to and signing from the private `attachments` bucket.
-- `publicLink.js` — calls the `public-issue` function; clipboard helper.
+- `publicLink.js` — calls the `public-issue` and `public-company` functions;
+  clipboard helper.
 - `jira.js`, `supabase.js` — Jira link building; the shared client.
 
 ## 7. Data model (conceptual)
@@ -165,7 +170,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `severity` is internal: an anonymous insert never carries one (the trigger
   drops it), only a signed-in user may change it, and a trigger refuses any move
   into an `in_progress` or `paused` status while it is empty. It is deliberately
-  absent from the `public-issue` allow-list.
+  absent from the `public-issue` and `public-company` allow-lists.
   `assignee_ids` is a `uuid[]` of at most two, replacing the old single
   `assignee_id`. An array carries no foreign key, so a trigger prunes deleted
   accounts out of it. A trigger fills an empty set from the project's schedule
@@ -207,11 +212,17 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `public-issue` — resolves `(project key, ticket number)` to a **field allow-list** for
   the sign-in-free page. Returns attachments as signed URLs — the request's, and
   each comment's with its comment.
+- `public-company` — resolves a company code (or name) to its tickets, each cut
+  to its own **field allow-list**: the request, its attachments (signed URLs),
+  submission details, product, area and current status. Drops tickets closed
+  more than 14 days ago, server-side. No comments, assignees,
+  severity, timeline, SLA or requester email — and a different list from
+  `public-issue`, so widen each on its own merits.
 - `notify-issue` — posts a Google Chat card for each new ticket. Called by an
   `issues` insert trigger via `pg_net`, not by the browser; authenticated by a
   shared secret, so it deploys with `--no-verify-jwt`. Webhook URL and secret
   live in function env + Vault, never in the repo.
-- All three are Deno, and deploy with `supabase functions deploy <name>`; the two
+- All four are Deno, and deploy with `supabase functions deploy <name>`; the three
   browser-facing ones handle CORS preflight. None can import from `src/` — small,
   deliberate duplication (e.g. display names, the share-link path) is expected
   there.

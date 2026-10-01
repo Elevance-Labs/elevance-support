@@ -18,6 +18,7 @@ import Profile from './pages/Profile'
 import Configuration from './pages/Configuration'
 import EmbedForm from './pages/EmbedForm'
 import PublicIssue from './pages/PublicIssue'
+import CompanyTickets from './pages/CompanyTickets'
 
 function Splash() {
   return (
@@ -62,6 +63,8 @@ export default function App() {
             />
             {/* Share link. Signed-in staff are redirected to the editable view. */}
             <Route path="/i/:key/:number" element={<PublicIssue />} />
+            {/* One company's tickets, read-only, for that company: ?company=wupi. */}
+            <Route path="/tickets" element={<CompanyTickets />} />
             <Route path="/login" element={<Login />} />
             <Route
               element={
