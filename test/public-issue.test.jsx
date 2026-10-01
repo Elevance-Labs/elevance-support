@@ -76,6 +76,7 @@ check('anon sees the Jira ticket', body().includes('ENG-77'))
 check('anon sees attachments', body().includes('screenshot.png'))
 check('anon sees comments', body().includes('Looking into this.') && body().includes('Just posted.'))
 check('anon sees comment authors by name', body().includes('Ada Lovelace'))
+check("anon sees a comment's attachment", body().includes('staging.png'))
 
 // The photo is on the allow-list deliberately — a support reply reads better
 // from a person. What must not follow it out is the id or the email behind it.

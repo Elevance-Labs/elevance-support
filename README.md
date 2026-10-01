@@ -210,6 +210,12 @@ Opening a ticket gives a three-column view:
   via the API. **Ctrl+Enter** (or **Cmd+Enter**) posts the comment, and saves an
   edit in progress; plain Enter is still a newline, since the box is multi-line.
   **Escape** cancels an edit.
+  A comment can carry **files** — images, PDFs or video, under the same limits
+  as a request (see *Embedding the form*) — picked with the paperclip or pasted
+  into the box as a screenshot. A comment may be just a file. The files show
+  under their comment, not with the request's own. Only the author may add or
+  remove a comment's files, and only inside the same 5-minute window; deleting
+  the comment takes its files with it. Row-level security enforces all three.
 - **Right** — the **status timeline**: the statuses this ticket has actually been
   through, in order, showing who moved it there, when, and how long it sat in the
   previous status. Statuses it never reached are not drawn. Total elapsed time
@@ -796,7 +802,10 @@ Two things limit the damage, and both are worth keeping:
   instead of six fields.
 
 Attachments come back as one-hour signed URLs; the bucket itself stays private,
-so an attachment URL can't be guessed even though the ticket URL can.
+so an attachment URL can't be guessed even though the ticket URL can. That
+includes files attached to **comments**: the comments are on the page, so what
+was attached to them is too. Don't attach anything to a comment you wouldn't
+write in one.
 
 Comment authors appear by **name and photo** on the public page — a support
 reply reads better from a person than from a grey circle. The photo is on the

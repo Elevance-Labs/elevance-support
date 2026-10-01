@@ -55,7 +55,9 @@ export const PROJECT_SCHEDULES = [
     assignee_ids: ['user-1', 'user-2'], created_by: 'user-1' },
 ]
 
-export const captured = { inserts: [], updates: [], uploads: [], auth: [], functionCalls: [] }
+export const captured = {
+  inserts: [], updates: [], deletes: [], uploads: [], removals: [], auth: [], functionCalls: [],
+}
 /**
  * A thenable query builder that actually applies `eq` and `in`.
  *
@@ -71,6 +73,10 @@ const chain = (data) => {
   p.order = () => chain(rows)
   p.eq = (col, value) => chain(rows.filter((r) => r[col] === value))
   p.in = (col, values) => chain(rows.filter((r) => (values ?? []).includes(r[col])))
+  // Only the `is null` / `not is null` forms the app uses.
+  p.is = (col, value) => chain(rows.filter((r) => (r[col] ?? null) === value))
+  p.not = (col, op, value) => op === 'is'
+    ? chain(rows.filter((r) => (r[col] ?? null) !== value)) : chain(rows)
   p.single = () => Promise.resolve({ data: rows[0] ?? {}, error: null })
   p.maybeSingle = () => Promise.resolve({ data: rows[0] ?? null, error: null })
   return p
@@ -85,6 +91,7 @@ const tableData = (table) => {
   if (table === 'project_members') return PROJECT_MEMBERS
   if (table === 'project_schedules') return PROJECT_SCHEDULES
   if (table === 'companies') return COMPANIES
+  if (table === 'attachments') return FIXTURES.attachments
   return []
 }
 
@@ -94,7 +101,9 @@ export const supabase = {
       select: () => chain(tableData(table)),
       insert: (row) => { captured.inserts.push({ table, row }); return chain([{ id: 'new-issue' }]) },
       update: (row) => { captured.updates.push({ table, row }); return chain([]) },
-      delete: () => chain([]),
+      // Hands back the rows it matched, as `.delete().eq(…).select()` does, and
+      // records which table it was asked of.
+      delete: () => { captured.deletes.push({ table }); return chain(tableData(table)) },
     }
   },
   auth: {
@@ -118,6 +127,10 @@ export const supabase = {
       upload: async (path, file, opts) => {
         captured.uploads.push({ bucket, path, type: file?.type, size: file?.size, opts })
         return { error: null }
+      },
+      remove: async (paths) => {
+        captured.removals.push({ bucket, paths })
+        return { data: paths.map((name) => ({ name })), error: null }
       },
       createSignedUrl: async (path) => ({
         data: { signedUrl: `https://signed.example/${path}` }, error: null,
@@ -197,6 +210,16 @@ export const FIXTURES = {
     { id: 'c2', issue_id: 'issue-1', author_id: 'user-2', body: 'Just posted.',
       created_at: iso(30_000), updated_at: iso(30_000) },
   ],
+  // One file on the request, and one on Grace's fresh comment — so the dialog
+  // and the thread each have to pick out their own.
+  attachments: [
+    { id: 'att-1', issue_id: 'issue-1', comment_id: null, file_name: 'report.pdf',
+      file_path: 'issue-1/att-1-report.pdf', mime_type: 'application/pdf', size_bytes: 2048,
+      created_at: iso(3 * DAY) },
+    { id: 'att-2', issue_id: 'issue-1', comment_id: 'c2', file_name: 'staging.png',
+      file_path: 'issue-1/att-2-staging.png', mime_type: 'image/png', size_bytes: 4096,
+      created_at: iso(30_000) },
+  ],
   profiles: [
     // Ada has uploaded a photo; Grace has not — so every avatar site is exercised
     // in both states by the same fixture list.
@@ -245,6 +268,10 @@ export const PUBLIC_PAYLOAD = {
       author_name: 'Ada Lovelace',
       author_avatar_url: 'https://public.example/avatars/user-1/avatar?v=1' },
     { id: 'c2', body: 'Just posted.', created_at: iso(30_000),
-      author_name: 'Grace Hopper', author_avatar_url: null },
+      author_name: 'Grace Hopper', author_avatar_url: null,
+      attachments: [
+        { id: 'a2', file_name: 'staging.png', mime_type: 'image/png',
+          url: 'https://signed.example/issue-1/staging.png' },
+      ] },
   ],
 }

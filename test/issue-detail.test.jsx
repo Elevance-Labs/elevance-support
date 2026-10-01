@@ -61,6 +61,16 @@ if (!AuthCtxRaw) {
 await render({ id: 'user-1', role: 'admin', full_name: 'Ada Lovelace' })
 
 check('renders the ticket title', body().includes('Cannot export invoice'))
+
+// The request's file is drawn with the request, a comment's with its comment —
+// each once. Were the dialog to read every file on the ticket, the comment's
+// would show twice.
+const tileNames = () => [...dom.window.document.querySelectorAll('[data-attachment-name]')]
+  .map((t) => t.textContent)
+check("the request's own file is shown once",
+  tileNames().filter((n) => n === 'report.pdf').length === 1, tileNames().join(', '))
+check("a comment's file is shown once, in the thread",
+  tileNames().filter((n) => n === 'staging.png').length === 1, tileNames().join(', '))
 check('shows the ticket identifier, prefixed with the project key',
   body().includes('ACME-42'))
 // Which queue a ticket belongs to is the context for reading its number, so the

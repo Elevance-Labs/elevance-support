@@ -15,6 +15,7 @@ import { formatDateTime } from '../lib/format'
 import { can } from '../lib/permissions'
 import { jiraKey, jiraUrl } from '../lib/jira'
 import { copyText } from '../lib/publicLink'
+import { signAttachments } from '../lib/storage'
 import { issueRef, publicIssueUrl } from '../lib/projects'
 import { useProject } from '../context/ProjectContext'
 import { byDisplayName, departmentOf, displayName } from '../lib/users'
@@ -61,7 +62,9 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
     setLoading(true); setError(''); setCopied(false)
     const [{ data: i }, { data: a }, { data: e }] = await Promise.all([
       supabase.from('issues').select('*').eq('id', issueId).single(),
-      supabase.from('attachments').select('*').eq('issue_id', issueId).order('created_at'),
+      // The request's own files; a comment's are drawn under that comment.
+      supabase.from('attachments').select('*').eq('issue_id', issueId)
+        .is('comment_id', null).order('created_at'),
       supabase.from('status_events').select('*').eq('issue_id', issueId).order('created_at'),
     ])
     setIssue(i); setAttachments(await signAttachments(a ?? [])); setEvents(e ?? [])
@@ -482,18 +485,3 @@ const Field = ({ label, value }) => (
     <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{value || '—'}</Typography>
   </Stack>
 )
-
-// The bucket is private, so every attachment needs a signed URL before it can
-// be drawn as a thumbnail. One batch call; an hour covers a long look at a ticket.
-const SIGNED_URL_TTL_SECONDS = 60 * 60
-
-async function signAttachments(rows) {
-  if (rows.length === 0) return []
-  const { data } = await supabase.storage.from('attachments')
-    .createSignedUrls(rows.map((r) => r.file_path), SIGNED_URL_TTL_SECONDS)
-  const urlByPath = Object.fromEntries((data ?? []).map((d) => [d.path, d.signedUrl]))
-  return rows.map((r) => ({
-    key: r.id, name: r.file_name, mime: r.mime_type, size: r.size_bytes,
-    url: urlByPath[r.file_path] ?? null,
-  }))
-}

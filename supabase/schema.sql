@@ -271,6 +271,13 @@ create table if not exists public.comments (
 );
 create index if not exists comments_issue_idx on public.comments(issue_id, created_at);
 
+-- A file on a comment rather than on the request itself (0010). Null for the
+-- request's own files. `issue_id` is set either way, so reads follow the ticket.
+alter table public.attachments
+  add column if not exists comment_id uuid references public.comments(id) on delete cascade;
+create index if not exists attachments_comment_idx on public.attachments(comment_id)
+  where comment_id is not null;
+
 -- ---------- status timeline ----------
 create table if not exists public.status_events (
   id          uuid primary key default gen_random_uuid(),
@@ -368,6 +375,18 @@ returns boolean language sql stable security definer set search_path = public as
   select exists (
     select 1 from public.issues i
     where i.id = p_issue and public.is_project_member(i.project_id)
+  );
+$$;
+
+-- The signed-in user wrote this comment, on this ticket, inside the 5-minute
+-- edit window — the rule a comment's attachments follow.
+create or replace function public.can_modify_comment(p_comment uuid, p_issue uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.comments c
+    where c.id = p_comment and c.issue_id = p_issue
+      and c.author_id = auth.uid()
+      and c.created_at > now() - interval '5 minutes'
   );
 $$;
 
@@ -1191,8 +1210,11 @@ create policy issues_admin_delete on public.issues for delete to authenticated
   using (public.is_admin() and public.is_project_member(project_id));
 
 -- ---------- attachments: public may attach on submit; staff read ----------
+-- A comment's file is its author's to add, inside the edit window; anon reads
+-- no comments, so it can only ever attach to a request.
 drop policy if exists att_public_insert on public.attachments;
-create policy att_public_insert on public.attachments for insert to anon, authenticated with check (true);
+create policy att_public_insert on public.attachments for insert to anon, authenticated
+  with check (comment_id is null or public.can_modify_comment(comment_id, issue_id));
 
 drop policy if exists att_staff_read on public.attachments;
 create policy att_staff_read on public.attachments for select to authenticated
@@ -1200,7 +1222,10 @@ create policy att_staff_read on public.attachments for select to authenticated
 
 drop policy if exists att_staff_delete on public.attachments;
 create policy att_staff_delete on public.attachments for delete to authenticated
-  using (public.can_see_issue(issue_id));
+  using (
+    public.can_see_issue(issue_id)
+    and (comment_id is null or public.can_modify_comment(comment_id, issue_id))
+  );
 
 -- ---------- comments ----------
 -- Everyone who can see the ticket reads and posts; authors may edit/delete

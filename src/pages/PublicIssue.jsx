@@ -142,9 +142,7 @@ export default function PublicIssue() {
             {attachments.length > 0 && (
               <>
                 <Divider sx={{ my: 2 }} />
-                <AttachmentGallery items={attachments.map((a) => ({
-                  key: a.id, name: a.file_name, mime: a.mime_type, size: a.size_bytes, url: a.url,
-                }))} />
+                <AttachmentGallery items={attachments.map(toItem)} />
               </>
             )}
           </Paper>
@@ -172,9 +170,16 @@ export default function PublicIssue() {
                         {formatDateTime(c.created_at)}
                       </Typography>
                     </Stack>
-                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 0.25 }}>
-                      {c.body}
-                    </Typography>
+                    {c.body && (
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 0.25 }}>
+                        {c.body}
+                      </Typography>
+                    )}
+                    {c.attachments?.length > 0 && (
+                      <Box sx={{ mt: 1 }}>
+                        <AttachmentGallery items={c.attachments.map(toItem)} size="small" />
+                      </Box>
+                    )}
                   </Box>
                 </Stack>
               </Paper>
@@ -189,3 +194,8 @@ export default function PublicIssue() {
     </Box>
   )
 }
+
+// The function's attachment shape → the gallery's.
+const toItem = (a) => ({
+  key: a.id, name: a.file_name, mime: a.mime_type, size: a.size_bytes, url: a.url,
+})

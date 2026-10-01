@@ -29,8 +29,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   numbering, frozen keys). Client-side validation is a convenience, never the
   only guard.
 - **Pure logic stays pure.** `src/lib/*` must not import React or Supabase
-  (except `supabase.js`/`publicLink.js`, which exist to talk to it) — that is
-  what makes it testable.
+  (except `supabase.js`/`publicLink.js`/`storage.js`, which exist to talk to
+  it) — that is what makes it testable.
 - **Project keys and ticket numbers are public identifiers.** Once issued they
   are never changed; they live in customers' embed snippets and sent links.
   A share link is the ticket reference (`/i/ACME/42`) and carries no secret, so
@@ -118,8 +118,12 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   Support, Engineering, Quality), mirrored by a check constraint and by
   `admin-users`; a sixth is a migration, not a Configuration row.
 - `attachments.js` — what kind an attachment is (image / video / pdf) and its
-  size label. Feeds `AttachmentGallery` + `AttachmentViewer`, the one thumbnail
-  grid and lightbox used by the form, the ticket dialog and the share page.
+  size label, plus **what may be attached** (types, per-type size, file count) —
+  one gate for the request form and the comment composer, both through the
+  `useAttachmentDraft` hook. Feeds `AttachmentGallery` + `AttachmentViewer`, the
+  one thumbnail grid and lightbox used by the form, the ticket dialog, the
+  comment thread and the share page.
+- `storage.js` — uploading to and signing from the private `attachments` bucket.
 - `publicLink.js` — calls the `public-issue` function; clipboard helper.
 - `jira.js`, `supabase.js` — Jira link building; the shared client.
 
@@ -170,6 +174,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `comments` — thread on a ticket; author-editable for 5 minutes (RLS-enforced).
 - `status_events` — every status change, written by trigger; feeds the timeline.
 - `attachments` + a **private** storage bucket; access via short-lived signed URLs.
+  A row with a `comment_id` belongs to that comment, not the request; only the
+  comment's author may add or remove one, inside the same 5-minute window (RLS).
 - A **public** `avatars` bucket, one object per user at `<uid>/avatar`; writes are
   owner-only. Public because avatars render everywhere — nothing private lives there.
   Everything that draws a person goes through `components/UserAvatar.jsx`; only
@@ -191,7 +197,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `admin-users` — create/delete accounts, change roles and departments, reset
   passwords, ban and unban. Needed because `service_role` must never reach a browser.
 - `public-issue` — resolves `(project key, ticket number)` to a **field allow-list** for
-  the sign-in-free page. Returns attachments as signed URLs.
+  the sign-in-free page. Returns attachments as signed URLs — the request's, and
+  each comment's with its comment.
 - `notify-issue` — posts a Google Chat card for each new ticket. Called by an
   `issues` insert trigger via `pg_net`, not by the browser; authenticated by a
   shared secret, so it deploys with `--no-verify-jwt`. Webhook URL and secret

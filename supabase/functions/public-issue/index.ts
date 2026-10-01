@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
 
   const [{ data: attachments }, { data: comments }] = await Promise.all([
     admin.from("attachments")
-      .select("id, file_name, file_path, mime_type, size_bytes")
+      .select("id, file_name, file_path, mime_type, size_bytes, comment_id")
       .eq("issue_id", issue.id)
       .order("created_at"),
     admin.from("comments")
@@ -113,8 +113,14 @@ Deno.serve(async (req) => {
       mime_type: a.mime_type,
       size_bytes: a.size_bytes,
       url: data?.signedUrl ?? null,
+      comment_id: a.comment_id as string | null,
     };
   }));
+  // The request's own files go at the top; a comment's go with that comment.
+  // The comment id is used for grouping here and never sent.
+  const strip = ({ comment_id: _, ...a }: (typeof signed)[number]) => a;
+  const requestFiles = signed.filter((a) => !a.comment_id).map(strip);
+  const filesOfComment = (id: string) => signed.filter((a) => a.comment_id === id).map(strip);
 
   const authorIds = [...new Set((comments ?? []).map((c) => c.author_id).filter(Boolean))];
   const { data: authors } = authorIds.length
@@ -137,7 +143,7 @@ Deno.serve(async (req) => {
       jira_ticket: issue.jira_ticket,
       submitted_date: issue.submitted_date,
     },
-    attachments: signed,
+    attachments: requestFiles,
     // The author's name and photo go out — never the email, and never the id.
     //
     // The photo is a deliberate addition to this allow-list: the `avatars`
@@ -155,6 +161,9 @@ Deno.serve(async (req) => {
         created_at: c.created_at,
         author_name: displayName(author),
         author_avatar_url: author?.avatar_url ?? null,
+        // Comments are already on this page, so what was attached to them is
+        // too — the same signed, short-lived URLs as the request's own files.
+        attachments: filesOfComment(c.id),
       };
     }),
   });

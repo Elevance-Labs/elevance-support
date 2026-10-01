@@ -1,16 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert, Box, Button, IconButton, Paper, Stack, TextField, Tooltip, Typography,
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
+import AttachFileIcon from '@mui/icons-material/AttachFile'
 import { supabase } from '../lib/supabase'
+import { signAttachments, uploadAttachment, removeAttachmentFiles } from '../lib/storage'
+import { ACCEPT, ATTACH_HINT, MAX_FILES } from '../lib/attachments'
 import { useAuth } from '../context/AuthContext'
 import { useConfig } from '../context/ConfigContext'
 import { formatDateTime, toMillis } from '../lib/format'
 import { can, COMMENT_EDIT_WINDOW_MS } from '../lib/permissions'
 import { displayName } from '../lib/users'
 import UserAvatar from './UserAvatar'
+import AttachmentGallery from './AttachmentGallery'
+import useAttachmentDraft from './useAttachmentDraft'
 
 /**
  * Ctrl+Enter posts, and so does Cmd+Enter.
@@ -60,18 +65,29 @@ export default function CommentsThread({ issueId }) {
   const { profile } = useAuth()
   const { users } = useConfig()
   const [comments, setComments] = useState([])
+  const [filesOf, setFilesOf] = useState({}) // comment id → gallery items
   const [draft, setDraft] = useState('')
   const [editing, setEditing] = useState(null) // { id, body }
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const attach = useAttachmentDraft(setError)
+  const fileInput = useRef(null)
 
   useEditWindowTick(comments)
 
   const load = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('comments').select('*').eq('issue_id', issueId).order('created_at')
+    const [{ data, error }, { data: rows }] = await Promise.all([
+      supabase.from('comments').select('*').eq('issue_id', issueId).order('created_at'),
+      // Only the comments' files; the request's own are drawn above the thread.
+      supabase.from('attachments').select('*').eq('issue_id', issueId)
+        .not('comment_id', 'is', null).order('created_at'),
+    ])
     if (error) setError(error.message)
     setComments(data ?? [])
+    const items = await signAttachments(rows ?? [])
+    const grouped = {}
+    rows?.forEach((r, i) => { (grouped[r.comment_id] ??= []).push(items[i]) })
+    setFilesOf(grouped)
   }, [issueId])
 
   useEffect(() => { if (issueId) load() }, [issueId, load])
@@ -81,20 +97,30 @@ export default function CommentsThread({ issueId }) {
     return (id) => map[id]
   }, [users])
 
+  // A comment may be only a screenshot — text or a file, either will do.
+  const canPost = !busy && (draft.trim() !== '' || attach.files.length > 0)
+
   const post = async () => {
-    const body = draft.trim()
-    if (!body) return
+    if (!canPost) return
     setBusy(true); setError('')
+    // The id is minted here so the files can name their comment without
+    // reading the row back.
+    const id = crypto.randomUUID()
     const { error } = await supabase.from('comments')
-      .insert({ issue_id: issueId, author_id: profile.id, body })
+      .insert({ id, issue_id: issueId, author_id: profile.id, body: draft.trim() })
+    if (error) { setBusy(false); return setError(error.message) }
+    try {
+      for (const file of attach.files) await uploadAttachment(file, { issueId, commentId: id })
+    } catch (err) {
+      setError(`The comment was posted, but a file did not upload: ${err.message}`)
+    }
     setBusy(false)
-    if (error) return setError(error.message)
-    setDraft(''); load()
+    setDraft(''); attach.clear(); load()
   }
 
   const saveEdit = async () => {
     const body = editing.body.trim()
-    if (!body) return
+    if (!body && !filesOf[editing.id]?.length) return
     setBusy(true); setError('')
     const { error } = await supabase.from('comments')
       .update({ body }).eq('id', editing.id)
@@ -108,10 +134,14 @@ export default function CommentsThread({ issueId }) {
 
   const remove = async (comment) => {
     if (!confirm('Delete this comment?')) return
-    const { error } = await supabase.from('comments').delete().eq('id', comment.id)
-    if (error) {
-      return setError(`${error.message} — the 5 minute edit window may have closed.`)
+    const { data, error } = await supabase.from('comments')
+      .delete().eq('id', comment.id).select('id')
+    // RLS refuses a late delete by matching nothing, not by erroring.
+    if (error || !data?.length) {
+      return setError(`${error?.message ?? 'Not deleted'} — the 5 minute edit window may have closed.`)
     }
+    // The rows go with the comment (on delete cascade); the files are ours to tidy.
+    await removeAttachmentFiles((filesOf[comment.id] ?? []).map((f) => f.path))
     load()
   }
 
@@ -179,7 +209,7 @@ export default function CommentsThread({ issueId }) {
                           // what every other cancellable edit in the app does.
                           if (isSubmitChord(e)) {
                             e.preventDefault()
-                            if (!busy && editing.body.trim()) saveEdit()
+                            if (!busy) saveEdit()
                           } else if (e.key === 'Escape') {
                             e.preventDefault()
                             setEditing(null)
@@ -193,10 +223,16 @@ export default function CommentsThread({ issueId }) {
                         <Button size="small" onClick={() => setEditing(null)}>Cancel</Button>
                       </Stack>
                     </Stack>
-                  ) : (
+                  ) : c.body && (
                     <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 0.25 }}>
                       {c.body}
                     </Typography>
+                  )}
+
+                  {filesOf[c.id]?.length > 0 && (
+                    <Box sx={{ mt: 1 }}>
+                      <AttachmentGallery items={filesOf[c.id]} size="small" />
+                    </Box>
                   )}
                 </Box>
               </Stack>
@@ -209,18 +245,35 @@ export default function CommentsThread({ issueId }) {
         <TextField
           fullWidth multiline minRows={2} size="small" placeholder="Add a comment…"
           value={draft} onChange={(e) => setDraft(e.target.value)}
+          onPaste={attach.onPaste}
           onKeyDown={(e) => {
             if (!isSubmitChord(e)) return
             e.preventDefault()          // otherwise the chord also types a newline
-            if (!busy && draft.trim()) post()
+            post()
           }}
         />
-        <Stack direction="row" spacing={1} sx={{ mt: 1, justifyContent: 'flex-end', alignItems: 'center' }}>
+        {attach.previews.length > 0 && (
+          <Box sx={{ mt: 1 }}>
+            <AttachmentGallery items={attach.previews} size="small" onRemove={attach.remove} />
+          </Box>
+        )}
+        <input ref={fileInput} type="file" hidden multiple
+          accept={ACCEPT.join(',')} onChange={attach.onPick} />
+        <Stack direction="row" spacing={1} sx={{ mt: 1, alignItems: 'center' }}>
+          <Tooltip title={`Attach files — or paste a screenshot. ${ATTACH_HINT}`}>
+            <span>
+              <IconButton size="small" aria-label="Attach files"
+                onClick={() => fileInput.current?.click()}
+                disabled={busy || attach.files.length >= MAX_FILES}>
+                <AttachFileIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Box sx={{ flexGrow: 1 }} />
           <Typography variant="caption" color="text.disabled">
             {MOD_KEY_LABEL}+Enter to post
           </Typography>
-          <Button size="small" variant="contained" onClick={post}
-            disabled={busy || !draft.trim()}>
+          <Button size="small" variant="contained" onClick={post} disabled={!canPost}>
             Comment
           </Button>
         </Stack>
