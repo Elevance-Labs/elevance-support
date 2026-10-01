@@ -24,7 +24,7 @@ import { AssigneeChip, UserChip } from '../components/UserAvatar'
 import { byDisplayName, displayName } from '../lib/users'
 import { slaStatus, slaBand, statusColor, slaHoursBySeverity } from '../lib/sla'
 import { useProject } from '../context/ProjectContext'
-import ProjectFilter, { NoProject } from '../components/ProjectFilter'
+import { NoProject } from '../components/ProjectFilter'
 import { issueRef } from '../lib/projects'
 import { companyOptions } from '../lib/companies'
 import { assigneesOf, hasAssignees } from '../lib/assignees'
@@ -302,7 +302,6 @@ export default function Issues() {
     <Stack spacing={2}>
       <Stack direction="row" sx={{ alignItems: 'center', gap: 2 }}>
         <Typography variant="h5">Issues</Typography>
-        <ProjectFilter />
         <Box sx={{ flexGrow: 1 }} />
         <Typography variant="body2" color="text.secondary">
           {filtered.length} of {rows.length}

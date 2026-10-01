@@ -6,7 +6,9 @@ import { useAuth } from '../context/AuthContext'
 import { can } from '../lib/permissions'
 
 /**
- * The project a page is looking at.
+ * The project a page is looking at. Rendered once, in the header, by
+ * `AppLayout` — pages read the selection from `useProject` and never draw
+ * their own.
  *
  * Deliberately single-select with no "All" option: a ticket belongs to one
  * project, its number is only unique within that project, and its members are

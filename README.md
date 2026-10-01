@@ -54,9 +54,11 @@ convenience rather than the only guard.
 ## Projects
 
 Every ticket belongs to exactly one project, and **nobody ever looks at two at
-once**. Issues, Board and Report each carry a single-select project filter at
-the top; there is no "all projects" option, because a combined view would be a
-view of data the viewer may not be entitled to hold in one place.
+once**. The header carries a single-select project picker on every page that
+shows one project's data — Dashboard, Issues, Board, Report and Schedule — and
+hides it on the rest, where it would change nothing. There is no "all projects"
+option, because a combined view would be a view of data the viewer may not be
+entitled to hold in one place.
 
 The choice is remembered in the browser, so signing back in lands you where you
 were working. A remembered project you have since been removed from simply falls

@@ -58,7 +58,4 @@ check('the breached ticket is labelled as such', body().includes('SLA breached')
 check('no assignee breakdown on the page',
   !body().includes('assignee') && !body().includes('Assignee'))
 
-// The report never spans projects: there is one picker and no "all" option.
-check('the report is scoped by a project picker', body().includes('Acme Support'))
-
 done()

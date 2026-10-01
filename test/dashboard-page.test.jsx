@@ -58,7 +58,7 @@ check('no chart geometry came out NaN', !el.innerHTML.includes('NaN'))
 
 // The dashboard is one project's, like every other page: a ticket in the second
 // project has no business on it.
-check('the dashboard is scoped by a project picker', body().includes('Acme Support'))
+check('the dashboard names the project it is showing', body().includes('Acme Support'))
 check('another project\'s ticket is not shown', !body().includes('Invoice PDF is blank'))
 
 done()

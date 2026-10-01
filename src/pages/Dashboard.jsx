@@ -15,7 +15,7 @@ import { BREACHING_RATIO, breachingSla, breakdown, myIssues, notDone, summarise 
 import { displayName } from '../lib/users'
 import Tag from '../components/Tag'
 import IssueDetail from '../components/IssueDetail'
-import ProjectFilter, { NoProject } from '../components/ProjectFilter'
+import { NoProject } from '../components/ProjectFilter'
 import { AssigneeChip } from '../components/UserAvatar'
 import ChartCard, { NoData } from '../components/charts/ChartCard'
 import BarChart from '../components/charts/BarChart'
@@ -125,7 +125,6 @@ export default function Dashboard() {
     <Stack spacing={2}>
       <Stack direction="row" sx={{ alignItems: 'center', gap: 2 }}>
         <Typography variant="h5">Dashboard</Typography>
-        <ProjectFilter />
         <Box sx={{ flexGrow: 1 }} />
         <Typography variant="body2" color="text.secondary">
           {open.length} open ticket{open.length === 1 ? '' : 's'}

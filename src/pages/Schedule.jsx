@@ -2,7 +2,7 @@ import { Alert, Box, Paper, Stack, Typography } from '@mui/material'
 import { useAuth } from '../context/AuthContext'
 import { useProject } from '../context/ProjectContext'
 import { can, isAdmin } from '../lib/permissions'
-import ProjectFilter, { NoProject } from '../components/ProjectFilter'
+import { NoProject } from '../components/ProjectFilter'
 import ScheduleManager from '../components/ScheduleManager'
 
 /**
@@ -21,16 +21,13 @@ export default function Schedule() {
 
   return (
     <Stack spacing={2}>
-      <Stack direction="row" sx={{ alignItems: 'center', gap: 2 }}>
-        <Box>
-          <Typography variant="h5">Schedule</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Who is on support, and when. A request submitted inside a range is
-            assigned to the people on it. Ranges cannot overlap.
-          </Typography>
-        </Box>
-        <ProjectFilter />
-      </Stack>
+      <Box>
+        <Typography variant="h5">Schedule</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Who is on support, and when. A request submitted inside a range is
+          assigned to the people on it. Ranges cannot overlap.
+        </Typography>
+      </Box>
 
       {!loading && !projectId && <NoProject />}
 

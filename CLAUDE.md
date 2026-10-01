@@ -84,6 +84,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 
 - Exactly **one project is always selected** — there is no "all projects" view.
   Selection persists in `localStorage` and falls back to the first visible one.
+- The picker lives in the **header** (`AppLayout`), shown only on the routes
+  marked `scoped` in its nav list. Pages read the selection; none draws its own.
 
 ## 6. Domain modules (`src/lib/`)
 

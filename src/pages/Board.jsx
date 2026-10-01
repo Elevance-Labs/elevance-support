@@ -21,7 +21,7 @@ import { jiraUrl } from '../lib/jira'
 import { byDisplayName, displayName } from '../lib/users'
 import { slaStatus, slaBand, slaHoursBySeverity } from '../lib/sla'
 import { useProject } from '../context/ProjectContext'
-import ProjectFilter, { NoProject } from '../components/ProjectFilter'
+import { NoProject } from '../components/ProjectFilter'
 import { issueRef } from '../lib/projects'
 import { companyOptions } from '../lib/companies'
 import { assigneesOf, hasAssignees } from '../lib/assignees'
@@ -156,10 +156,7 @@ export default function Board() {
 
   return (
     <Stack spacing={2} sx={{ height: '100%' }}>
-      <Stack direction="row" sx={{ alignItems: 'center', gap: 2 }}>
-        <Typography variant="h5">Board</Typography>
-        <ProjectFilter />
-      </Stack>
+      <Typography variant="h5">Board</Typography>
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {!projectsLoading && !projectId && <NoProject />}
 

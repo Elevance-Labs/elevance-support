@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Alert, AppBar, Box, Button, Divider, Drawer, IconButton, List, ListItemButton,
   ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Typography,
@@ -20,18 +20,22 @@ import { useAuth } from '../context/AuthContext'
 import { can, ROLE_LABELS } from '../lib/permissions'
 import { RefreshProvider, useRefreshSignal } from '../context/RefreshContext'
 import CreateIssueDialog from './CreateIssueDialog'
+import ProjectFilter from './ProjectFilter'
 import { displayName } from '../lib/users'
 import UserAvatar from './UserAvatar'
 
 const WIDTH = 224
 
 // `show` decides visibility per role; see src/lib/permissions.js.
+// `scoped` marks a page that shows one project's data: the header carries the
+// project picker there, and nowhere else — on Users or Configuration it would
+// be a control that changes nothing on screen.
 const NAV = [
-  { to: '/dashboard', label: 'Dashboard',  icon: <DashboardIcon /> },
-  { to: '/issues', label: 'Issues',        icon: <ListAltIcon /> },
-  { to: '/board',  label: 'Board',         icon: <ViewKanbanIcon /> },
-  { to: '/report', label: 'Report',        icon: <BarChartIcon />,  show: can.seeReports },
-  { to: '/schedule', label: 'Schedule',    icon: <EventNoteIcon />, show: can.seeSchedules },
+  { to: '/dashboard', label: 'Dashboard',  icon: <DashboardIcon />, scoped: true },
+  { to: '/issues', label: 'Issues',        icon: <ListAltIcon />,   scoped: true },
+  { to: '/board',  label: 'Board',         icon: <ViewKanbanIcon />, scoped: true },
+  { to: '/report', label: 'Report',        icon: <BarChartIcon />,  show: can.seeReports, scoped: true },
+  { to: '/schedule', label: 'Schedule',    icon: <EventNoteIcon />, show: can.seeSchedules, scoped: true },
   { to: '/projects', label: 'Projects',    icon: <FolderIcon />,    show: can.seeProjects },
   { to: '/users',  label: 'Users',         icon: <PeopleIcon />,    show: can.seeUsers },
   { to: '/config', label: 'Configuration', icon: <SettingsIcon />,  show: can.seeConfig },
@@ -51,6 +55,8 @@ function AppLayoutInner() {
   const [anchor, setAnchor] = useState(null)
   const [creating, setCreating] = useState(false)
   const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const scoped = NAV.some((n) => n.scoped && (pathname === n.to || pathname.startsWith(`${n.to}/`)))
 
   const handleSignOut = async () => {
     setAnchor(null)
@@ -93,7 +99,9 @@ function AppLayoutInner() {
 
       <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <AppBar position="sticky" sx={{ borderBottom: '1px solid #e5e7eb', bgcolor: '#fff' }}>
-          <Toolbar sx={{ justifyContent: 'flex-end', gap: 1 }}>
+          <Toolbar sx={{ gap: 1 }}>
+            {scoped && <ProjectFilter />}
+            <Box sx={{ flexGrow: 1 }} />
             <Button variant="contained" startIcon={<AddIcon />}
               onClick={() => setCreating(true)} sx={{ mr: 1 }}>
               Create Issue

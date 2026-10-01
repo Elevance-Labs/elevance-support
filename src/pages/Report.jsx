@@ -21,7 +21,7 @@ import StatTile from '../components/charts/StatTile'
 import Legend from '../components/charts/Legend'
 import { ORDINAL, SERIES_1, SERIES_2, seriesColor } from '../components/charts/palette'
 import { useProject } from '../context/ProjectContext'
-import ProjectFilter, { NoProject } from '../components/ProjectFilter'
+import { NoProject } from '../components/ProjectFilter'
 import { issueRef } from '../lib/projects'
 
 /** Two-up on a wide screen, stacked on a narrow one. */
@@ -135,7 +135,6 @@ export default function Report() {
     <Stack spacing={2}>
       <Stack direction="row" sx={{ alignItems: 'center', gap: 2 }}>
         <Typography variant="h5">Report</Typography>
-        <ProjectFilter />
         <Box sx={{ flexGrow: 1 }} />
         <Typography variant="body2" color="text.secondary">
           {rows.length} ticket{rows.length === 1 ? '' : 's'} in view
