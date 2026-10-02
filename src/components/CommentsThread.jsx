@@ -77,7 +77,9 @@ export default function CommentsThread({ issueId }) {
 
   const load = useCallback(async () => {
     const [{ data, error }, { data: rows }] = await Promise.all([
-      supabase.from('comments').select('*').eq('issue_id', issueId).order('created_at'),
+      // Newest first: the latest word on a ticket is what a reader came for.
+      supabase.from('comments').select('*').eq('issue_id', issueId)
+        .order('created_at', { ascending: false }),
       // Only the comments' files; the request's own are drawn above the thread.
       supabase.from('attachments').select('*').eq('issue_id', issueId)
         .not('comment_id', 'is', null).order('created_at'),
@@ -152,6 +154,45 @@ export default function CommentsThread({ issueId }) {
       </Typography>
 
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+
+      {/* composer — above the thread, next to where its comment will land */}
+      <Paper sx={{ p: 1.5 }}>
+        <TextField
+          fullWidth multiline minRows={2} size="small" placeholder="Add a comment…"
+          value={draft} onChange={(e) => setDraft(e.target.value)}
+          onPaste={attach.onPaste}
+          onKeyDown={(e) => {
+            if (!isSubmitChord(e)) return
+            e.preventDefault()          // otherwise the chord also types a newline
+            post()
+          }}
+        />
+        {attach.previews.length > 0 && (
+          <Box sx={{ mt: 1 }}>
+            <AttachmentGallery items={attach.previews} size="small" onRemove={attach.remove} />
+          </Box>
+        )}
+        <input ref={fileInput} type="file" hidden multiple
+          accept={ACCEPT.join(',')} onChange={attach.onPick} />
+        <Stack direction="row" spacing={1} sx={{ mt: 1, alignItems: 'center' }}>
+          <Tooltip title={`Attach files — or paste a screenshot. ${ATTACH_HINT}`}>
+            <span>
+              <IconButton size="small" aria-label="Attach files"
+                onClick={() => fileInput.current?.click()}
+                disabled={busy || attach.files.length >= MAX_FILES}>
+                <AttachFileIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Box sx={{ flexGrow: 1 }} />
+          <Typography variant="caption" color="text.disabled">
+            {MOD_KEY_LABEL}+Enter to post
+          </Typography>
+          <Button size="small" variant="contained" onClick={post} disabled={!canPost}>
+            Comment
+          </Button>
+        </Stack>
+      </Paper>
 
       {comments.length === 0 && (
         <Typography variant="caption" color="text.disabled">
@@ -240,44 +281,6 @@ export default function CommentsThread({ issueId }) {
           )
         })}
       </Stack>
-      {/* composer */}
-      <Paper sx={{ p: 1.5 }}>
-        <TextField
-          fullWidth multiline minRows={2} size="small" placeholder="Add a comment…"
-          value={draft} onChange={(e) => setDraft(e.target.value)}
-          onPaste={attach.onPaste}
-          onKeyDown={(e) => {
-            if (!isSubmitChord(e)) return
-            e.preventDefault()          // otherwise the chord also types a newline
-            post()
-          }}
-        />
-        {attach.previews.length > 0 && (
-          <Box sx={{ mt: 1 }}>
-            <AttachmentGallery items={attach.previews} size="small" onRemove={attach.remove} />
-          </Box>
-        )}
-        <input ref={fileInput} type="file" hidden multiple
-          accept={ACCEPT.join(',')} onChange={attach.onPick} />
-        <Stack direction="row" spacing={1} sx={{ mt: 1, alignItems: 'center' }}>
-          <Tooltip title={`Attach files — or paste a screenshot. ${ATTACH_HINT}`}>
-            <span>
-              <IconButton size="small" aria-label="Attach files"
-                onClick={() => fileInput.current?.click()}
-                disabled={busy || attach.files.length >= MAX_FILES}>
-                <AttachFileIcon sx={{ fontSize: 18 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Box sx={{ flexGrow: 1 }} />
-          <Typography variant="caption" color="text.disabled">
-            {MOD_KEY_LABEL}+Enter to post
-          </Typography>
-          <Button size="small" variant="contained" onClick={post} disabled={!canPost}>
-            Comment
-          </Button>
-        </Stack>
-      </Paper>
     </Stack>
   )
 }

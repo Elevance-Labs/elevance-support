@@ -64,6 +64,13 @@ const click = async (node) => {
 }
 
 // ---- what is already there ----
+const text = () => el.textContent
+check('the newest comment is on top',
+  text().indexOf('Just posted.') < text().indexOf('Looking into this.'))
+check('and the composer sits above the thread, where a new comment will land',
+  composer().compareDocumentPosition(
+    [...el.querySelectorAll('p')].find((p) => p.textContent === 'Just posted.'),
+  ) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING)
 check("a comment's file is drawn in the thread", tiles().includes('staging.png'), tiles().join(', '))
 check("the request's own file is not — it belongs above the thread",
   !tiles().includes('report.pdf'), tiles().join(', '))

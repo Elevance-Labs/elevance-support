@@ -77,13 +77,15 @@ check('anon sees attachments', body().includes('screenshot.png'))
 check('anon sees comments', body().includes('Looking into this.') && body().includes('Just posted.'))
 check('anon sees comment authors by name', body().includes('Ada Lovelace'))
 check("anon sees a comment's attachment", body().includes('staging.png'))
+check('anon reads the newest comment first',
+  body().indexOf('Just posted.') < body().indexOf('Looking into this.'))
 
 // The photo is on the allow-list deliberately — a support reply reads better
 // from a person. What must not follow it out is the id or the email behind it.
 const D = dom.window.document
 const commentImgs = [...D.querySelectorAll('img')].map((i) => i.getAttribute('src'))
 check('anon sees a comment author photo',
-  commentImgs.includes(PUBLIC_PAYLOAD.comments[0].author_avatar_url),
+  commentImgs.includes(PUBLIC_PAYLOAD.comments.find((c) => c.author_avatar_url).author_avatar_url),
   commentImgs.join(', ') || '(none)')
 check('an author with no photo falls back to initials, not a broken image',
   body().includes('GH'), body().slice(0, 400))

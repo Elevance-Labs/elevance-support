@@ -99,7 +99,8 @@ Deno.serve(async (req) => {
     admin.from("comments")
       .select("id, body, created_at, author_id")
       .eq("issue_id", issue.id)
-      .order("created_at"),
+      // Newest first, as the staff thread shows them.
+      .order("created_at", { ascending: false }),
   ]);
 
   // The bucket stays private; each attachment gets its own short-lived URL.

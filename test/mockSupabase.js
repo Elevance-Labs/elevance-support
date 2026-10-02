@@ -90,7 +90,11 @@ const chain = (data) => {
   const rows = data ?? []
   const p = Promise.resolve({ data: rows, error: null })
   p.select = () => chain(rows)
-  p.order = () => chain(rows)
+  // Fixtures are written oldest-first, so only a descending order has to move
+  // anything — and only by a column the rows actually carry.
+  p.order = (col, { ascending = true } = {}) => chain(
+    ascending || !rows.every((r) => r[col] != null)
+      ? rows : [...rows].sort((a, b) => (a[col] < b[col] ? 1 : a[col] > b[col] ? -1 : 0)))
   p.eq = (col, value) => chain(rows.filter((r) => r[col] === value))
   p.in = (col, values) => chain(rows.filter((r) => (values ?? []).includes(r[col])))
   // Only the `is null` / `not is null` forms the app uses.
@@ -313,17 +317,18 @@ export const PUBLIC_PAYLOAD = {
   ],
   // Names only — the function never sends an author id or email.
   // The function sends a name and a photo URL — no id, no email. Ada has a
-  // photo, Grace does not, so the page is exercised both ways.
+  // photo, Grace does not, so the page is exercised both ways. Newest first,
+  // which is the order the function sends.
   comments: [
-    { id: 'c1', body: 'Looking into this.', created_at: iso(2 * DAY),
-      author_name: 'Ada Lovelace',
-      author_avatar_url: 'https://public.example/avatars/user-1/avatar?v=1' },
     { id: 'c2', body: 'Just posted.', created_at: iso(30_000),
       author_name: 'Grace Hopper', author_avatar_url: null,
       attachments: [
         { id: 'a2', file_name: 'staging.png', mime_type: 'image/png',
           url: 'https://signed.example/issue-1/staging.png' },
       ] },
+    { id: 'c1', body: 'Looking into this.', created_at: iso(2 * DAY),
+      author_name: 'Ada Lovelace',
+      author_avatar_url: 'https://public.example/avatars/user-1/avatar?v=1' },
   ],
 }
 

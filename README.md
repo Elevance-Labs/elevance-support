@@ -231,7 +231,8 @@ Opening a ticket gives a three-column view:
   picker shows each person's photo and holds **up to two** of them, and the
   status picker a coloured dot for the status *type*, the same dot the board
   columns use — then the description,
-  then the **comment** thread with the composer beneath the existing comments.
+  then the **comment** thread, **newest first**, with the composer above it —
+  a new comment lands directly beneath the box it was typed in.
   Anyone signed in can comment; the author can edit or delete their own comment
   for **5 minutes**, after which the buttons disappear on their own. The
   5-minute rule is enforced by row-level security too, so it can't be bypassed
