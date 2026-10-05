@@ -27,14 +27,43 @@ const blank = {
   behavior: '',
 }
 
+// Templates sit after the dropdown lists: they are configuration too, but text
+// for the comment box rather than a list anything is picked from on a ticket.
+const TEMPLATES_TAB = LIST_TYPES.length
+
 export default function Configuration() {
-  const { lists, refresh } = useConfig()
   const [tab, setTab] = useState(0)
+
+  return (
+    <Stack spacing={2}>
+      <Typography variant="h5">Configuration</Typography>
+      <Typography variant="body2" color="text.secondary">
+        These lists drive every dropdown on the intake form and in the dashboard,
+        and the templates offered under the comment box.
+      </Typography>
+
+      <Paper>
+        <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ borderBottom: '1px solid #e5e7eb' }}>
+          {LIST_TYPES.map((l) => <Tab key={l.key} label={l.label} />)}
+          <Tab label="Templates" />
+        </Tabs>
+
+        {tab === TEMPLATES_TAB
+          ? <TemplatesPanel />
+          : <ListPanel key={LIST_TYPES[tab].key} type={LIST_TYPES[tab]} />}
+      </Paper>
+    </Stack>
+  )
+}
+
+/** One `list_items` type: its table, and the add/edit dialog. */
+function ListPanel({ type }) {
+  const { lists, refresh } = useConfig()
   const [dialog, setDialog] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const listType = LIST_TYPES[tab].key
+  const listType = type.key
   const items = lists[listType] ?? []
 
   const save = async () => {
@@ -107,134 +136,122 @@ export default function Configuration() {
     }))
 
   return (
-    <Stack spacing={2}>
-      <Typography variant="h5">Configuration</Typography>
-      <Typography variant="body2" color="text.secondary">
-        These lists drive every dropdown on the intake form and in the dashboard.
-      </Typography>
+    <>
+      <Box sx={{ p: 2 }}>
+        {error && <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError('')}>{error}</Alert>}
+        <Stack direction="row" sx={{ mb: 1, justifyContent: 'flex-end' }}>
+          <Button size="small" variant="contained" startIcon={<AddIcon />}
+            onClick={() => setDialog({ id: null, values: { ...blank, sort_order: items.length + 1 } })}>
+            Add {type.singular}
+          </Button>
+        </Stack>
 
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-
-      <Paper>
-        <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ borderBottom: '1px solid #e5e7eb' }}>
-          {LIST_TYPES.map((l) => <Tab key={l.key} label={l.label} />)}
-        </Tabs>
-
-        <Box sx={{ p: 2 }}>
-          <Stack direction="row" sx={{ mb: 1, justifyContent: 'flex-end' }}>
-            <Button size="small" variant="contained" startIcon={<AddIcon />}
-              onClick={() => setDialog({ id: null, values: { ...blank, sort_order: items.length + 1 } })}>
-              Add {LIST_TYPES[tab].singular}
-            </Button>
-          </Stack>
-
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Name</TableCell>
-                {listType === 'status' && <TableCell width={190}>Status type</TableCell>}
-                {listType === 'severity' && <TableCell>Behaviour</TableCell>}
-                {listType === 'severity' && <TableCell width={120}>SLA target</TableCell>}
-                {listType !== 'status' && <TableCell width={110}>Colour</TableCell>}
-                <TableCell width={90}>Order</TableCell>
-                <TableCell width={90}>Active</TableCell>
-                <TableCell align="right" width={100}>Actions</TableCell>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Name</TableCell>
+              {listType === 'status' && <TableCell width={190}>Status type</TableCell>}
+              {listType === 'severity' && <TableCell>Behaviour</TableCell>}
+              {listType === 'severity' && <TableCell width={120}>SLA target</TableCell>}
+              {listType !== 'status' && <TableCell width={110}>Colour</TableCell>}
+              <TableCell width={90}>Order</TableCell>
+              <TableCell width={90}>Active</TableCell>
+              <TableCell align="right" width={100}>Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {items.map((item) => (
+              <TableRow key={item.id} hover>
+                <TableCell>
+                  <Tag value={item.name}
+                    color={listType === 'status'
+                      ? STATUS_TYPE_COLORS[item.status_type]
+                      : item.color} />
+                </TableCell>
+                {listType === 'status' && (
+                  <TableCell>
+                    {item.status_type
+                      ? (
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                          <Box sx={{
+                            width: 12, height: 12, borderRadius: '3px',
+                            bgcolor: STATUS_TYPE_COLORS[item.status_type],
+                          }} />
+                          <Typography variant="body2">
+                            {STATUS_TYPE_LABELS[item.status_type]}
+                          </Typography>
+                        </Stack>
+                      )
+                      : <Typography variant="caption" color="error">Not set</Typography>}
+                  </TableCell>
+                )}
+                {listType === 'severity' && (
+                  <TableCell>
+                    <Typography variant="body2" color="text.secondary">
+                      {item.behavior}
+                    </Typography>
+                  </TableCell>
+                )}
+                {listType === 'severity' && (
+                  <TableCell>
+                    {item.sla_hours
+                      ? <Typography variant="body2">{formatSla(item.sla_hours)}</Typography>
+                      : <Typography variant="caption" color="text.disabled">No SLA</Typography>}
+                  </TableCell>
+                )}
+                {listType !== 'status' && (
+                  <TableCell>
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                      <Box sx={{
+                        width: 14, height: 14, borderRadius: '3px',
+                        bgcolor: item.color ?? 'transparent',
+                        border: '1px solid #d1d5db',
+                      }} />
+                      <Typography variant="caption">{item.color ?? 'auto'}</Typography>
+                    </Stack>
+                  </TableCell>
+                )}
+                <TableCell>{item.sort_order}</TableCell>
+                <TableCell>
+                  <Tooltip title={item.is_active ? 'Hide from dropdowns' : 'Show in dropdowns'}>
+                    <Switch size="small" checked={item.is_active}
+                      onChange={() => toggleActive(item)} />
+                  </Tooltip>
+                </TableCell>
+                <TableCell align="right">
+                  <IconButton size="small" onClick={() => setDialog({
+                    id: item.id,
+                    values: {
+                      name: item.name, color: item.color ?? '',
+                      sort_order: item.sort_order, is_active: item.is_active,
+                      status_type: item.status_type ?? 'new',
+                      sla_hours: item.sla_hours ?? '',
+                      behavior: item.behavior ?? '',
+                    },
+                  })}>
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton size="small" onClick={() => remove(item)}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </TableCell>
               </TableRow>
-            </TableHead>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.id} hover>
-                  <TableCell>
-                    <Tag value={item.name}
-                      color={listType === 'status'
-                        ? STATUS_TYPE_COLORS[item.status_type]
-                        : item.color} />
-                  </TableCell>
-                  {listType === 'status' && (
-                    <TableCell>
-                      {item.status_type
-                        ? (
-                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                            <Box sx={{
-                              width: 12, height: 12, borderRadius: '3px',
-                              bgcolor: STATUS_TYPE_COLORS[item.status_type],
-                            }} />
-                            <Typography variant="body2">
-                              {STATUS_TYPE_LABELS[item.status_type]}
-                            </Typography>
-                          </Stack>
-                        )
-                        : <Typography variant="caption" color="error">Not set</Typography>}
-                    </TableCell>
-                  )}
-                  {listType === 'severity' && (
-                    <TableCell>
-                      <Typography variant="body2" color="text.secondary">
-                        {item.behavior}
-                      </Typography>
-                    </TableCell>
-                  )}
-                  {listType === 'severity' && (
-                    <TableCell>
-                      {item.sla_hours
-                        ? <Typography variant="body2">{formatSla(item.sla_hours)}</Typography>
-                        : <Typography variant="caption" color="text.disabled">No SLA</Typography>}
-                    </TableCell>
-                  )}
-                  {listType !== 'status' && (
-                    <TableCell>
-                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                        <Box sx={{
-                          width: 14, height: 14, borderRadius: '3px',
-                          bgcolor: item.color ?? 'transparent',
-                          border: '1px solid #d1d5db',
-                        }} />
-                        <Typography variant="caption">{item.color ?? 'auto'}</Typography>
-                      </Stack>
-                    </TableCell>
-                  )}
-                  <TableCell>{item.sort_order}</TableCell>
-                  <TableCell>
-                    <Tooltip title={item.is_active ? 'Hide from dropdowns' : 'Show in dropdowns'}>
-                      <Switch size="small" checked={item.is_active}
-                        onChange={() => toggleActive(item)} />
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell align="right">
-                    <IconButton size="small" onClick={() => setDialog({
-                      id: item.id,
-                      values: {
-                        name: item.name, color: item.color ?? '',
-                        sort_order: item.sort_order, is_active: item.is_active,
-                        status_type: item.status_type ?? 'new',
-                        sla_hours: item.sla_hours ?? '',
-                        behavior: item.behavior ?? '',
-                      },
-                    })}>
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                    <IconButton size="small" onClick={() => remove(item)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {items.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={columnCount}>
-                    <Box sx={{ py: 3, textAlign: 'center', color: 'text.secondary' }}>
-                      Nothing configured yet.
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </Box>
-      </Paper>
+            ))}
+            {items.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={columnCount}>
+                  <Box sx={{ py: 3, textAlign: 'center', color: 'text.secondary' }}>
+                    Nothing configured yet.
+                  </Box>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Box>
 
       <Dialog open={Boolean(dialog)} onClose={() => setDialog(null)} fullWidth maxWidth="xs">
-        <DialogTitle>{dialog?.id ? 'Edit' : 'Add'} {LIST_TYPES[tab].singular}</DialogTitle>
+        <DialogTitle>{dialog?.id ? 'Edit' : 'Add'} {type.singular}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField label="Name" fullWidth autoFocus
@@ -287,6 +304,160 @@ export default function Configuration() {
           <Button variant="contained" onClick={save} disabled={busy}>Save</Button>
         </DialogActions>
       </Dialog>
-    </Stack>
+    </>
+  )
+}
+
+const blankTemplate = { title: '', body: '', sort_order: 0, is_active: true }
+
+/**
+ * Comment templates: a title to pick by and the text it writes into the
+ * comment box. Inactive ones stay here but are not offered under the box.
+ */
+function TemplatesPanel() {
+  const { templates, refresh } = useConfig()
+  const [dialog, setDialog] = useState(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const save = async () => {
+    const { id, values } = dialog
+    const payload = {
+      title: values.title.trim(),
+      body: values.body.trim(),
+      sort_order: Number(values.sort_order) || 0,
+      is_active: values.is_active,
+    }
+    // The database refuses either blank; say so here rather than echo its error.
+    if (!payload.title || !payload.body) return setError('A template needs a title and text.')
+    setBusy(true); setError('')
+    const { error } = id
+      ? await supabase.from('comment_templates').update(payload).eq('id', id)
+      : await supabase.from('comment_templates').insert(payload)
+    setBusy(false)
+    if (error) return setError(error.message)
+    setDialog(null)
+    refresh()
+  }
+
+  const remove = async (item) => {
+    if (!confirm(`Delete the "${item.title}" template? Comments already posted from it are unaffected.`)) return
+    const { error } = await supabase.from('comment_templates').delete().eq('id', item.id)
+    if (error) return setError(error.message)
+    refresh()
+  }
+
+  const toggleActive = async (item) => {
+    const { error } = await supabase.from('comment_templates')
+      .update({ is_active: !item.is_active }).eq('id', item.id)
+    if (error) return setError(error.message)
+    refresh()
+  }
+
+  const patch = (field) => (e) =>
+    setDialog((d) => ({
+      ...d,
+      values: {
+        ...d.values,
+        [field]: field === 'is_active' ? e.target.checked : e.target.value,
+      },
+    }))
+
+  return (
+    <>
+      <Box sx={{ p: 2 }}>
+        {error && <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError('')}>{error}</Alert>}
+        <Stack direction="row" sx={{ mb: 1, justifyContent: 'flex-end' }}>
+          <Button size="small" variant="contained" startIcon={<AddIcon />}
+            onClick={() => setDialog({
+              id: null, values: { ...blankTemplate, sort_order: templates.length + 1 },
+            })}>
+            Add Template
+          </Button>
+        </Stack>
+
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell width={220}>Title</TableCell>
+              <TableCell>Text</TableCell>
+              <TableCell width={90}>Order</TableCell>
+              <TableCell width={90}>Active</TableCell>
+              <TableCell align="right" width={100}>Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {templates.map((t) => (
+              <TableRow key={t.id} hover>
+                <TableCell>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>{t.title}</Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" color="text.secondary" sx={{
+                    whiteSpace: 'pre-wrap', display: '-webkit-box',
+                    WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                  }}>
+                    {t.body}
+                  </Typography>
+                </TableCell>
+                <TableCell>{t.sort_order}</TableCell>
+                <TableCell>
+                  <Tooltip title={t.is_active ? 'Hide from the comment box' : 'Offer under the comment box'}>
+                    <Switch size="small" checked={t.is_active} onChange={() => toggleActive(t)} />
+                  </Tooltip>
+                </TableCell>
+                <TableCell align="right">
+                  <IconButton size="small" aria-label="Edit template" onClick={() => setDialog({
+                    id: t.id,
+                    values: {
+                      title: t.title, body: t.body,
+                      sort_order: t.sort_order, is_active: t.is_active,
+                    },
+                  })}>
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton size="small" aria-label="Delete template" onClick={() => remove(t)}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </TableCell>
+              </TableRow>
+            ))}
+            {templates.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <Box sx={{ py: 3, textAlign: 'center', color: 'text.secondary' }}>
+                    No templates yet.
+                  </Box>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Box>
+
+      <Dialog open={Boolean(dialog)} onClose={() => setDialog(null)} fullWidth maxWidth="sm">
+        <DialogTitle>{dialog?.id ? 'Edit' : 'Add'} Template</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField label="Title" fullWidth autoFocus
+              value={dialog?.values.title ?? ''} onChange={patch('title')}
+              helperText="What staff pick it by under the comment box." />
+            <TextField label="Text" fullWidth multiline minRows={5}
+              value={dialog?.values.body ?? ''} onChange={patch('body')}
+              helperText="Written into the comment box when picked. The author can still edit it before posting." />
+            <TextField label="Sort order" type="number" fullWidth
+              value={dialog?.values.sort_order ?? 0} onChange={patch('sort_order')} />
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+              <Switch checked={dialog?.values.is_active ?? true} onChange={patch('is_active')} />
+              <Typography variant="body2">Active</Typography>
+            </Stack>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialog(null)}>Cancel</Button>
+          <Button variant="contained" onClick={save} disabled={busy}>Save</Button>
+        </DialogActions>
+      </Dialog>
+    </>
   )
 }

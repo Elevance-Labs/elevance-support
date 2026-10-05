@@ -24,9 +24,9 @@ await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
 
 const tabs = [...el.querySelectorAll('[role="tab"]')].map((t) => t.textContent.trim())
 check('renders without crashing', el.textContent.includes('Configuration'))
-check('has 8 tabs', tabs.length === 8, `got ${tabs.length}: ${tabs.join(', ')}`)
+check('has 9 tabs', tabs.length === 9, `got ${tabs.length}: ${tabs.join(', ')}`)
 for (const t of ['Types', 'Products', 'Areas', 'Priorities', 'Severities', 'Statuses',
-  'Labels', 'Sources'])
+  'Labels', 'Sources', 'Templates'])
   check(`tab "${t}"`, tabs.includes(t), tabs.join(', '))
 
 // default tab = Type, seeded with Bug + Question from the mock

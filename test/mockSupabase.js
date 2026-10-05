@@ -27,6 +27,17 @@ const LIST_ITEMS = [
   { id: '15', list_type: 'source',  name: 'Email',       color: '#7b1fa2', sort_order: 2, is_active: true },
   { id: '16', list_type: 'source',  name: 'Call',        color: '#f57c00', sort_order: 5, is_active: true },
 ]
+// Canned comment text. `Retired reply` is inactive: Configuration lists it, the
+// comment box must not offer it.
+export const COMMENT_TEMPLATES = [
+  { id: 'tpl-1', title: 'Need more info', sort_order: 1, is_active: true,
+    body: 'Could you send a screenshot of the error?' },
+  { id: 'tpl-2', title: 'Fixed', sort_order: 2, is_active: true,
+    body: 'This is fixed and will ship in the next release.' },
+  { id: 'tpl-3', title: 'Retired reply', sort_order: 3, is_active: false,
+    body: 'No longer used.' },
+]
+
 export const PROJECTS = [
   { id: 'proj-1', name: 'Acme Support', key: 'ACME', status: 'in_progress', issue_seq: 42 },
   { id: 'proj-2', name: 'Billing',      key: 'BILL', status: 'incoming',    issue_seq: 0 },
@@ -138,6 +149,7 @@ const tableData = (table) => {
   if (table === 'project_members') return PROJECT_MEMBERS
   if (table === 'project_schedules') return PROJECT_SCHEDULES
   if (table === 'companies') return COMPANIES
+  if (table === 'comment_templates') return COMMENT_TEMPLATES
   if (table === 'attachments') return FIXTURES.attachments
   return []
 }

@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Alert, Box, Button, IconButton, Paper, Stack, TextField, Tooltip, Typography,
+  Alert, Box, Button, IconButton, MenuItem, Paper, Stack, TextField, Tooltip, Typography,
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import CheckIcon from '@mui/icons-material/Check'
 import { supabase } from '../lib/supabase'
 import { signAttachments, uploadAttachment, removeAttachmentFiles } from '../lib/storage'
+import { copyText } from '../lib/publicLink'
 import { ACCEPT, ATTACH_HINT, MAX_FILES } from '../lib/attachments'
 import { useAuth } from '../context/AuthContext'
 import { useConfig } from '../context/ConfigContext'
@@ -63,15 +66,17 @@ function useEditWindowTick(comments) {
 
 export default function CommentsThread({ issueId }) {
   const { profile } = useAuth()
-  const { users } = useConfig()
+  const { users, templates } = useConfig()
   const [comments, setComments] = useState([])
   const [filesOf, setFilesOf] = useState({}) // comment id → gallery items
   const [draft, setDraft] = useState('')
   const [editing, setEditing] = useState(null) // { id, body }
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [copiedId, setCopiedId] = useState(null) // template just copied, for the tick
   const attach = useAttachmentDraft(setError)
   const fileInput = useRef(null)
+  const composer = useRef(null)
 
   useEditWindowTick(comments)
 
@@ -98,6 +103,43 @@ export default function CommentsThread({ issueId }) {
     const map = Object.fromEntries(users.map((u) => [u.id, u]))
     return (id) => map[id]
   }, [users])
+
+  const offered = useMemo(() => templates.filter((t) => t.is_active), [templates])
+
+  /**
+   * Writes a template into the box where the caret is, replacing any selected
+   * text — what pasting it would do — so a draft already typed is never lost.
+   * Nothing is posted: the author still edits and sends it themselves.
+   */
+  const insertTemplate = (id) => {
+    const template = offered.find((t) => t.id === id)
+    if (!template) return
+    const box = composer.current
+    const start = box?.selectionStart ?? draft.length
+    const end = box?.selectionEnd ?? draft.length
+    const caret = start + template.body.length
+    setDraft(draft.slice(0, start) + template.body + draft.slice(end))
+    // After React has written the new value, put the caret after the insert.
+    requestAnimationFrame(() => {
+      composer.current?.focus()
+      composer.current?.setSelectionRange(caret, caret)
+    })
+  }
+
+  /**
+   * The copy button on a template's row. Stops the click there, so the row's
+   * own click — which writes into the box and closes the menu — never fires.
+   */
+  const copyTemplate = async (e, template) => {
+    e.stopPropagation()
+    if (await copyText(template.body)) {
+      setCopiedId(template.id)
+      setTimeout(() => setCopiedId((id) => (id === template.id ? null : id)), 2000)
+    } else {
+      // No Clipboard API (an insecure origin, usually).
+      setError('Could not copy to the clipboard — pick the template to put it in the box instead.')
+    }
+  }
 
   // A comment may be only a screenshot — text or a file, either will do.
   const canPost = !busy && (draft.trim() !== '' || attach.files.length > 0)
@@ -159,7 +201,7 @@ export default function CommentsThread({ issueId }) {
       <Paper sx={{ p: 1.5 }}>
         <TextField
           fullWidth multiline minRows={2} size="small" placeholder="Add a comment…"
-          value={draft} onChange={(e) => setDraft(e.target.value)}
+          inputRef={composer} value={draft} onChange={(e) => setDraft(e.target.value)}
           onPaste={attach.onPaste}
           onKeyDown={(e) => {
             if (!isSubmitChord(e)) return
@@ -184,6 +226,45 @@ export default function CommentsThread({ issueId }) {
               </IconButton>
             </span>
           </Tooltip>
+          {offered.length > 0 && (
+            // Always shows its prompt rather than the last pick: it is an
+            // action, and the same template may be wanted twice.
+            <TextField select size="small" value="" disabled={busy}
+              onChange={(e) => insertTemplate(e.target.value)}
+              sx={{ minWidth: 180 }}
+              slotProps={{
+                select: {
+                  displayEmpty: true,
+                  renderValue: () => (
+                    <Typography variant="body2" color="text.secondary">Insert template…</Typography>
+                  ),
+                  inputProps: { 'aria-label': 'Insert template' },
+                },
+              }}>
+              {offered.map((t) => (
+                <MenuItem key={t.id} value={t.id} sx={{
+                  gap: 1,
+                  // The copy button shows on hover (or keyboard focus) only, so
+                  // the list reads as titles until you are on one.
+                  '& .template-copy': { opacity: 0 },
+                  '&:hover .template-copy, &.Mui-focusVisible .template-copy, & .template-copy.copied':
+                    { opacity: 1 },
+                }}>
+                  <Box sx={{ flexGrow: 1 }}>{t.title}</Box>
+                  <Tooltip title={copiedId === t.id ? 'Copied' : 'Copy text'}>
+                    <IconButton size="small"
+                      className={copiedId === t.id ? 'template-copy copied' : 'template-copy'}
+                      aria-label={`Copy ${t.title}`}
+                      onClick={(e) => copyTemplate(e, t)}>
+                      {copiedId === t.id
+                        ? <CheckIcon color="success" sx={{ fontSize: 16 }} />
+                        : <ContentCopyIcon sx={{ fontSize: 16 }} />}
+                    </IconButton>
+                  </Tooltip>
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
           <Box sx={{ flexGrow: 1 }} />
           <Typography variant="caption" color="text.disabled">
             {MOD_KEY_LABEL}+Enter to post

@@ -66,7 +66,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `/projects` — admin-only CRUD over projects, their members and their
   **support schedule** (a dialog wrapping the same `ScheduleManager`).
 - `/users` — admin/manager CRUD over accounts.
-- `/config` — admin-only CRUD over the dropdown lists.
+- `/config` — admin-only CRUD over the dropdown lists and the comment templates.
 - `/profile` — your own account: shows name/email/role, changes photo and
   password. Reached from the header avatar menu. No role guard — everyone has one.
 - `/embed/:key/form` — public, no auth, no chrome; one form per project.
@@ -82,7 +82,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 | Provider | Supplies | Scope |
 |---|---|---|
 | `AuthContext` | `session`, `profile`, `loading`, sign in/out, `refreshProfile` | Whole app |
-| `ConfigContext` | Dropdown lists grouped by type, company list, user roster, active statuses | Authed pages + embed form |
+| `ConfigContext` | Dropdown lists grouped by type, company list, user roster, comment templates, active statuses | Authed pages + embed form (no roster or templates there) |
 | `ProjectContext` | Project list, the one selected project, persistence | Authed pages only |
 | `RefreshContext` | Bump counter so the header can tell a page to reload | Inside `AppLayout` |
 
@@ -185,6 +185,10 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `submitted_date` to now) and refuses it from a signed-in one, so staff pick
   from the other channels and may back-date what they log.
 - `comments` — thread on a ticket; author-editable for 5 minutes (RLS-enforced).
+- `comment_templates` — canned comment text (title + body) managed under
+  Configuration; picking one under the comment box only writes into the box.
+  Its own table, not a `list_items` type, because `list_items` is anon-readable:
+  signed-in read only, admin write.
 - `status_events` — every status change, written by trigger; feeds the timeline.
 - `attachments` + a **private** storage bucket; access via short-lived signed URLs.
   A row with a `comment_id` belongs to that comment, not the request; only the

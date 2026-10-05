@@ -16,7 +16,7 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | **Schedule** | The selected project's support rota — who is on, and when. Managers and admins. |
 | **Projects** | Admin-only CRUD over projects, their keys, their members and their **support schedule**. |
 | **Users** | Admin-only CRUD over who can sign in and be assigned work, and which department they are in. |
-| **Configuration** | Admin-only CRUD over the lists that drive every dropdown — types, products, areas, priorities, severities, statuses, labels and sources. |
+| **Configuration** | Admin-only CRUD over the lists that drive every dropdown — types, products, areas, priorities, severities, statuses, labels and sources — and over the comment **templates**. |
 | **Profile** | Your own account — reached from the avatar in the header. Shows your name, email and role; lets you change your photo and your password. |
 
 ## Roles
@@ -41,7 +41,7 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | Create schedules; edit or delete current and upcoming ones | — | ✅ | ✅ |
 | Edit or delete a **past** schedule | — | — | ✅ |
 | **Delete tickets** | — | — | ✅ |
-| Configuration lists | — | — | ✅ |
+| Configuration lists and comment templates | — | — | ✅ |
 
 Disabling an account bans it at the auth layer, so a disabled user genuinely
 cannot sign in — and is signed out automatically if they were already active.
@@ -245,6 +245,14 @@ Opening a ticket gives a three-column view:
   under their comment, not with the request's own. Only the author may add or
   remove a comment's files, and only inside the same 5-minute window; deleting
   the comment takes its files with it. Row-level security enforces all three.
+  Under the box, **Insert template…** offers the active comment templates
+  (Configuration → Templates — a title and the text). Picking one writes its
+  text into the box at the cursor, as a paste would, keeping whatever was
+  already typed; nothing is posted until you post it, so edit freely first.
+  Hovering a template in the list shows a **copy** button, which copies its
+  text to the clipboard instead — the box is left alone and the list stays open.
+  Templates live in their own staff-only table rather than with the dropdown
+  lists, which the public form reads with the anon key.
 - **Right** — the **status timeline**: the statuses this ticket has actually been
   through, in order, showing who moved it there, when, and how long it sat in the
   previous status. Statuses it never reached are not drawn. Total elapsed time

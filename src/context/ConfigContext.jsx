@@ -27,7 +27,9 @@ export const PUBLIC_SOURCE = 'Form'
 
 /**
  * Loads every configuration list once and exposes them grouped by list_type.
- * Also carries the user roster, since assignee pickers need it everywhere.
+ * Also carries the user roster, since assignee pickers need it everywhere, and
+ * the comment templates. Both are staff-only reads, so the public form (which
+ * passes `withUsers={false}`) asks for neither.
  */
 export function ConfigProvider({ children, withUsers = true }) {
   const [items, setItems] = useState([])
@@ -36,6 +38,7 @@ export function ConfigProvider({ children, withUsers = true }) {
   // dashboard — but every form and filter needs the list, so it loads here with
   // the rest of the vocabulary.
   const [companies, setCompanies] = useState([])
+  const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
@@ -48,6 +51,9 @@ export function ConfigProvider({ children, withUsers = true }) {
     if (withUsers) {
       const { data: u } = await supabase.from('profiles').select('*').order('full_name')
       setUsers(u ?? [])
+      const { data: t } = await supabase.from('comment_templates').select('*')
+        .order('sort_order').order('title')
+      setTemplates(t ?? [])
     }
     setLoading(false)
   }, [withUsers])
@@ -72,7 +78,7 @@ export function ConfigProvider({ children, withUsers = true }) {
 
   return (
     <ConfigContext.Provider
-      value={{ lists, users, companies, statuses, loading, refresh, colorOf }}>
+      value={{ lists, users, companies, templates, statuses, loading, refresh, colorOf }}>
       {children}
     </ConfigContext.Provider>
   )
