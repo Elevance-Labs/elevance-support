@@ -7,10 +7,19 @@
 //
 // That puts all the weight on the allow-list below. It is deliberately NOT the
 // same list as `public-issue`: this page carries the ticket's product, area,
-// current status and who asked, and leaves out comments. Assignees, severity,
-// priority, type, labels, internal notes, the requester's email, the status
-// timeline and SLA never leave the database. Nor does a ticket closed more than
+// current status and who asked — name and email — and leaves out comments.
+// Assignees, severity, priority, type, labels, internal notes, the status
+// timeline and SLA never leave the database.
+//
+// The requester's email is on this list by decision, unlike `public-issue`: a
+// company reads it beside the name to tell its own people apart. Because the
+// address is guessable, that publishes every requester's email on the page to
+// anyone who knows or guesses the company's code. Nor does a ticket closed more than
 // CLOSED_VISIBLE_DAYS ago: that is filtered here, not in the browser.
+//
+// An optional `email` marks which tickets that requester filed, for the page's
+// "My tickets" view. It is compared here, ignoring case, so the page does not
+// need its own copy of the rule.
 //
 // Runs with the service_role key so the browser never needs read access to
 // `issues` — see the note at the top of public-issue/index.ts.
@@ -52,7 +61,8 @@ const chunks = <T>(items: T[]) =>
 
 const FIELDS =
   "id, number, title, description, product, area, status, company, " +
-  "requester_name, source, source_url, submitted_date, projects!inner(name, key)";
+  "requester_name, requester_email, source, source_url, submitted_date, " +
+  "projects!inner(name, key)";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -63,13 +73,16 @@ Deno.serve(async (req) => {
   );
 
   let company: unknown;
+  let email: unknown;
   try {
-    ({ company } = await req.json());
+    ({ company, email } = await req.json());
   } catch {
     return json({ error: "Malformed request" }, 400);
   }
   const value = typeof company === "string" ? company.trim() : "";
   if (!value || value.length > 120) return json({ error: "Missing company" }, 400);
+  // Never part of a query: only compared against rows already read.
+  const requester = typeof email === "string" ? email.trim().toLowerCase().slice(0, 320) : "";
 
   // Code first — that is what links carry — then the name, ignoring case, the
   // same order findCompany() in src/lib/companies.js resolves in. The value only
@@ -103,7 +116,7 @@ Deno.serve(async (req) => {
     admin.from("issues").select(FIELDS)
       .is("company_code", null).eq("company", hit.name).or(visible)
       .order("submitted_date", { ascending: false }).limit(MAX_TICKETS),
-    admin.from("list_items").select("name, status_type")
+    admin.from("list_items").select("name, status_type, description")
       .eq("list_type", "status").order("sort_order"),
   ]);
   if (byCode.error || byName.error) return json({ error: "Could not load tickets" }, 500);
@@ -146,8 +159,11 @@ Deno.serve(async (req) => {
     company: { name: hit.name, code: hit.code },
     // Statuses in workflow order, so a list sorted or grouped by status reads
     // the way the work moves rather than alphabetically — each with its type,
-    // which is what the page colours it by.
-    statuses: (statuses ?? []).map((s) => ({ name: s.name, status_type: s.status_type })),
+    // which is what the page colours it by, and the customer-facing sentence
+    // set under Configuration → Statuses.
+    statuses: (statuses ?? []).map((s) => ({
+      name: s.name, status_type: s.status_type, description: s.description ?? null,
+    })),
     truncated: all.length > MAX_TICKETS,
     closed_visible_days: CLOSED_VISIBLE_DAYS,
     // The ticket id is used for grouping attachments here and never sent: a
@@ -162,10 +178,15 @@ Deno.serve(async (req) => {
       status: i.status,
       company: i.company,
       requester_name: i.requester_name,
+      requester_email: i.requester_email,
       source: i.source,
       source_url: i.source_url,
       submitted_date: i.submitted_date,
       attachments: filesOf(i.id),
+      // Only when an email was sent: whether this ticket is that requester's.
+      ...(requester
+        ? { mine: (i.requester_email ?? "").trim().toLowerCase() === requester }
+        : {}),
     })),
   });
 });

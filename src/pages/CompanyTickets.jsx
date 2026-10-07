@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Box, CircularProgress,
-  Container, Divider, InputAdornment, Link, Stack, TextField, ToggleButton,
+  Container, Divider, InputAdornment, Link, Stack, Tab, Tabs, TextField, ToggleButton,
   ToggleButtonGroup, Typography,
 } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
@@ -17,6 +17,7 @@ import Tag from '../components/Tag'
 // The same spellings the embed form accepts for a company, so a link written
 // for one works on the other.
 const COMPANY_PARAMS = ['company', 'org', 'company_code', 'code']
+const EMAIL_PARAMS = ['requester_email', 'email']
 
 /**
  * Every ticket filed for one company, for that company to read.
@@ -24,9 +25,14 @@ const COMPANY_PARAMS = ['company', 'org', 'company_code', 'code']
  * Public and read-only, like a share link, and addressed by the `company`
  * parameter — `/tickets?company=wupi`. The list is sorted by status, in
  * workflow order, and can be searched and grouped. Each row opens to the request as it was
- * submitted: description, attachments, who asked and when, plus the product,
+ * submitted: description, attachments, who asked (name and email) and when, plus the product,
  * area and current status. Comments, assignees, the status timeline and SLA are
  * the team's own and are not sent to this page at all.
+ *
+ * With a requester's email in the link (`&email=jane@acme.com`) the list splits
+ * into "My tickets" and "All tickets". The email goes to the function, which
+ * answers with a yes/no per ticket.
+ * Without one, there is only the company's list.
  *
  * Signed-in staff see exactly what the customer sees — this is the page to check
  * before sending the link, not a second place to work.
@@ -36,6 +42,9 @@ export default function CompanyTickets() {
   const company = COMPANY_PARAMS.map((p) => params.get(p)?.trim()).find(Boolean) ?? ''
   // The grouping lives in the URL too, so a link can be sent already grouped.
   const group = TICKET_GROUPS.find((g) => g.field === params.get('group'))?.field ?? null
+  const email = EMAIL_PARAMS.map((p) => params.get(p)?.trim()).find(Boolean) ?? ''
+  // Only a link that names a requester has two views; it opens on theirs.
+  const view = email ? (params.get('view') === 'all' ? 'all' : 'mine') : null
 
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -49,7 +58,7 @@ export default function CompanyTickets() {
       // No company in the link dead-ends here, without a pointless round trip.
       if (!company) { setLoading(false); return }
       try {
-        const payload = await fetchCompanyTickets(company)
+        const payload = await fetchCompanyTickets(company, email)
         if (!cancelled) setData(payload)
       } catch (err) {
         if (!cancelled) setError(err.message ?? 'This page could not be opened.')
@@ -58,22 +67,37 @@ export default function CompanyTickets() {
       }
     })()
     return () => { cancelled = true }
-  }, [company])
+  }, [company, email])
 
   const tickets = data?.tickets
   const statuses = data?.statuses
   // Sorted by status first, so every grouping inherits that order within a group.
-  const { shown, groups } = useMemo(() => {
+  // The view's counts follow the search, as the group headings do.
+  const { counts, shown, groups } = useMemo(() => {
     const order = (statuses ?? []).map((s) => s.name)
-    const shown = searchTickets(sortByStatus(tickets ?? [], order), query)
-    return { shown, groups: groupTickets(shown, group, group === 'status' ? order : []) }
-  }, [tickets, statuses, group, query])
+    const searched = searchTickets(sortByStatus(tickets ?? [], order), query)
+    const mine = searched.filter((t) => t.mine)
+    const shown = view === 'mine' ? mine : searched
+    return {
+      counts: { mine: mine.length, all: searched.length },
+      shown,
+      groups: groupTickets(shown, group, group === 'status' ? order : []),
+    }
+  }, [tickets, statuses, group, query, view])
+  const describe = (name) => statuses?.find((s) => s.name === name)?.description
 
   const setGroup = (_, field) => {
     const next = new URLSearchParams(params)
     if (field) next.set('group', field)
     else next.delete('group')
     setParams(next, { replace: true })
+  }
+
+  const setView = (_, next) => {
+    const p = new URLSearchParams(params)
+    if (next === 'all') p.set('view', 'all')
+    else p.delete('view')
+    setParams(p, { replace: true })
   }
 
   if (loading) {
@@ -98,6 +122,14 @@ export default function CompanyTickets() {
     <Box sx={{ bgcolor: 'background.default', minHeight: '100vh', py: { xs: 3, md: 6 } }}>
       <Container maxWidth="md">
         <Stack spacing={3}>
+          {view && (
+            <Tabs value={view} onChange={setView} aria-label="Whose tickets"
+              sx={{ borderBottom: 1, borderColor: 'divider' }}>
+              <Tab value="mine" label={`My tickets (${counts.mine})`} />
+              <Tab value="all" label={`All tickets (${counts.all})`} />
+            </Tabs>
+          )}
+
           {/* Search and grouping share a row; the company is named in the
               footer, so the list starts at the top of the page. */}
           {tickets.length > 0 && (
@@ -136,15 +168,26 @@ export default function CompanyTickets() {
             </Typography>
           ) : shown.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              No tickets match “{query.trim()}”.
+              {query.trim()
+                ? <>No tickets match “{query.trim()}”.</>
+                : 'You have no tickets on this page.'}
             </Typography>
           ) : groups.map((g) => (
             <Box key={g.name ?? ''}>
               {/* Ungrouped, the one group is headed the same way, so the count
                   is always in the same place. */}
-              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                {group ? g.name ?? `No ${group}` : 'All tickets'} ({g.tickets.length})
+              <Typography variant="subtitle2" color="text.secondary"
+                sx={{ mb: group === 'status' && describe(g.name) ? 0 : 1 }}>
+                {group ? g.name ?? `No ${group}` : view === 'mine' ? 'My tickets' : 'All tickets'}
+                {' '}({g.tickets.length})
               </Typography>
+              {/* What the status means, in the words set under Configuration. */}
+              {group === 'status' && describe(g.name) && (
+                <Typography variant="caption" color="text.secondary"
+                  sx={{ display: 'block', mb: 1 }}>
+                  {describe(g.name)}
+                </Typography>
+              )}
               {g.tickets.map((t) => (
                 <TicketRow key={`${t.project.key}-${t.number}`} ticket={t}
                   color={statusColor(statuses, t.status)} />
@@ -209,7 +252,7 @@ function TicketRow({ ticket: t, color }) {
             <Field label="Company" value={t.company} />
             <Field label="Product" value={t.product} />
             <Field label="Area" value={t.area} />
-            <Field label="Requester" value={t.requester_name} />
+            <Field label="Requester" value={requester(t)} />
             <Field label="Source" value={t.source} />
             <Field label="Submitted" value={formatDateTime(t.submitted_date)} />
             <Field label="Source URL" value={safeUrl(t.source_url)
@@ -229,6 +272,10 @@ const Field = ({ label, value }) => (
     <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{value || '—'}</Typography>
   </Box>
 )
+
+// "Jane (jane@acme.com)" — or whichever of the two the ticket has.
+const requester = ({ requester_name: name, requester_email: email }) =>
+  name && email ? `${name} (${email})` : name || email
 
 // A source URL is whatever the requester's form sent. On a public page it is
 // only made clickable when it is an ordinary web address.

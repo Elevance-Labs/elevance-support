@@ -407,6 +407,12 @@ per-status colour to set. The dot is drawn by
 appears — board columns and the ticket's status picker — and carries the type's
 name as a tooltip, so the colour is never the only thing saying what it means.
 
+Each status may also carry a **description**: one sentence on what the status
+means for the customer ("Someone is working on this now."). It is optional,
+edited on the Statuses tab, and shown under the status heading on a
+[company page](#company-pages) grouped by status. `list_items` is readable with
+the anon key, so write it for customers — anyone can read it.
+
 **Paused** stops the SLA clock. A ticket can be paused from anywhere except a
 closed status, and the time it spends paused is excluded from its SLA. Pausing
 is a suspension rather than a move, so leaving a pause is judged against the
@@ -884,15 +890,36 @@ status. Each row shows the ticket reference, title, product, area and submission
 date, with the status at the far right, coloured by its type as it is in the
 app. A search box narrows the list by title, description or requester name. A
 row opens to the description, the
-request's attachments and the submission details — company, requester name,
-channel, source URL and date. The **Group by** control splits the list by
+request's attachments and the submission details — company, requester (name,
+with the email in brackets), channel, source URL and date. The **Group by** control splits the list by
 status, product or area; the choice is kept in the URL (`&group=status`), so a
-link can be sent already grouped.
+link can be sent already grouped. Grouped by status, each heading carries that
+status's [description](#statuses-status-types-and-slas), when it has one.
+
+### My tickets
+
+Add the requester's email to the link and the page splits into two views,
+**My tickets (n)** and **All tickets (n)**, opening on the first:
+
+```
+https://support.yourcompany.com/tickets?company=wupi&email=jane@wupi.com
+```
+
+`email` or `requester_email` both work, as on the embed form, and the match
+ignores case on both sides. `&view=all` opens on All tickets instead. Both
+counts follow the search box. Without an email the page has no views at all and
+looks as it always did.
+
+The email is sent to the function and compared there, which answers with a
+yes/no per ticket.
 
 What is deliberately **not** on it: comments and their attachments, assignees,
 severity, priority, type, labels, internal notes, the Jira ticket, the status
-timeline, SLA — and the requester's **email**. Signed-in staff see the same
-page a customer does.
+timeline and SLA. Signed-in staff see the same page a customer does.
+
+The requester's **email is on it**, which the [share link](#share-links) page
+does not show. That was a deliberate choice: a company reads the email beside
+the name to tell its own people apart.
 
 ### These links are guessable too
 
@@ -902,7 +929,8 @@ customer. This is the same trade as [share links](#share-links), and the same
 thing limits it: the page is served by the `public-company` Edge Function, which
 reads with `service_role` and returns only the fields above. Nothing was opened
 in row-level security. Treat an addition to that allow-list as a decision to
-publish the field; the requester's email is left off it for exactly that reason.
+publish the field. **That includes requester emails**: everyone who has filed a
+ticket for a company is listed by email address to anyone who guesses its code.
 
 A ticket **closed more than 14 days ago is not shown**. The function filters on
 `closed_at`, so an old closed ticket never reaches the browser, and a reopened

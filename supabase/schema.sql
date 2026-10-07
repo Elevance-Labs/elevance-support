@@ -134,6 +134,8 @@ end $$;
 -- Both are read wherever a severity is picked. The SLA hangs off severity and
 -- not off the request type because what a ticket costs the customer is what the
 -- team answers for; what kind of request it is is only how it is filed.
+-- `description` applies to statuses: the sentence a customer reads under that
+-- status on the public company page.
 create table if not exists public.list_items (
   id          uuid primary key default gen_random_uuid(),
   list_type   text not null check (list_type in ('type','product','area','priority','severity','status','labels','source')),
@@ -142,6 +144,7 @@ create table if not exists public.list_items (
   status_type text check (status_type is null or status_type in ('new','in_progress','paused','closed')),
   sla_hours   numeric check (sla_hours is null or sla_hours > 0),
   behavior    text,
+  description text,
   sort_order  int  not null default 0,
   is_active   boolean not null default true,
   created_at  timestamptz not null default now(),
@@ -154,7 +157,10 @@ create table if not exists public.list_items (
     check (list_type <> 'severity' or nullif(btrim(behavior), '') is not null),
   -- Only a severity carries an SLA target; nothing else is committed to.
   constraint list_items_sla_only_on_severity
-    check (sla_hours is null or list_type = 'severity')
+    check (sla_hours is null or list_type = 'severity'),
+  -- Only a status explains itself to customers.
+  constraint list_items_description_only_on_status
+    check (description is null or list_type = 'status')
 );
 
 -- ---------- companies ----------

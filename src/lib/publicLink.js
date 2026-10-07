@@ -32,12 +32,14 @@ export async function fetchPublicIssue(key, number) {
  *
  * Same arrangement as above, for the same reason — the allow-list is
  * server-side. `company` is whatever the link carried: a code, or a name.
+ * `email`, when given, is matched there and comes back as a `mine` flag on
+ * each ticket.
  *
  * Resolves to `null` when it doesn't match a company on the list.
  */
-export async function fetchCompanyTickets(company) {
+export async function fetchCompanyTickets(company, email) {
   const { data, error } = await supabase.functions.invoke('public-company', {
-    body: { company },
+    body: email ? { company, email } : { company },
   })
   if (error) {
     const status = error.context?.status

@@ -17,7 +17,8 @@ const LIST_ITEMS = [
   { id: '19', list_type: 'severity', name: 'Shelved',  color: null,      sort_order: 3, is_active: false,
     behavior: 'No longer offered.' },
   { id: '6', list_type: 'status',   name: 'New',         color: null, sort_order: 1, is_active: true, status_type: 'new' },
-  { id: '7', list_type: 'status',   name: 'Triaged',     color: null, sort_order: 2, is_active: true, status_type: 'in_progress' },
+  { id: '7', list_type: 'status',   name: 'Triaged',     color: null, sort_order: 2, is_active: true, status_type: 'in_progress',
+    description: 'We have read your request and are deciding on next steps.' },
   { id: '8', list_type: 'status',   name: 'In Progress', color: null, sort_order: 3, is_active: true, status_type: 'in_progress' },
   { id: '9',  list_type: 'status',  name: 'Done',        color: null, sort_order: 5, is_active: true, status_type: 'closed' },
   { id: '13', list_type: 'status',  name: 'On Hold',     color: null, sort_order: 4, is_active: true, status_type: 'paused' },
@@ -211,9 +212,15 @@ export const supabase = {
       if (name === 'public-company') {
         const v = String(body?.company ?? '').toLowerCase()
         const { company } = COMPANY_PAYLOAD
-        return v === company.code || v === company.name.toLowerCase()
-          ? { data: COMPANY_PAYLOAD, error: null }
-          : { data: null, error: Object.assign(new Error('not_found'), { context: { status: 404 } }) }
+        if (v !== company.code && v !== company.name.toLowerCase()) {
+          return { data: null, error: Object.assign(new Error('not_found'), { context: { status: 404 } }) }
+        }
+        // As the function does: an email comes back only as a yes/no per ticket.
+        const email = String(body?.email ?? '').trim().toLowerCase()
+        if (!email) return { data: COMPANY_PAYLOAD, error: null }
+        return { data: { ...COMPANY_PAYLOAD, tickets: COMPANY_PAYLOAD.tickets.map((t) => ({
+          ...t, mine: (t.requester_email ?? '').toLowerCase() === email,
+        })) }, error: null }
       }
       if (name !== 'public-issue') return { data: null, error: new Error('unknown function') }
       // The pair has to match: the same number under a different project key is
@@ -351,11 +358,12 @@ export const PUBLIC_PAYLOAD = {
 export const COMPANY_PAYLOAD = {
   company: { name: 'Acme', code: 'acme' },
   statuses: [
-    { name: 'New', status_type: 'new' },
-    { name: 'Triaged', status_type: 'in_progress' },
-    { name: 'In Progress', status_type: 'in_progress' },
-    { name: 'On Hold', status_type: 'paused' },
-    { name: 'Done', status_type: 'closed' },
+    // New deliberately has no description, so a heading without one is tested.
+    { name: 'New', status_type: 'new', description: null },
+    { name: 'Triaged', status_type: 'in_progress', description: 'We are deciding on next steps.' },
+    { name: 'In Progress', status_type: 'in_progress', description: 'Someone is working on this now.' },
+    { name: 'On Hold', status_type: 'paused', description: 'Waiting on something outside our team.' },
+    { name: 'Done', status_type: 'closed', description: 'Fixed, or answered.' },
   ],
   truncated: false,
   closed_visible_days: 14,
@@ -363,12 +371,16 @@ export const COMPANY_PAYLOAD = {
     { project: { name: 'Billing', key: 'BILL' }, number: 7,
       title: 'Refund shows twice', description: 'Two rows for one refund.',
       product: 'Web Portal', area: null, status: 'Done',
-      company: 'Acme', requester_name: 'Sam', source: 'Email', source_url: null,
+      // Sam left no name on an old ticket, so only the email can say who asked.
+      company: 'Acme', requester_name: null, requester_email: 'sam@acme.com',
+      source: 'Email', source_url: null,
       submitted_date: iso(1 * DAY), attachments: [] },
     { project: { name: 'Acme Support', key: 'ACME' }, number: 42,
       title: 'Cannot export invoice', description: 'The export button spins forever.',
       product: 'Mobile App', area: 'Billing', status: 'In Progress',
-      company: 'Acme', requester_name: 'Jane', source: 'Form',
+      // Jane's two tickets spell her address in two cases, so the "My tickets"
+      // match has to ignore case to find both.
+      company: 'Acme', requester_name: 'Jane', requester_email: 'Jane@Acme.com', source: 'Form',
       source_url: 'https://acme.com/billing',
       submitted_date: iso(3 * DAY),
       attachments: [
@@ -378,7 +390,9 @@ export const COMPANY_PAYLOAD = {
     { project: { name: 'Acme Support', key: 'ACME' }, number: 12,
       title: 'Login loops back', description: 'Sign-in returns to the sign-in page.',
       product: 'Mobile App', area: 'Accounts', status: 'New',
-      company: 'Acme', requester_name: 'Jane', source: 'Form', source_url: null,
+      company: 'Acme', requester_name: 'Jane', requester_email: 'jane@acme.com',
+      source: 'Form', source_url: null,
       submitted_date: iso(9 * DAY), attachments: [] },
   ],
 }
+

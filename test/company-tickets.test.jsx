@@ -134,7 +134,12 @@ check('an opened ticket shows its description', body().includes('The export butt
 check('an opened ticket shows its attachments', body().includes('screenshot.png'))
 check('an opened ticket shows who asked and how it arrived',
   body().includes('Jane') && body().includes('Form') && body().includes('https://acme.com/billing'))
+check('the requester reads as name, then email in brackets',
+  body().includes('Jane (Jane@Acme.com)'), body().slice(-400))
 check('opening one ticket does not open the others', !body().includes('Two rows for one refund.'))
+await click(summary('BILL-7'))
+check('a requester with no name is shown by email alone',
+  body().includes('sam@acme.com') && !body().includes('(sam@acme.com)'), body().slice(-400))
 
 // Everything internal must stay internal.
 const leaks = {
@@ -144,7 +149,6 @@ const leaks = {
   comments: 'Comments',
   'status timeline': 'Status timeline',
   SLA: 'Total time elapsed',
-  'requester email': 'jane@acme.com',
   'internal notes': 'Reproduced on staging.',
 }
 for (const [what, text] of Object.entries(leaks)) {
@@ -187,6 +191,18 @@ await click(button('Status'))
 check('grouping by status follows the workflow',
   body().indexOf('New (1)') < body().indexOf('In Progress (1)')
   && body().indexOf('In Progress (1)') < body().indexOf('Done (1)'), body().slice(0, 300))
+check('grouped by status, each status says what it means',
+  body().includes('Someone is working on this now.') && body().includes('Fixed, or answered.'),
+  body().slice(0, 400))
+check('a status description sits under its own heading',
+  body().indexOf('In Progress (1)') < body().indexOf('Someone is working on this now.')
+  && body().indexOf('Someone is working on this now.') < body().indexOf('Done (1)'))
+check('only statuses with tickets on the page are described',
+  !body().includes('Waiting on something outside our team.'))
+await click(button('Product'))
+check('other groupings show no status descriptions',
+  !body().includes('Someone is working on this now.'))
+await click(button('Status'))
 await click(button('Status'))
 check('pressing the active grouping again ungroups',
   !body().includes('New (1)') && body().includes('All tickets (3)'))
@@ -208,5 +224,61 @@ await render('/tickets')
 check('no company at all dead-ends without calling the function',
   body().includes('No such company') && captured.functionCalls.length === 0,
   `${captured.functionCalls.length} calls`)
+
+// ---- My tickets: a link that names the requester ----
+const tabs = () => [...D.querySelectorAll('[role="tab"]')]
+const tab = (prefix) => tabs().find((t) => t.textContent.startsWith(prefix))
+const selected = () => tabs().find((t) => t.getAttribute('aria-selected') === 'true')?.textContent
+
+// Without an email the page is exactly as it was.
+await render('/tickets?company=acme')
+check('without an email there are no views to pick from', tabs().length === 0, tabs().length)
+check('without an email the function is not sent one',
+  !('email' in captured.functionCalls[0].body), JSON.stringify(captured.functionCalls[0].body))
+
+await render('/tickets?company=acme&email=JANE@acme.COM')
+check('the email reaches the function', captured.functionCalls[0]?.body.email === 'JANE@acme.COM',
+  JSON.stringify(captured.functionCalls[0]?.body))
+check('two views, each with its count',
+  tab('My tickets')?.textContent === 'My tickets (2)' && tab('All tickets')?.textContent === 'All tickets (3)',
+  tabs().map((t) => t.textContent).join(' | '))
+check('the email matches whatever its case, on both sides',
+  body().includes('ACME-42') && body().includes('ACME-12'))
+check('a link with an email opens on My tickets', selected() === 'My tickets (2)', selected())
+check('My tickets leaves out other requesters', !body().includes('BILL-7'))
+check('ungrouped, the heading names the view', body().includes('My tickets (2)')
+  && [...D.querySelectorAll('.MuiTypography-subtitle2')].some((n) => n.textContent === 'My tickets (2)'))
+
+await click(tab('All tickets'))
+check('All tickets lists the whole company', body().includes('BILL-7') && selected() === 'All tickets (3)')
+check('All tickets is headed as such',
+  [...D.querySelectorAll('.MuiTypography-subtitle2')].some((n) => n.textContent === 'All tickets (3)'))
+await click(tab('My tickets'))
+check('and back again', !body().includes('BILL-7') && selected() === 'My tickets (2)')
+
+await type('login')
+check('the view counts follow the search',
+  tab('My tickets')?.textContent === 'My tickets (1)' && tab('All tickets')?.textContent === 'All tickets (1)',
+  tabs().map((t) => t.textContent).join(' | '))
+await type('refund')
+check('a search with no match in My tickets says so, not that they have none',
+  body().includes('No tickets match') && tab('All tickets')?.textContent === 'All tickets (1)')
+await type('')
+
+await click(button('Status'))
+check('My tickets can be grouped like the full list',
+  body().includes('New (1)') && body().includes('In Progress (1)') && !body().includes('Done (1)'))
+
+// The view is in the link, like the grouping.
+await render('/tickets?company=acme&email=jane@acme.com&view=all')
+check('a link can open on All tickets', selected() === 'All tickets (3)', selected())
+
+await render('/tickets?company=acme&requester_email=jane@acme.com')
+check('requester_email works too, as on the embed form', tab('My tickets')?.textContent === 'My tickets (2)')
+
+await render('/tickets?company=acme&email=nobody@acme.com')
+check('an email with no tickets still gets both views', selected() === 'My tickets (0)', selected())
+check('and is told they have none, rather than shown an empty list',
+  body().includes('You have no tickets on this page.'), body().slice(0, 200))
 
 done()

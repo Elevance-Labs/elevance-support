@@ -21,6 +21,7 @@ function formatSla(hours) {
 const blank = {
   name: '', color: '', sort_order: 0, is_active: true,
   status_type: 'new',   // only used by the Statuses tab
+  description: '',      // Statuses tab too: what customers read on the company page
   // Both only used by the Severities tab: what the team promises, and that
   // promise as a number the SLA clock can read.
   sla_hours: '',
@@ -77,7 +78,9 @@ function ListPanel({ type }) {
       sort_order: Number(values.sort_order) || 0,
       is_active: values.is_active,
       // Only the tab that owns a column writes it.
-      ...(listType === 'status' ? { status_type: values.status_type } : {}),
+      ...(listType === 'status'
+        ? { status_type: values.status_type, description: values.description.trim() || null }
+        : {}),
       // A severity without its behaviour is just a second priority list, so the
       // database refuses a blank one — the form asks for it rather than letting
       // that come back as an error. The target rides along with it: the SLA is
@@ -122,7 +125,7 @@ function ListPanel({ type }) {
   // Kept in step with the header below rather than spelled out again, so the
   // empty-state row can't drift out of line with the columns above it.
   const columnCount = 4                                   // Name, Order, Active, Actions
-    + (listType === 'status' ? 1 : 0)                     // Status type
+    + (listType === 'status' ? 2 : 0)                     // Status type, Description
     + (listType === 'severity' ? 2 : 0)                   // Behaviour, SLA target
     + (listType === 'status' ? 0 : 1)                     // Colour
 
@@ -151,6 +154,7 @@ function ListPanel({ type }) {
             <TableRow>
               <TableCell>Name</TableCell>
               {listType === 'status' && <TableCell width={190}>Status type</TableCell>}
+              {listType === 'status' && <TableCell>Description</TableCell>}
               {listType === 'severity' && <TableCell>Behaviour</TableCell>}
               {listType === 'severity' && <TableCell width={120}>SLA target</TableCell>}
               {listType !== 'status' && <TableCell width={110}>Colour</TableCell>}
@@ -183,6 +187,13 @@ function ListPanel({ type }) {
                         </Stack>
                       )
                       : <Typography variant="caption" color="error">Not set</Typography>}
+                  </TableCell>
+                )}
+                {listType === 'status' && (
+                  <TableCell>
+                    {item.description
+                      ? <Typography variant="body2" color="text.secondary">{item.description}</Typography>
+                      : <Typography variant="caption" color="text.disabled">None</Typography>}
                   </TableCell>
                 )}
                 {listType === 'severity' && (
@@ -225,6 +236,7 @@ function ListPanel({ type }) {
                       name: item.name, color: item.color ?? '',
                       sort_order: item.sort_order, is_active: item.is_active,
                       status_type: item.status_type ?? 'new',
+                      description: item.description ?? '',
                       sla_hours: item.sla_hours ?? '',
                       behavior: item.behavior ?? '',
                     },
@@ -265,6 +277,12 @@ function ListPanel({ type }) {
                   <MenuItem key={t} value={t}>{STATUS_TYPE_LABELS[t]}</MenuItem>
                 ))}
               </TextField>
+            )}
+
+            {listType === 'status' && (
+              <TextField label="Description" fullWidth multiline minRows={2}
+                value={dialog?.values.description ?? ''} onChange={patch('description')}
+                helperText="What this status means for the customer, in a sentence. Shown on the public company page when tickets are grouped by status — anyone with that link can read it." />
             )}
 
             {listType === 'severity' && (

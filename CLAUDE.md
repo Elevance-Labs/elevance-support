@@ -73,8 +73,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `/i/:key/:number` — share link, addressed by ticket reference: staff get
   redirected to the editable view, everyone else gets a read-only page.
 - `/tickets?company=<code>` — public, read-only list of one company's tickets
-  across all projects, groupable by status, product or area (`&group=`). Staff
-  see the same page; no redirect.
+  across all projects, groupable by status, product or area (`&group=`). With
+  `&email=` it splits into My tickets / All tickets. Staff see the same page;
+  no redirect.
 - Guarding happens in `src/App.jsx` via `<Protected require={can.x}>`.
 
 ## 5. Contexts — the app's shared state
@@ -201,7 +202,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `priority`, `severity`, `status`, `labels`, `source`), plus per-status type and,
   on severity rows only (a check constraint), `sla_hours` + `behavior` — the
   target and the sentence a severity commits the team to, which the pickers show
-  beside the name.
+  beside the name. Status rows only may carry a `description` — customer-facing,
+  shown on the company page (anon-readable, so written for the public).
 - `profiles` — mirrors auth users; carries the role, `avatar_url` and
   `department` (`not null`, default `Support`, one of the five in `users.js`).
   First account becomes admin. Self-writes are allowed, but a trigger freezes
@@ -218,9 +220,11 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   each comment's with its comment.
 - `public-company` — resolves a company code (or name) to its tickets, each cut
   to its own **field allow-list**: the request, its attachments (signed URLs),
-  submission details, product, area and current status. Drops tickets closed
-  more than 14 days ago, server-side. No comments, assignees,
-  severity, timeline, SLA or requester email — and a different list from
+  submission details including the **requester email** (deliberately — unlike
+  `public-issue`), product, area and current status, plus each status's
+  description. Drops tickets closed more than 14 days ago, server-side. An
+  optional requester email is matched there into a per-ticket `mine` flag. No
+  comments, assignees, severity, timeline or SLA — a different list from
   `public-issue`, so widen each on its own merits.
 - `notify-issue` — posts a Google Chat card for each new ticket. Called by an
   `issues` insert trigger via `pg_net`, not by the browser; authenticated by a

@@ -71,6 +71,10 @@ check('modal title uses singular', dialog?.textContent.startsWith('Add Product')
   check('Statuses tab lists a Paused status',
     [...el.querySelectorAll('tbody tr')].some((r) => r.textContent.includes('Paused')),
     [...el.querySelectorAll('tbody tr')].map((r) => r.textContent).join(' | '))
+  check('Statuses tab has a Description column', heads.includes('Description'), heads.join(', '))
+  check('a status shows the description customers read',
+    [...el.querySelectorAll('tbody tr')].some((r) => r.textContent.includes('deciding on next steps')),
+    [...el.querySelectorAll('tbody tr')].map((r) => r.textContent).join(' | '))
 
   // A severity is a name plus the behaviour it commits the team to, and the
   // behaviour has to be visible in the list or nobody can tell two apart.
