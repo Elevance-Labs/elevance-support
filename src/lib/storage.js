@@ -4,14 +4,24 @@
 import { supabase } from './supabase'
 
 /**
+ * Puts `file` in the ticket's folder and returns where it went, without
+ * recording it anywhere. An email's files are recorded by `email-send` once
+ * the email has actually gone, so they need the upload on its own.
+ */
+export async function uploadFile(file, issueId) {
+  const path = `${issueId}/${crypto.randomUUID()}-${file.name}`
+  const { error } = await supabase.storage
+    .from('attachments').upload(path, file, { contentType: file.type })
+  if (error) throw error
+  return { path, name: file.name, mime: file.type, size: file.size }
+}
+
+/**
  * Uploads `file` and records it against a ticket — or against one comment on
  * it, when `commentId` is given. Throws on the first failure.
  */
 export async function uploadAttachment(file, { issueId, commentId = null }) {
-  const path = `${issueId}/${crypto.randomUUID()}-${file.name}`
-  const { error: upErr } = await supabase.storage
-    .from('attachments').upload(path, file, { contentType: file.type })
-  if (upErr) throw upErr
+  const { path } = await uploadFile(file, issueId)
   const { error: attErr } = await supabase.from('attachments').insert({
     issue_id: issueId, file_name: file.name, file_path: path,
     mime_type: file.type, size_bytes: file.size,

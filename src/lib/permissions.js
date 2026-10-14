@@ -150,6 +150,21 @@ export const can = {
   editUser: (p, target) =>
     isAdmin(p) || (isManager(p) && target?.role !== 'admin'),
 
+  // ---- customer email ----
+  /**
+   * Writing to a ticket's requester from its Conversation tab. A grant on the
+   * person, not a role: speaking for the team to a customer is a separate
+   * decision from what someone may do with tickets, so an admin turns it on per
+   * account. Reading the thread needs nothing beyond seeing the ticket.
+   *
+   * Mirrored by `email-send`, which refuses anyone without the grant; the
+   * database keeps anyone but an admin from setting it.
+   */
+  emailCustomer: (p) => Boolean(p) && p.can_email === true && p.is_active !== false,
+
+  /** Turning that grant on or off for somebody. */
+  grantEmail: isAdmin,
+
   // ---- comments ----
   /**
    * Authors may edit or delete their own comment for five minutes.

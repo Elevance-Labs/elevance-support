@@ -127,12 +127,12 @@ Deno.serve(async (req) => {
   const issues = all.slice(0, MAX_TICKETS);
 
   // Only the request's own files: a row with a comment_id belongs to a comment,
-  // and comments are not on this page.
+  // one with an email_message_id to an email, and neither is on this page.
   const ids = issues.map((i) => i.id);
   const attachmentRows = (await Promise.all(chunks(ids).map(async (part) => {
     const { data } = await admin.from("attachments")
       .select("id, issue_id, file_name, file_path, mime_type, size_bytes")
-      .in("issue_id", part).is("comment_id", null)
+      .in("issue_id", part).is("comment_id", null).is("email_message_id", null)
       .order("created_at");
     return data ?? [];
   }))).flat();

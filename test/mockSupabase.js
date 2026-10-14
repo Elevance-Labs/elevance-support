@@ -152,6 +152,7 @@ const tableData = (table) => {
   if (table === 'companies') return COMPANIES
   if (table === 'comment_templates') return COMMENT_TEMPLATES
   if (table === 'attachments') return FIXTURES.attachments
+  if (table === 'email_messages') return FIXTURES.email_messages
   return []
 }
 
@@ -222,6 +223,8 @@ export const supabase = {
           ...t, mine: (t.requester_email ?? '').toLowerCase() === email,
         })) }, error: null }
       }
+      // The email is sent server-side; the browser only hands over the draft.
+      if (name === 'email-send') return { data: { message: { id: 'em-new' } }, error: null }
       if (name !== 'public-issue') return { data: null, error: new Error('unknown function') }
       // The pair has to match: the same number under a different project key is
       // a different ticket, or none at all.
@@ -293,6 +296,39 @@ export const FIXTURES = {
     { id: 'att-2', issue_id: 'issue-1', comment_id: 'c2', file_name: 'staging.png',
       file_path: 'issue-1/att-2-staging.png', mime_type: 'image/png', size_bytes: 4096,
       created_at: iso(30_000) },
+    // On Jane's reply: belongs to the conversation, neither to the request nor
+    // to a comment.
+    { id: 'att-3', issue_id: 'issue-1', comment_id: null, email_message_id: 'em-2',
+      file_name: 'console.png', file_path: 'issue-1/att-3-console.png',
+      mime_type: 'image/png', size_bytes: 1024, created_at: iso(1 * HR) },
+  ],
+  // The email thread on issue-1, oldest first: Ada writes, Jane replies (with
+  // her quoted history already stripped), then a send that bounced.
+  email_messages: [
+    { id: 'em-1', issue_id: 'issue-1', direction: 'outbound', status: 'delivered',
+      from_email: 'support@example.com', from_name: 'Ada Lovelace', sent_by: 'user-1',
+      to_emails: ['jane@acme.com'], cc_emails: [],
+      subject: '[ACME-42] Cannot export invoice', message_id: 'm1@mg.example.com',
+      stripped_text: 'Which browser are you using?', body_text: 'Which browser are you using?\n\n— Ada',
+      body_doc: { blocks: [
+        { type: 'p', runs: [{ text: 'Which ' }, { text: 'browser', b: true }, { text: ' are you using?' }] },
+        { type: 'p', runs: [] },
+        { type: 'p', runs: [{ text: '— Ada Lovelace' }] },
+      ] },
+      created_at: iso(2 * HR) },
+    { id: 'em-2', issue_id: 'issue-1', direction: 'inbound', status: 'received',
+      from_email: 'jane@acme.com', from_name: 'Jane', sent_by: null,
+      to_emails: ['t-abc@mg.example.com'], cc_emails: ['boss@acme.com'],
+      subject: 'Re: [ACME-42] Cannot export invoice', message_id: 'r1@acme.com',
+      stripped_text: 'Chrome, latest.', body_text: 'Chrome, latest.\n\n> Which browser are you using?',
+      error: 'Not kept (type or size not accepted): invoice.xlsx',
+      created_at: iso(1 * HR) },
+    { id: 'em-3', issue_id: 'issue-1', direction: 'outbound', status: 'failed',
+      from_email: 'support@example.com', from_name: 'Ada Lovelace', sent_by: 'user-1',
+      to_emails: ['jane@acme.com'], cc_emails: [],
+      subject: 'Re: [ACME-42] Cannot export invoice', message_id: 'm2@mg.example.com',
+      stripped_text: 'Thanks — trying it now.', error: 'Mailbox full',
+      created_at: iso(10 * MIN) },
   ],
   profiles: [
     // Ada has uploaded a photo; Grace has not — so every avatar site is exercised

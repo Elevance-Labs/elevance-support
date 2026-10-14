@@ -43,7 +43,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 | Path | Role |
 |---|---|
 | `src/pages/` | One file per route. Fetches data, owns page state. |
-| `src/components/` | Shared UI: ticket dialog, form, comments, timeline, chips, avatars. |
+| `src/components/` | Shared UI: ticket dialog, form, comments, email conversation, rich text editor, timeline, chips, avatars. |
 | `src/components/charts/` | Hand-drawn SVG charts. No charting dependency. |
 | `src/context/` | App-wide state providers (auth, config, project, refresh). |
 | `src/lib/` | Pure domain logic + the Supabase client. Where rules live. |
@@ -68,7 +68,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `/users` — admin/manager CRUD over accounts.
 - `/config` — admin-only CRUD over the dropdown lists and the comment templates.
 - `/profile` — your own account: shows name/email/role, changes photo and
-  password. Reached from the header avatar menu. No role guard — everyone has one.
+  password, and — with the email grant — your email signature. Reached from the header avatar menu. No role guard — everyone has one.
 - `/embed/:key/form` — public, no auth, no chrome; one form per project.
 - `/i/:key/:number` — share link, addressed by ticket reference: staff get
   redirected to the editable view, everyone else gets a read-only page.
@@ -97,7 +97,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `permissions.js` — **the** role matrix (`admin` / `manager` / `member`) as the
   `can.*` predicate object. Roles are global; project membership decides *which*
   tickets you see. Also owns the 5-minute comment edit window, and `setSeverity`
-  / `refile` — internal vs. the public form, not a role distinction.
+  / `refile` — internal vs. the public form, not a role distinction — and
+  `emailCustomer`, a per-person grant (`profiles.can_email`) rather than a role,
+  which only an admin hands out (`grantEmail`).
 - `sla.js` — status types (`new` → `in_progress` → `closed`, with `paused`
   outside the ladder), legal transitions, SLA bands and colours. Also the two
   gates on leaving `new`: the severity gate (no ticket enters `in_progress` or
@@ -134,6 +136,15 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   one thumbnail grid and lightbox used by the form, the ticket dialog, the
   comment thread and the share page.
 - `storage.js` — uploading to and signing from the private `attachments` bucket.
+- `email.js` — the Conversation tab's rules: the subject (always
+  `[REF] title`, mirrored in `email-send`), thread order, delivery labels, Cc
+  parsing, the signature an email goes out with. Sending and receiving are Edge
+  Functions, never the browser.
+- `richText.js` — the rich text **document** (paragraphs and lists of marked
+  runs) that the email box and signatures are read into. HTML never leaves the
+  browser and is never rendered from data: `email-send` re-checks the document
+  and builds the email's HTML from it; the UI draws it with React. Mirrored in
+  `email-send`.
 - `publicLink.js` — calls the `public-issue` and `public-company` functions;
   clipboard helper.
 - `jira.js`, `supabase.js` — Jira link building; the shared client.
@@ -184,8 +195,16 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   grandfathered until someone next touches it. `Form` means the
   public embed form: a trigger stamps it on anonymous inserts (pinning their
   `submitted_date` to now) and refuses it from a signed-in one, so staff pick
-  from the other channels and may back-date what they log.
+  from the other channels and may back-date what they log. A `service_role`
+  insert (`email-webhook`) names its own channel, may not claim `Form`, and is
+  pinned to now without a severity.
 - `comments` — thread on a ticket; author-editable for 5 minutes (RLS-enforced).
+- `email_messages` — the email thread with the requester, in and out, with
+  delivery status, and — outbound — the rich text document it went as, body
+  and signature. Browser read-only (same sight as the ticket); only
+  `email-send` and `email-webhook` write it. A reply finds its ticket by the
+  ticket's random `email_token` in the Reply-To address — never by the public
+  ticket reference — or by its threading headers; anything else is a new ticket.
 - `comment_templates` — canned comment text (title + body) managed under
   Configuration; picking one under the comment box only writes into the box.
   Its own table, not a `list_items` type, because `list_items` is anon-readable:
@@ -194,6 +213,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `attachments` + a **private** storage bucket; access via short-lived signed URLs.
   A row with a `comment_id` belongs to that comment, not the request; only the
   comment's author may add or remove one, inside the same 5-minute window (RLS).
+  A row with an `email_message_id` belongs to that email: written only by the
+  email functions, never removable, and never on a public page.
 - A **public** `avatars` bucket, one object per user at `<uid>/avatar`; writes are
   owner-only. Public because avatars render everywhere — nothing private lives there.
   Everything that draws a person goes through `components/UserAvatar.jsx`; only
@@ -208,7 +229,10 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `department` (`not null`, default `Support`, one of the five in `users.js`).
   First account becomes admin. Self-writes are allowed, but a trigger freezes
   `role`, `is_active`, `email` and `department` for non-admins — only
-  `admin-users` writes a role, and it writes departments too.
+  `admin-users` writes a role, and it writes departments too. `can_email` (may
+  write to customers) is frozen for every non-admin writer, managers included.
+  `email_signature` (optional, rich text document) is the person's own, written
+  from `/profile`; `email-send` appends it from the row, never from the browser.
 - `views` — saved Issues filter sets.
 
 ## 8. Edge Functions
@@ -230,7 +254,15 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `issues` insert trigger via `pg_net`, not by the browser; authenticated by a
   shared secret, so it deploys with `--no-verify-jwt`. Webhook URL and secret
   live in function env + Vault, never in the repo.
-- All four are Deno, and deploy with `supabase functions deploy <name>`; the three
+- `email-send` — sends a staff member's draft to the requester through Mailgun:
+  checks the `can_email` grant and project membership by hand (service_role
+  skips RLS), decides from/subject/Reply-To/threading headers/layout itself, and
+  records the message.
+- `email-webhook` — Mailgun's caller: inbound mail (filed on its ticket, or a
+  new `Email` ticket in `EMAIL_INTAKE_PROJECT_KEY`; machine mail never makes
+  one) and delivery events. Deploys with `--no-verify-jwt`; Mailgun's HMAC
+  signature authenticates it. Mailgun keys live in function env only.
+- All six are Deno, and deploy with `supabase functions deploy <name>`; the four
   browser-facing ones handle CORS preflight. None can import from `src/` — small,
   deliberate duplication (e.g. display names, the share-link path) is expected
   there.
@@ -247,7 +279,11 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - **Dashboard** opens on the same rows, decorated the same way, and counts only
   the ones that aren't closed — so a tile and a breakdown on it always add up.
 - Staff work it on **Issues** or **Board** → both open the same `IssueDetail`
-  dialog → which composes `CommentsThread` and `StatusTimeline`.
+  dialog → which composes `CommentsThread` and `ConversationThread` (two tabs,
+  both mounted) and `StatusTimeline`.
+- Customer email: Conversation tab → `email-send` → Mailgun → customer; their
+  reply → the ticket's `t-<token>@` address (or the support inbox, forwarded) →
+  Mailgun route → `email-webhook` → `email_messages`.
 - **Report** re-reads the same rows and derives everything through
   `reports.js`, so a tile, chart and table can never disagree.
 - Anything the header does (creating an issue) reaches the mounted page through

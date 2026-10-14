@@ -95,6 +95,9 @@ Deno.serve(async (req) => {
     admin.from("attachments")
       .select("id, file_name, file_path, mime_type, size_bytes, comment_id")
       .eq("issue_id", issue.id)
+      // An email's files belong to the conversation with the requester, which
+      // is not on this page.
+      .is("email_message_id", null)
       .order("created_at"),
     admin.from("comments")
       .select("id, body, created_at, author_id")

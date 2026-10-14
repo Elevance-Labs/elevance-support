@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert, Box, Button, Chip, Dialog, Divider, IconButton, Link, MenuItem,
-  Paper, Stack, TextField, Tooltip, Typography, Autocomplete, CircularProgress,
+  Paper, Stack, Tab, Tabs, TextField, Tooltip, Typography, Autocomplete, CircularProgress,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import LockIcon from '@mui/icons-material/Lock'
@@ -29,6 +29,7 @@ import {
 import StatusTimeline from './StatusTimeline'
 import AttachmentGallery from './AttachmentGallery'
 import CommentsThread from './CommentsThread'
+import ConversationThread from './ConversationThread'
 import UserAvatar, { UserOption } from './UserAvatar'
 import { StatusLabel } from './StatusDot'
 import { SeverityOption, SeverityValue } from './SeverityOption'
@@ -62,15 +63,20 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
+  // Which thread is showing under the description, and how long each is.
+  const [thread, setThread] = useState('comments')
+  const [commentCount, setCommentCount] = useState(0)
+  const [emailCount, setEmailCount] = useState(0)
 
   const load = useCallback(async () => {
     if (!issueId) return
     setLoading(true); setError(''); setCopied(false)
     const [{ data: i }, { data: a }, { data: e }] = await Promise.all([
       supabase.from('issues').select('*').eq('id', issueId).single(),
-      // The request's own files; a comment's are drawn under that comment.
+      // The request's own files; a comment's are drawn under that comment, and
+      // an email's in the conversation.
       supabase.from('attachments').select('*').eq('issue_id', issueId)
-        .is('comment_id', null).order('created_at'),
+        .is('comment_id', null).is('email_message_id', null).order('created_at'),
       supabase.from('status_events').select('*').eq('issue_id', issueId).order('created_at'),
     ])
     setSaved(i); setIssue(i); setAttachments(await signAttachments(a ?? [])); setEvents(e ?? [])
@@ -459,7 +465,25 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
                 )}
               </Paper>
 
-              <CommentsThread issueId={issue.id} />
+              {/* Two threads: the team talking to itself, and the team
+                  talking to the customer. Both stay mounted so a half-written
+                  draft survives a look at the other tab. */}
+              <Box>
+                <Tabs value={thread} onChange={(_e, v) => setThread(v)}
+                  sx={{ minHeight: 36, mb: 1.5, borderBottom: '1px solid #e5e7eb' }}>
+                  <Tab value="comments" sx={{ minHeight: 36, py: 0.5 }}
+                    label={commentCount ? `Comments (${commentCount})` : 'Comments'} />
+                  <Tab value="conversation" sx={{ minHeight: 36, py: 0.5 }}
+                    label={emailCount ? `Conversation (${emailCount})` : 'Conversation'} />
+                </Tabs>
+                <Box hidden={thread !== 'comments'}>
+                  <CommentsThread issueId={issue.id} hideHeading onCount={setCommentCount} />
+                </Box>
+                <Box hidden={thread !== 'conversation'}>
+                  <ConversationThread issue={saved} ticketRef={issueRef(project, issue)}
+                    onCount={setEmailCount} />
+                </Box>
+              </Box>
             </Stack>
 
             {/* ---------- right: status timeline ---------- */}

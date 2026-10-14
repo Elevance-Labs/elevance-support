@@ -60,6 +60,18 @@ create table if not exists public.profiles (
   -- Public URL of the profile photo in the `avatars` bucket, or null. The photo
   -- is the one thing on a profile its owner may change themselves.
   avatar_url  text,
+  -- May write to customers from a ticket's Conversation tab (0013). A grant
+  -- per person rather than a role; only an admin sets it, via admin-users.
+  can_email   boolean not null default false,
+  -- Optional signature appended to every email this person sends (0014): a
+  -- rich text document (src/lib/richText.js), or null for none. Their own to
+  -- write from /profile; email-send reads it from here, never from the browser.
+  email_signature jsonb
+              constraint profiles_email_signature_shape
+              check (email_signature is null
+                     or (jsonb_typeof(email_signature) = 'object'
+                         and jsonb_typeof(email_signature -> 'blocks') = 'array'
+                         and pg_column_size(email_signature) < 20000)),
   created_at  timestamptz not null default now()
 );
 
@@ -241,10 +253,16 @@ create table if not exists public.issues (
   closed_at       timestamptz,
   paused_ms       bigint not null default 0,
   paused_since    timestamptz,
+  -- The secret half of the ticket's reply address, t-<token>@<mail domain>
+  -- (0013). Random rather than the ticket reference, which is public: an
+  -- address anyone can guess is an address anyone can write into the thread
+  -- from. Never in a public function's allow-list.
+  email_token     text not null default replace(gen_random_uuid()::text, '-', ''),
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
 
+create unique index if not exists issues_email_token_idx on public.issues(email_token);
 create index if not exists issues_status_idx    on public.issues(status);
 create index if not exists issues_assignees_idx on public.issues using gin (assignee_ids);
 create index if not exists issues_submitted_idx on public.issues(submitted_date desc);
@@ -283,6 +301,47 @@ alter table public.attachments
   add column if not exists comment_id uuid references public.comments(id) on delete cascade;
 create index if not exists attachments_comment_idx on public.attachments(comment_id)
   where comment_id is not null;
+
+-- ---------- the email thread with the requester (0013) ----------
+-- Written only by the email-send and email-webhook functions (service_role).
+-- `stripped_text` is what a person wrote, without the quoted history; the HTML
+-- is kept for the record and never rendered.
+create table if not exists public.email_messages (
+  id            uuid primary key default gen_random_uuid(),
+  issue_id      uuid not null references public.issues(id) on delete cascade,
+  direction     text not null check (direction in ('outbound', 'inbound')),
+  from_email    text,
+  from_name     text,
+  to_emails     text[] not null default '{}',
+  cc_emails     text[] not null default '{}',
+  subject       text,
+  body_text     text,
+  body_html     text,
+  stripped_text text,
+  -- An outbound message as it went — body and signature — as a rich text
+  -- document (0014). Drawn with React, never as HTML; null on inbound mail.
+  body_doc      jsonb,
+  -- Message-ID without its angle brackets; unique so a retried webhook files once.
+  message_id    text not null unique,
+  in_reply_to   text,
+  "references"  text[] not null default '{}',
+  sent_by       uuid references public.profiles(id) on delete set null,
+  status        text not null check (status in ('sent', 'delivered', 'failed', 'received')),
+  error         text,
+  -- Mailgun's id for an outbound message, which its delivery events carry.
+  provider_id   text,
+  created_at    timestamptz not null default now()
+);
+create index if not exists email_messages_issue_idx on public.email_messages(issue_id, created_at);
+create index if not exists email_messages_provider_idx on public.email_messages(provider_id)
+  where provider_id is not null;
+
+-- A file on an email rather than on the request or a comment. Only the
+-- functions write one.
+alter table public.attachments
+  add column if not exists email_message_id uuid references public.email_messages(id) on delete cascade;
+create index if not exists attachments_email_idx on public.attachments(email_message_id)
+  where email_message_id is not null;
 
 -- ---------- status timeline ----------
 create table if not exists public.status_events (
@@ -671,7 +730,16 @@ create trigger issues_default_status before insert on public.issues
 create or replace function public.stamp_issue_origin()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  if auth.uid() is null then
+  -- A server function (email-webhook) inserts with service_role and has no uid
+  -- either. It names its own channel, may never claim `Form`, and is pinned to
+  -- now and stripped of severity like the form: nobody has triaged it yet.
+  if auth.uid() is null and coalesce(auth.role(), '') = 'service_role' then
+    if new.source is null or new.source = 'Form' then
+      raise exception 'A ticket created by a server function must name its channel, and it may not be `Form`';
+    end if;
+    new.submitted_date := now();
+    new.severity       := null;
+  elsif auth.uid() is null then
     new.source         := 'Form';
     new.submitted_date := now();
     new.severity       := null;
@@ -1095,6 +1163,7 @@ alter table public.companies       enable row level security;
 alter table public.issues          enable row level security;
 alter table public.attachments     enable row level security;
 alter table public.comments        enable row level security;
+alter table public.email_messages  enable row level security;
 alter table public.status_events   enable row level security;
 alter table public.views           enable row level security;
 
@@ -1138,6 +1207,11 @@ begin
     new.is_active  := old.is_active;
     new.email      := old.email;
     new.department := old.department;
+  end if;
+  -- Nobody but an admin hands out the right to write to customers — not
+  -- yourself, and not a manager through profiles_manager_update.
+  if auth.uid() is not null and not public.is_admin() then
+    new.can_email := old.can_email;
   end if;
   return new;
 end;
@@ -1263,10 +1337,14 @@ create policy issues_admin_delete on public.issues for delete to authenticated
 
 -- ---------- attachments: public may attach on submit; staff read ----------
 -- A comment's file is its author's to add, inside the edit window; anon reads
--- no comments, so it can only ever attach to a request.
+-- no comments, so it can only ever attach to a request. An email's files are
+-- the functions' to write, and are a record nobody removes from the browser.
 drop policy if exists att_public_insert on public.attachments;
 create policy att_public_insert on public.attachments for insert to anon, authenticated
-  with check (comment_id is null or public.can_modify_comment(comment_id, issue_id));
+  with check (
+    email_message_id is null
+    and (comment_id is null or public.can_modify_comment(comment_id, issue_id))
+  );
 
 drop policy if exists att_staff_read on public.attachments;
 create policy att_staff_read on public.attachments for select to authenticated
@@ -1276,8 +1354,14 @@ drop policy if exists att_staff_delete on public.attachments;
 create policy att_staff_delete on public.attachments for delete to authenticated
   using (
     public.can_see_issue(issue_id)
+    and email_message_id is null
     and (comment_id is null or public.can_modify_comment(comment_id, issue_id))
   );
+
+-- ---------- email thread: read-only from the browser ----------
+drop policy if exists email_messages_read on public.email_messages;
+create policy email_messages_read on public.email_messages for select to authenticated
+  using (public.can_see_issue(issue_id));
 
 -- ---------- comments ----------
 -- Everyone who can see the ticket reads and posts; authors may edit/delete

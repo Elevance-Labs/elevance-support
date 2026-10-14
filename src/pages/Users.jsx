@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-  IconButton, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell,
+  FormControlLabel, IconButton, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell,
   TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import KeyIcon from '@mui/icons-material/Key'
+import MailOutlinedIcon from '@mui/icons-material/MailOutlined'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useConfig } from '../context/ConfigContext'
@@ -38,10 +39,12 @@ async function adminCall(body) {
 // Everyone has a department — it decides who they can be paired with on a
 // ticket — so a new account starts on the same default the database uses
 // rather than on an empty field somebody can skip past.
-const blank = { full_name: '', email: '', password: '', role: 'member', department: 'Support' }
+const blank = {
+  full_name: '', email: '', password: '', role: 'member', department: 'Support', can_email: false,
+}
 
 export default function Users() {
-  const { profile } = useAuth()
+  const { profile, refreshProfile } = useAuth()
   const { refresh } = useConfig()
   const [rows, setRows] = useState([])
   const [error, setError] = useState('')
@@ -57,9 +60,12 @@ export default function Users() {
 
   useEffect(() => { load() }, [load])
 
-  const run = async (fn) => {
+  // `self` marks a change to your own account. The signed-in profile is read
+  // once at sign-in, so without a reload here a grant you just gave yourself —
+  // or a name you just fixed — would not take effect until the page reloads.
+  const run = async (fn, { self = false } = {}) => {
     setBusy(true); setError('')
-    try { await fn(); await load(); await refresh() }
+    try { await fn(); await load(); await refresh(); if (self) await refreshProfile?.() }
     catch (e) { setError(e.message) }
     finally { setBusy(false) }
   }
@@ -67,17 +73,19 @@ export default function Users() {
   const save = () => run(async () => {
     const { values, mode, id } = dialog
     if (mode === 'create') {
-      await adminCall({ action: 'create', ...values })
+      const { can_email, ...rest } = values
+      await adminCall({ action: 'create', ...rest, ...(can.grantEmail(profile) ? { can_email } : {}) })
     } else {
       await adminCall({
         action: 'update', id,
         full_name: values.full_name,
         department: values.department,
         ...(can.changeRole(profile) ? { role: values.role } : {}),
+        ...(can.grantEmail(profile) ? { can_email: values.can_email } : {}),
       })
     }
     setDialog(null)
-  })
+  }, { self: dialog?.id === profile?.id })
 
   const savePassword = () => run(async () => {
     await adminCall({ action: 'set_password', id: pwDialog.user.id, password: pwDialog.password })
@@ -155,6 +163,11 @@ export default function Users() {
                         label={ROLE_LABELS[r.role] ?? r.role}
                         color={r.role === 'admin' ? 'primary' : r.role === 'manager' ? 'info' : 'default'} />
                     </Tooltip>
+                    {r.can_email && (
+                      <Tooltip title="May email customers from a ticket's Conversation tab">
+                        <MailOutlinedIcon data-can-email sx={{ fontSize: 16, ml: 1, verticalAlign: 'middle', color: 'text.secondary' }} />
+                      </Tooltip>
+                    )}
                   </TableCell>
                   <TableCell>
                     {/* Hashed from the name, like every other unconfigured
@@ -198,6 +211,7 @@ export default function Users() {
                             values: {
                               full_name: r.full_name, email: r.email, password: '',
                               role: r.role, department: r.department ?? 'Support',
+                              can_email: r.can_email === true,
                             },
                           })}>
                           <EditIcon fontSize="small" />
@@ -259,6 +273,24 @@ export default function Users() {
                 : 'Only admins can change roles'}>
               {ROLES.map((r) => <MenuItem key={r} value={r}>{ROLE_LABELS[r]}</MenuItem>)}
             </TextField>
+            {/* A grant per person rather than part of a role: who writes to
+                customers for the team is its own decision. */}
+            <Box>
+              <FormControlLabel
+                label="Can email customers"
+                disabled={!can.grantEmail(profile)}
+                control={
+                  <Switch checked={Boolean(dialog?.values.can_email)}
+                    onChange={(e) => setDialog((d) => ({
+                      ...d, values: { ...d.values, can_email: e.target.checked },
+                    }))} />
+                } />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                {can.grantEmail(profile)
+                  ? "Lets them send email to a ticket's requester from its Conversation tab."
+                  : 'Only admins can change who may email customers'}
+              </Typography>
+            </Box>
           </Stack>
         </DialogContent>
         <DialogActions>

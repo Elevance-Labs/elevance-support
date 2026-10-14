@@ -71,6 +71,15 @@ check("the request's own file is shown once",
   tileNames().filter((n) => n === 'report.pdf').length === 1, tileNames().join(', '))
 check("a comment's file is shown once, in the thread",
   tileNames().filter((n) => n === 'staging.png').length === 1, tileNames().join(', '))
+// An email's file belongs to the conversation. Were the request's read to
+// skip only comment files, it would show here twice — once as the request's.
+check("an email's file is shown once, in the conversation",
+  tileNames().filter((n) => n === 'console.png').length === 1, tileNames().join(', '))
+const tabs = () => [...dom.window.document.querySelectorAll('[role="tab"]')].map((t) => t.textContent)
+check('comments and the conversation sit on two tabs, each with its count',
+  tabs().includes('Comments (2)') && tabs().includes('Conversation (3)'), tabs().join(', '))
+check('the comment tab is the one showing first',
+  dom.window.document.querySelector('[role="tab"][aria-selected="true"]')?.textContent === 'Comments (2)')
 check('shows the ticket identifier, prefixed with the project key',
   body().includes('ACME-42'))
 // Which queue a ticket belongs to is the context for reading its number, so the

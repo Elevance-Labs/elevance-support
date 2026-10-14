@@ -253,6 +253,8 @@ Opening a ticket gives a three-column view:
   text to the clipboard instead — the box is left alone and the list stays open.
   Templates live in their own staff-only table rather than with the dropdown
   lists, which the public form reads with the anon key.
+  The thread sits on a **Comments** tab beside a **Conversation** tab — the
+  email thread with the requester. See [Customer email](#customer-email).
 - **Right** — the **status timeline**: the statuses this ticket has actually been
   through, in order, showing who moved it there, when, and how long it sat in the
   previous status. Statuses it never reached are not drawn. Total elapsed time
@@ -705,6 +707,22 @@ supabase functions deploy notify-issue --no-verify-jwt
 
 Until it is deployed, tickets are created exactly as before and nothing is posted.
 
+### 4d. Deploy customer email
+
+The Conversation tab sends through Mailgun and receives through it. Two
+functions, one of them called by Mailgun rather than by a browser — see
+[Customer email](#customer-email) for the Mailgun, DNS and inbox setup:
+
+```bash
+supabase functions deploy email-send
+supabase functions deploy email-webhook --no-verify-jwt
+```
+
+Until they are deployed and configured, the tab shows the (empty) thread and a
+send fails with "Email is not set up yet". Migrations 0013 and 0014 must be
+applied first — 0014 adds rich text and signatures, and `email-send` reads
+both columns.
+
 ### 5. Schema changes from here on
 
 [`supabase/schema.sql`](supabase/schema.sql) is the baseline as of go-live: run it
@@ -772,6 +790,97 @@ webhook**. Incoming webhooks require a Google Workspace account; they are not
 available on personal Google accounts. If the URL ever leaks, delete the webhook
 in that menu and create a new one — the URL *is* the credential, so rotating it
 is the only fix.
+
+## Customer email
+
+The conversation with a customer lives on their ticket, not in a shared inbox.
+A ticket's **Conversation** tab shows every email sent to the requester and
+every reply, newest first, and — for anyone with the **Can email customers**
+grant — a box to write the next one.
+
+- **Who may send** is a grant per person, set by an admin on the **Users** page
+  (edit a user → *Can email customers*). It is not part of a role. Everyone who
+  can see the ticket can read its thread. The database keeps anyone but an
+  admin from setting the grant, and `email-send` refuses anyone without it.
+- **What is sent** is decided server-side, so every email looks the same: from
+  the support address, to the requester (plus anyone you Cc), in one layout
+  ending with your signature, with the ticket reference and "Follow this ticket
+  in Hub > Help Center > Support Tickets" in the footer — no public link. The
+  subject is always `[GDT-32] <ticket title>`, on the first email and every
+  reply alike.
+- **Formatting.** The box takes **bold**, *italic*, underline, bulleted and
+  numbered lists and links (toolbar, or Ctrl/Cmd + B, I, U and K). A paste
+  keeps those and drops everything else — fonts, colours, images. What leaves
+  the browser is not HTML but a small document of text and those marks, which
+  `email-send` checks again and builds the email's HTML from, escaping every
+  piece; nothing typed or pasted can put markup of its own in a customer's
+  inbox. Sent emails show their formatting in the thread; replies show as text — what
+  the customer typed, their signature included, without the earlier messages
+  their mail app quotes underneath (each of those is already its own card).
+- **Your signature** is set on your **Profile** page (anyone with the grant),
+  in the same rich text. It is optional — without one, emails are signed
+  `— Your Name`. The email box shows it under what you are typing, inside the
+  box but out of reach of the cursor: it is added by `email-send` from your
+  profile, so what you see there is exactly what the customer gets.
+- **Replies come back on their own.** Each email's Reply-To is the ticket's own
+  address, `t-<token>@<mail domain>`, and carries the threading headers, so the
+  customer sees one conversation and their reply is filed on the ticket within
+  seconds. The token is random: a ticket reference is public, and an address
+  built from it would let anyone write into any ticket. A reply sent to the
+  support address instead is still matched, by its `In-Reply-To` header.
+- **A new email to the support address becomes a ticket** in the intake
+  project, with source *Email*, the subject as its title and the requester
+  taken from the sender. It is assigned from the rota and announced in Chat
+  like any other ticket. Auto-replies, bounces and mailing lists never create a
+  ticket.
+- **Delivery is tracked.** Each sent email shows *Sent*, then *Delivered* — or
+  *Not delivered* with the reason, when the customer's server refused it.
+- **Files** go both ways: images, PDFs and video, under the same limits as the
+  form. Anything else a customer attaches (a spreadsheet, say) is not kept, and
+  the email says which files those were.
+
+Emails and their files never appear on the share link or the company page.
+
+### Setting it up
+
+You need a Mailgun domain that can **receive** as well as send: a subdomain
+such as `mg.example.com`, so its MX records can point at Mailgun while the main
+domain's stay with your mailbox provider. Sending as `support@example.com`
+through `mg.example.com` passes DMARC under relaxed alignment. Mailgun's free
+plan allows one custom domain and one route — enough for this — and 100 emails
+a day across everything the domain sends, password resets included.
+
+1. **DNS** (at your registrar): Mailgun's SPF and DKIM records for the
+   subdomain, plus its two **MX** records (`mxa.mailgun.org`, `mxb.mailgun.org`)
+   on the subdomain.
+2. **Route** (Mailgun → Receiving): one catch-all for the subdomain —
+   expression `match_recipient(".*@mg.example.com")`, action
+   `forward("https://<project-ref>.supabase.co/functions/v1/email-webhook")`.
+3. **Webhooks** (Mailgun → Sending → Webhooks): *Delivered messages* and
+   *Permanent failure*, both to the same URL.
+4. **The support inbox**: forward a copy of everything that arrives at
+   `support@example.com` to `intake@mg.example.com`, keeping the original. Use
+   a redirect-style forward that keeps the original sender and headers; a
+   "forward as attachment" makes every ticket look as if the inbox filed it,
+   and those are dropped.
+5. **Secrets**:
+
+```bash
+supabase secrets set \
+  MAILGUN_API_KEY='<sending key for the domain>' \
+  MAILGUN_DOMAIN='mg.example.com' \
+  MAILGUN_API_BASE='https://api.mailgun.net' \
+  MAILGUN_WEBHOOK_SIGNING_KEY='<Sending → Webhooks → signing key>' \
+  SUPPORT_FROM='Example Support <support@example.com>' \
+  EMAIL_INTAKE_PROJECT_KEY='ACME' \
+  APP_BASE_URL='https://support.example.com'
+```
+
+`MAILGUN_API_BASE` is `https://api.eu.mailgun.net` for an EU-region domain.
+`EMAIL_INTAKE_PROJECT_KEY` is the project new email tickets are filed in. The
+webhook function has no JWT to check — Mailgun is its caller — so it verifies
+Mailgun's signature on every request instead, which is why the signing key is
+required.
 
 ## Creating a ticket by hand
 

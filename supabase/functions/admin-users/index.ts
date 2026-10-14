@@ -1,5 +1,6 @@
-// User management. Creating, deleting, banning and password-resetting all need
-// the service_role key, which must never ship to a browser — so it lives here.
+// User management. Creating, deleting, banning, password-resetting and granting
+// the right to email customers all need the service_role key, which must never
+// ship to a browser — so it lives here.
 // Deploy with:  supabase functions deploy admin-users
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -55,10 +56,18 @@ Deno.serve(async (req) => {
   if (!isAdmin && !isManager) return json({ error: "Not permitted" }, 403);
 
   const body = await req.json();
-  const { action, id, email, password, full_name, role, is_active, department } = body;
+  const { action, id, email, password, full_name, role, is_active, department, can_email } = body;
 
   if (department !== undefined && !DEPARTMENTS.includes(department)) {
     return json({ error: `Department must be one of: ${DEPARTMENTS.join(", ")}` }, 400);
+  }
+  if (can_email !== undefined && typeof can_email !== "boolean") {
+    return json({ error: "can_email must be true or false" }, 400);
+  }
+  // Who may write to customers on the team's behalf is an admin's decision —
+  // the same line the database draws in profiles_freeze_privileged_fields().
+  if (can_email !== undefined && !isAdmin) {
+    return json({ error: "Only admins can change who may email customers" }, 403);
   }
 
   // Managers may only act on managers and members, never on admins.
@@ -94,6 +103,7 @@ Deno.serve(async (req) => {
           // Everyone has one: it decides who they can be paired with on a
           // ticket, and the column is `not null`.
           department: department ?? DEFAULT_DEPARTMENT,
+          can_email: can_email ?? false,
         }, { onConflict: "id" });
         if (pErr) {
           await admin.auth.admin.deleteUser(data.user.id); // no orphaned auth user
@@ -159,6 +169,7 @@ Deno.serve(async (req) => {
         // Same boundary as editing anything else about the account: an admin
         // for anyone, a manager for managers and members.
         if (department !== undefined) patch.department = department;
+        if (can_email !== undefined) patch.can_email = can_email;
         if (Object.keys(patch).length) {
           const { error } = await admin.from("profiles").update(patch).eq("id", id);
           if (error) throw error;

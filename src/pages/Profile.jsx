@@ -6,7 +6,9 @@ import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { ROLE_LABELS } from '../lib/permissions'
+import { can, ROLE_LABELS } from '../lib/permissions'
+import { isEmptyDoc, normalizeDoc } from '../lib/richText'
+import RichTextEditor from '../components/RichTextEditor'
 import { initials } from '../lib/format'
 import { departmentOf, displayName } from '../lib/users'
 
@@ -19,8 +21,9 @@ const MIN_PASSWORD = 8                   // Supabase's own default minimum
  *
  * Name, email, role and department belong to whoever administers the team — they identify
  * you to everybody else, and the share link, the roster and the Google Chat
- * card all read them. So they are shown here, not edited here. The two things
- * that are genuinely yours are your photo and your password.
+ * card all read them. So they are shown here, not edited here. The things
+ * that are genuinely yours are your photo, your password and — if you write to
+ * customers — your email signature.
  */
 export default function Profile() {
   const { session, profile, refreshProfile } = useAuth()
@@ -31,6 +34,9 @@ export default function Profile() {
       <Typography variant="h5" sx={{ mb: 2 }}>Profile</Typography>
       <Stack spacing={2}>
         <AvatarCard profile={profile} email={email} onSaved={refreshProfile} />
+        {can.emailCustomer(profile) && (
+          <SignatureCard key={profile.id} profile={profile} onSaved={refreshProfile} />
+        )}
         <PasswordCard email={email} />
       </Stack>
     </Box>
@@ -153,6 +159,73 @@ function AvatarCard({ profile, email, onSaved }) {
         PNG, JPEG, GIF or WebP, up to 2 MB.
       </Typography>
 
+      {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+      {done && <Alert severity="success" sx={{ mt: 2 }}>{done}</Alert>}
+    </Paper>
+  )
+}
+
+/**
+ * The signature added to the end of every email you send from a ticket.
+ *
+ * Optional: with none, an email is signed with your name. It is stored as the
+ * same rich text document the email box writes, so it may carry bold, links
+ * and lists but no markup of its own; `email-send` reads it from your profile
+ * and appends it, and the email box shows it under what you are typing.
+ */
+function SignatureCard({ profile, onSaved }) {
+  const editor = useRef(null)
+  const [doc, setDoc] = useState(() => normalizeDoc(profile.email_signature))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState('')
+
+  const savedDoc = normalizeDoc(profile.email_signature)
+  const hasSaved = !isEmptyDoc(savedDoc)
+  const dirty = JSON.stringify(normalizeDoc(doc)) !== JSON.stringify(savedDoc)
+
+  const write = async (value, message) => {
+    setBusy(true); setError(''); setDone('')
+    const { error: updErr } = await supabase.from('profiles')
+      .update({ email_signature: value }).eq('id', profile.id)
+    setBusy(false)
+    if (updErr) return setError(updErr.message)
+    await onSaved?.()
+    setDone(message)
+  }
+
+  // An empty box is "no signature", stored as null rather than as a document
+  // with nothing in it.
+  const save = () => {
+    const value = normalizeDoc(doc)
+    return write(isEmptyDoc(value) ? null : value,
+      isEmptyDoc(value) ? 'Signature removed.' : 'Signature saved.')
+  }
+
+  const remove = async () => {
+    editor.current?.clear()
+    await write(null, 'Signature removed.')
+  }
+
+  return (
+    <Paper sx={{ p: 3 }}>
+      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Email signature</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Added to the end of every email you send from a ticket. Leave it empty
+        to sign with your name instead.
+      </Typography>
+      <RichTextEditor ref={editor} initialDoc={profile.email_signature}
+        onChange={setDoc} disabled={busy} minHeight={72}
+        placeholder={`e.g. ${displayName(profile)} · Support team`}
+        ariaLabel="Email signature" />
+      <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+        <Button variant="contained" onClick={save} disabled={busy || !dirty}>
+          {busy ? 'Saving…' : 'Save signature'}
+        </Button>
+        {hasSaved && (
+          <Button color="error" onClick={remove} disabled={busy}>Remove signature</Button>
+        )}
+      </Stack>
       {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
       {done && <Alert severity="success" sx={{ mt: 2 }}>{done}</Alert>}
     </Paper>
