@@ -270,6 +270,8 @@ export const FIXTURES = {
     severity: 'Critical',
     status: 'In Progress', assignee_ids: ['user-1'], labels: ['regression'],
     jira_ticket: 'ENG-77', notes: 'Reproduced on staging.',
+    // Announced in Chat, so the dialog offers its thread.
+    chat_thread: 'spaces/AAAA1234/threads/tHrEaD99',
     company: 'Acme', requester_name: 'Jane', requester_email: 'jane@acme.com',
     source_url: 'https://acme.com/billing', submitted_date: iso(3 * DAY),
   },

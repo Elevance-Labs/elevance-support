@@ -750,6 +750,50 @@ once. That is deliberate: a customer submitting the form must never see it fail
 because Chat is unreachable. Every failure path in the trigger returns the row
 unchanged, so a broken notification can cost you a message but never a ticket.
 
+### One thread per ticket
+
+Each card is posted with a `threadKey` of the ticket reference (`ACME-42`), so
+every ticket owns one thread in the space, and anything posted for the same
+ticket later — a retried call included — replies in that thread instead of
+starting a new one.
+
+Chat answers the post with the message it created. The function saves that
+message's thread (`spaces/…/threads/…`) on the ticket, in `issues.chat_thread`
+([migration 0015](supabase/migrations/0015_chat_thread.sql)), and the ticket
+dialog shows a **View thread** button that opens it in Google Chat. Only the
+function writes that column; a browser can neither set nor change it. Tickets
+announced before this shipped, and any whose post failed, have no thread and
+show no button. The link only opens for people who are members of the space.
+
+### What follows the ticket into its thread
+
+Once a ticket has a thread, what happens to it is replied into that thread, one
+line each:
+
+| Event | Line |
+|---|---|
+| Status change | Status changed to **In Progress** by Ada Lovelace |
+| Email sent to the requester | Email sent by **Ada Lovelace** |
+| Email received from them | Email received from **Jane Doe (jane@acme.com)** |
+
+No time is written into a line: Chat stamps every message itself, in each
+reader's own time zone.
+
+An email's subject and body never go to Chat: the space is a wider audience
+than the ticket's project, and what a customer wrote stays on the ticket.
+
+These hang off inserts too — into `status_events` and `email_messages`
+([migration 0016](supabase/migrations/0016_thread_updates.sql)) — through the
+same `pg_net` call, Vault secrets and function as the card, so they can never
+fail a status change or lose an email either. A ticket with no recorded thread
+(announced before migration 0015, or whose card failed) gets no lines: a reply
+is never allowed to start a thread with no card above it. The ticket's first
+status, set when it is created, is the card itself and is not repeated.
+
+The address the button opens (`https://chat.google.com/room/<space>/<thread>`)
+is not part of Chat's documented API. It is built in one place,
+`src/lib/chat.js`, so if Google moves it that is the line to change.
+
 ### Setting it up
 
 The Chat webhook URL is a bearer secret — anyone holding it can post into your

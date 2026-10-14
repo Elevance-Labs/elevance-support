@@ -147,6 +147,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `email-send`.
 - `publicLink.js` — calls the `public-issue` and `public-company` functions;
   clipboard helper.
+- `chat.js` — the Google Chat thread link built from a ticket's recorded thread
+  name; the web address is Google's, so it is built in this one place.
 - `jira.js`, `supabase.js` — Jira link building; the shared client.
 
 ## 7. Data model (conceptual)
@@ -171,7 +173,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `issues` — the ticket. Request fields, submission details, workflow fields,
   `project_id` + per-project `number` (which also addresses the share link),
   SLA bookkeeping, the company (`company` name + `company_code`), the
-  `source` channel it arrived through, `severity`, and `assignee_ids`.
+  `source` channel it arrived through, `severity`, `assignee_ids`, and
+  `chat_thread` — the Google Chat thread it was announced in, written only by
+  `notify-issue` (a trigger drops or refuses it from anyone else).
   `submitted_type` / `submitted_product` / `submitted_area` /
   `submitted_priority` are the classification the request **arrived** with,
   stamped at insert and frozen by trigger — the basis for reporting how often a
@@ -250,7 +254,12 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   optional requester email is matched there into a per-ticket `mine` flag. No
   comments, assignees, severity, timeline or SLA — a different list from
   `public-issue`, so widen each on its own merits.
-- `notify-issue` — posts a Google Chat card for each new ticket. Called by an
+- `notify-issue` — posts a Google Chat card for each new ticket into a thread
+  keyed by the ticket reference, and records that thread on the ticket (the
+  dialog's "View thread"). Status changes and emails sent/received then reply
+  into that thread as one line each — who and what, never an email's
+  content — via insert triggers on `status_events` and `email_messages`; a
+  ticket with no recorded thread gets none. Called by an
   `issues` insert trigger via `pg_net`, not by the browser; authenticated by a
   shared secret, so it deploys with `--no-verify-jwt`. Webhook URL and secret
   live in function env + Vault, never in the repo.

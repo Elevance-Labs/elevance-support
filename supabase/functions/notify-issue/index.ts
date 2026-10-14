@@ -1,13 +1,23 @@
-// Posts a card to Google Chat when a new ticket arrives.
+// Posts a card to Google Chat when a new ticket arrives, and a one-line reply
+// in that ticket's thread each time its status changes or an email is sent to
+// or received from the requester.
 //
-// Called by the `issues_notify_new` trigger (migration 0001), never by a
-// browser: the Chat webhook URL is a bearer secret — anyone holding it can post
-// into the space — so it lives in this function's environment and the anon key
-// never comes near it.
+// Called by the `issues_notify_new` trigger (migration 0001) and the
+// `status_events_notify` / `email_messages_notify` triggers (migration 0016),
+// never by a browser: the Chat webhook URL is a bearer secret — anyone holding
+// it can post into the space — so it lives in this function's environment and
+// the anon key never comes near it.
 //
-// The trigger sends only `{ issue_id }`; everything on the card is read here
-// with service_role, so the field list and the card that renders it stay in one
-// place.
+// The triggers send only an id — `{ issue_id }` for a new ticket,
+// `{ status_event_id }` for a status change, `{ email_message_id }` for an
+// email; everything posted is read here with service_role, so the field list
+// and the message that renders it stay in one place.
+//
+// Each ticket gets its own thread: the post carries a `threadKey` of the ticket
+// reference, so a second post for the same ticket — a retry, or anything sent
+// for it later — lands in that thread rather than starting another. The thread
+// Chat answers with is saved on the ticket (`issues.chat_thread`, migration
+// 0015), which is what the ticket dialog's "View thread" button opens.
 //
 // Deploy with:  supabase functions deploy notify-issue --no-verify-jwt
 //
@@ -35,6 +45,27 @@ interface IssueRow {
   projects: { name: string; key: string };
 }
 
+/** A status change and what the reply needs to name it. */
+interface StatusEventRow {
+  to_status: string;
+  profiles: { full_name: string | null; email: string | null } | null;
+  issues: { number: number; chat_thread: string | null; projects: { key: string } };
+}
+
+/** An email on the ticket — who it was from or by, never what it said. */
+interface EmailMessageRow {
+  direction: "outbound" | "inbound";
+  from_email: string | null;
+  from_name: string | null;
+  profiles: { full_name: string | null; email: string | null } | null;
+  issues: { number: number; chat_thread: string | null; projects: { key: string } };
+}
+
+/** The service_role client every handler reads with; RLS does not apply. */
+const adminClient = () =>
+  createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+type Admin = ReturnType<typeof adminClient>;
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -47,6 +78,50 @@ const json = (body: unknown, status = 200) =>
  */
 const publicIssueUrl = (origin: string, key: string, number: number) =>
   `${origin.replace(/\/+$/, "")}/i/${key}/${number}`;
+
+/**
+ * The webhook URL with the ticket's thread named on it. The reference is unique
+ * across projects and never reissued, so it is a stable key within the space;
+ * REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD starts the thread on the first post and
+ * replies in it after that.
+ */
+function threadedWebhookUrl(webhookUrl: string, ref: string) {
+  const url = new URL(webhookUrl);
+  url.searchParams.set("threadKey", ref);
+  url.searchParams.set("messageReplyOption", "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD");
+  return url.toString();
+}
+
+/**
+ * The webhook URL for a reply into a thread that must already exist. A status
+ * line or an email line has no context of its own, so it never starts a thread.
+ */
+function replyWebhookUrl(webhookUrl: string) {
+  const url = new URL(webhookUrl);
+  url.searchParams.set("messageReplyOption", "REPLY_MESSAGE_OR_FAIL");
+  return url.toString();
+}
+
+/**
+ * Who did it. Mirrors displayName() in src/lib/users.js. Nobody recorded — a
+ * server-side change, or an account since deleted — reads as "Someone".
+ */
+const displayName = (p: { full_name?: string | null; email?: string | null } | null) => {
+  const name = (p?.full_name ?? "").trim();
+  if (name) return name;
+  const local = (p?.email ?? "").split("@")[0].replace(/\d+$/, "");
+  return local.split(/[._+-]+/).filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") || "Someone";
+};
+
+/**
+ * Text for a plain Chat message. Chat reads `<users/all>` and the like in
+ * message text as a mention, and a requester's name and a ticket's title are
+ * typed by the public — so angle brackets never reach it, and asterisks, which
+ * would unbalance the bold around them, are dropped too.
+ */
+const plain = (value: unknown) =>
+  String(value ?? "").replace(/[<>*]/g, "").replace(/\s+/g, " ").trim();
 
 /**
  * Chat renders a small subset of HTML inside card text, so anything typed by a
@@ -93,21 +168,29 @@ Deno.serve(async (req) => {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  let issueId: unknown;
+  let body: { issue_id?: unknown; status_event_id?: unknown; email_message_id?: unknown };
   try {
-    ({ issue_id: issueId } = await req.json());
+    body = await req.json();
   } catch {
     return json({ error: "Malformed request" }, 400);
   }
-  if (typeof issueId !== "string" || !issueId) {
-    return json({ error: "Missing issue_id" }, 400);
+
+  const admin = adminClient();
+
+  if (typeof body?.issue_id === "string" && body.issue_id) {
+    return announceIssue(admin, webhookUrl, appBaseUrl, body.issue_id);
   }
+  if (typeof body?.status_event_id === "string" && body.status_event_id) {
+    return announceStatusChange(admin, webhookUrl, body.status_event_id);
+  }
+  if (typeof body?.email_message_id === "string" && body.email_message_id) {
+    return announceEmail(admin, webhookUrl, body.email_message_id);
+  }
+  return json({ error: "Missing issue_id, status_event_id or email_message_id" }, 400);
+});
 
-  const admin = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
-
+/** The new-ticket card, which starts the ticket's thread. */
+async function announceIssue(admin: Admin, webhookUrl: string, appBaseUrl: string, issueId: string) {
   const { data, error } = await admin
     .from("issues")
     .select(
@@ -128,13 +211,14 @@ Deno.serve(async (req) => {
   const ref = `${project.key}-${issue.number}`;
   const link = publicIssueUrl(appBaseUrl, project.key, issue.number);
 
-  const chatResponse = await fetch(webhookUrl, {
+  const chatResponse = await fetch(threadedWebhookUrl(webhookUrl, ref), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       // Card content doesn't reach mobile notification previews; this line does.
-      // Plain text, not HTML — escaping it here would show the entities literally.
-      text: `*New support request · ${ref}* — ${issue.title}`,
+      // Plain text, not HTML — escaping it here would show the entities
+      // literally — so the title goes through plain() instead.
+      text: `*New support request · ${ref}* — ${plain(issue.title)}`,
       cardsV2: [{
         cardId: `issue-${issueId}`,
         card: {
@@ -196,5 +280,110 @@ Deno.serve(async (req) => {
     return json({ error: "Chat rejected the message" }, 502);
   }
 
+  // Chat answers with the message it created. The thread is only a convenience
+  // for the ticket dialog, so failing to record it is logged, not an error —
+  // the message itself went out.
+  let thread: string | null = null;
+  try {
+    const message = await chatResponse.json();
+    thread = typeof message?.thread?.name === "string" ? message.thread.name : null;
+  } catch {
+    // An unreadable body still means the post succeeded.
+  }
+  if (thread) {
+    const { error: saveError } = await admin
+      .from("issues").update({ chat_thread: thread }).eq("id", issueId);
+    if (saveError) console.error(`notify-issue could not record the thread for ${ref}`, saveError);
+  } else {
+    console.error(`Google Chat named no thread for ${ref}; the ticket gets no link`);
+  }
+
+  return json({ ok: true, ref, thread });
+}
+
+/**
+ * One line in the ticket's thread. Only for a ticket whose announcement
+ * recorded its thread — the triggers already skip the rest, and this checks
+ * again rather than start a thread with no card above it.
+ */
+async function replyInThread(webhookUrl: string, ref: string, thread: string | null, text: string) {
+  if (!thread) return json({ ok: true, ref, skipped: "no thread" });
+
+  const chatResponse = await fetch(replyWebhookUrl(webhookUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, thread: { name: thread } }),
+  });
+
+  if (!chatResponse.ok) {
+    console.error(
+      `Google Chat rejected the reply for ${ref}: ${chatResponse.status} ${await chatResponse.text()}`,
+    );
+    return json({ error: "Chat rejected the message" }, 502);
+  }
   return json({ ok: true, ref });
-});
+}
+
+/**
+ * The new status and who moved it. No time: Chat stamps every message itself,
+ * in each reader's own zone.
+ */
+async function announceStatusChange(admin: Admin, webhookUrl: string, eventId: string) {
+  const { data, error } = await admin
+    .from("status_events")
+    .select(
+      "to_status, profiles!changed_by(full_name, email), " +
+        "issues!inner(number, chat_thread, projects!inner(key))",
+    )
+    .eq("id", eventId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("notify-issue could not read the status change", error);
+    return json({ error: "Lookup failed" }, 500);
+  }
+  if (!data) return json({ error: "not_found" }, 404);
+
+  const event = data as unknown as StatusEventRow;
+  const ref = `${event.issues.projects.key}-${event.issues.number}`;
+  return replyInThread(webhookUrl, ref, event.issues.chat_thread,
+    `Status changed to *${plain(event.to_status)}* by ${plain(displayName(event.profiles))}`);
+}
+
+/**
+ * An email sent to the requester (and by whom) or received from them. Never
+ * the subject or the body: the space is a wider audience than the
+ * ticket, and what a customer wrote stays on the ticket.
+ */
+async function announceEmail(admin: Admin, webhookUrl: string, messageId: string) {
+  const { data, error } = await admin
+    .from("email_messages")
+    .select(
+      "direction, from_email, from_name, profiles!sent_by(full_name, email), " +
+        "issues!inner(number, chat_thread, projects!inner(key))",
+    )
+    .eq("id", messageId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("notify-issue could not read the email", error);
+    return json({ error: "Lookup failed" }, 500);
+  }
+  if (!data) return json({ error: "not_found" }, 404);
+
+  const email = data as unknown as EmailMessageRow;
+  const ref = `${email.issues.projects.key}-${email.issues.number}`;
+
+  let text: string;
+  if (email.direction === "outbound") {
+    text = `Email sent by *${plain(displayName(email.profiles))}*`;
+  } else {
+    // The requester as their mail client named them, with the address beside
+    // it — the address is what tells two Janes apart.
+    const name = plain(email.from_name);
+    const address = plain(email.from_email);
+    const from = name && address ? `${name} (${address})` : name || address || "the requester";
+    text = `Email received from *${from}*`;
+  }
+  return replyInThread(webhookUrl, ref, email.issues.chat_thread, text);
+}

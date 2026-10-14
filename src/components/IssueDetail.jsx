@@ -14,6 +14,7 @@ import { useAuth } from '../context/AuthContext'
 import { formatDateTime } from '../lib/format'
 import { can } from '../lib/permissions'
 import { jiraKey, jiraUrl } from '../lib/jira'
+import { chatThreadUrl } from '../lib/chat'
 import { copyText } from '../lib/publicLink'
 import { signAttachments } from '../lib/storage'
 import { issueRef, publicIssueUrl } from '../lib/projects'
@@ -34,6 +35,7 @@ import UserAvatar, { UserOption } from './UserAvatar'
 import { StatusLabel } from './StatusDot'
 import { SeverityOption, SeverityValue } from './SeverityOption'
 import Tag from './Tag'
+import GoogleChatIcon from './GoogleChatIcon'
 
 /**
  * Three-column ticket view:
@@ -199,6 +201,9 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
   // anyone can write one down from the ticket alone.
   const shareUrl = publicIssueUrl(project?.key, issue?.number)
 
+  // The Chat thread the ticket was announced in, recorded by notify-issue.
+  const chatUrl = chatThreadUrl(saved?.chat_thread)
+
   const copyLink = async () => {
     if (!shareUrl) return
     if (await copyText(shareUrl)) {
@@ -233,18 +238,34 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
               {/* Project first, then the ticket's own identifier: which queue
                   this belongs to is the context for reading the number. */}
-              <Typography variant="overline" color="text.secondary">
-                {project?.name ? `${project.name} · ` : ''}{issueRef(project, issue)}
-              </Typography>
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                <Typography variant="overline" color="text.secondary">
+                  {project?.name ? `${project.name} · ` : ''}{issueRef(project, issue)}
+                </Typography>
+                {/* Beside the reference it copies: the link is that reference. */}
+                <Tooltip title={copied ? 'Link copied' : 'Copy a public link to this ticket'}>
+                  <span>
+                    <IconButton size="small" onClick={copyLink} disabled={!shareUrl}
+                      aria-label="Copy public link">
+                      {copied
+                        ? <CheckIcon color="success" sx={{ fontSize: 16 }} />
+                        : <LinkIcon sx={{ fontSize: 16 }} />}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Stack>
               <Typography variant="h6">{issue.title}</Typography>
             </Box>
-            <Tooltip title={copied ? 'Link copied' : 'Copy a public link to this ticket'}>
-              <span>
-                <IconButton onClick={copyLink} disabled={!shareUrl} aria-label="Copy public link">
-                  {copied ? <CheckIcon color="success" /> : <LinkIcon />}
-                </IconButton>
-              </span>
-            </Tooltip>
+            {/* Only once the announcement has recorded its thread: older
+                tickets, and any whose post failed, have nowhere to go. */}
+            {chatUrl && (
+              <Tooltip title="Open this ticket's thread in Google Chat">
+                <Button variant="outlined" startIcon={<GoogleChatIcon />}
+                  href={chatUrl} target="_blank" rel="noopener noreferrer">
+                  View thread
+                </Button>
+              </Tooltip>
+            )}
             <Button variant="contained" onClick={save} disabled={saving || !dirty}>
               {saving ? 'Saving…' : 'Save changes'}
             </Button>

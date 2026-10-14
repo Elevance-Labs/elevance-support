@@ -194,6 +194,17 @@ check('clicking copies the ticket reference as a link: ACME-42 -> /i/ACME/42',
   clipboard.text === `${dom.window.location.origin}/i/ACME/42`, String(clipboard.text))
 check('the copied link carries no internal id', !String(clipboard.text).includes('issue-1'))
 
+// ---- the Chat thread ----
+const chatButton = () => [...dom.window.document.querySelectorAll('a')]
+  .find((a) => a.textContent.trim() === 'View thread')
+
+check('a ticket announced in Chat links to its thread',
+  chatButton()?.getAttribute('href') === 'https://chat.google.com/room/AAAA1234/tHrEaD99',
+  String(chatButton()?.getAttribute('href')))
+check('the thread opens in a new tab', chatButton()?.getAttribute('target') === '_blank')
+check('the thread button carries an icon',
+  Boolean(chatButton()?.querySelector('.MuiButton-startIcon img')))
+
 const deleteButtons = () =>
   [...dom.window.document.querySelectorAll('button')]
     .filter((b) => b.textContent.trim() === 'Delete')
@@ -227,6 +238,15 @@ check('no team member email leaks into the UI',
 
 // One EditIcon for the fresh own comment; the ticket controls use no EditIcon.
 check('fresh own comment is editable', editIcons() >= 1, `found ${editIcons()}`)
+
+// A ticket with no recorded thread — older than the feature, or its post
+// failed — has nowhere to send anyone, so offers nothing.
+const thread = FIXTURES.issue.chat_thread
+FIXTURES.issue.chat_thread = null
+dom.window.document.body.innerHTML = ''
+await render({ id: 'user-2', role: 'member', full_name: '', email: 'grace.hopper@co.com' })
+check('no thread recorded, no View thread button', !chatButton())
+FIXTURES.issue.chat_thread = thread
 
 // ---- third pass: an author whose comments are all stale ----
 dom.window.document.body.innerHTML = ''
