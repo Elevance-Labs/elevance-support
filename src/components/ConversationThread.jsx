@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Alert, Box, Button, Chip, IconButton, Paper, Stack, TextField, Tooltip, Typography,
+  Alert, Autocomplete, Box, Button, Chip, IconButton, Paper, Stack, TextField, Tooltip, Typography,
 } from '@mui/material'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import LockIcon from '@mui/icons-material/Lock'
@@ -20,9 +20,11 @@ import {
   deliveryOf, isEmail, MAX_CC, messageText, newestFirst, parseRecipients, signatureDoc,
   ticketSubject,
 } from '../lib/email'
+import { completeRecipient, contactLabel, suggestContacts, typedRecipient } from '../lib/contacts'
 import UserAvatar from './UserAvatar'
 import AttachmentGallery from './AttachmentGallery'
 import useAttachmentDraft from './useAttachmentDraft'
+import useProjectContacts from './useProjectContacts'
 import TemplatePicker from './TemplatePicker'
 import RichTextEditor, { RichTextView } from './RichTextEditor'
 import { isSubmitChord, MOD_KEY_LABEL } from './composer'
@@ -68,6 +70,8 @@ export default function ConversationThread({ issue, ticketRef, onCount }) {
   const fileInput = useRef(null)
   const editor = useRef(null)
   const issueId = issue?.id
+  const mayWrite = can.emailCustomer(profile)
+  const contacts = useProjectContacts(issue?.project_id, { enabled: mayWrite })
 
   const load = useCallback(async () => {
     if (!issueId) return
@@ -95,7 +99,6 @@ export default function ConversationThread({ issue, ticketRef, onCount }) {
     return (id) => map[id]
   }, [users])
 
-  const mayWrite = can.emailCustomer(profile)
   const to = (issue?.requester_email ?? '').trim()
   const reachable = isEmail(to)
   const subject = ticketSubject(ticketRef, issue?.title)
@@ -103,6 +106,11 @@ export default function ConversationThread({ issue, ticketRef, onCount }) {
   const ccProblem = cc.invalid.length
     ? `Not an email address: ${cc.invalid.join(', ')}`
     : cc.valid.length > MAX_CC ? `At most ${MAX_CC} people can be copied` : ''
+
+  // Addresses the project has met that would complete the one being typed —
+  // never the requester (already on the To line) or anyone already copied.
+  const ccSuggestions = suggestContacts(contacts.contacts, typedRecipient(ccText),
+    { exclude: [to, ...cc.valid] })
 
   const canSend = mayWrite && reachable && !busy && !ccProblem && !isEmptyDoc(draft)
 
@@ -135,6 +143,8 @@ export default function ConversationThread({ issue, ticketRef, onCount }) {
     }
     setBusy(false)
     editor.current?.clear(); setCcText(''); attach.clear(); load()
+    // Whoever was just copied is now one of the project's addresses.
+    if (cc.valid.length) contacts.reload()
   }
 
   return (
@@ -155,9 +165,25 @@ export default function ConversationThread({ issue, ticketRef, onCount }) {
                 <Typography variant="caption" color="text.secondary" sx={{ minWidth: 52 }}>Subject</Typography>
                 <Typography variant="body2">{subject}</Typography>
               </Stack>
-              <TextField size="small" label="Cc" placeholder="Optional — separate addresses with commas"
-                value={ccText} onChange={(e) => setCcText(e.target.value)}
-                error={Boolean(ccProblem)} helperText={ccProblem || undefined} />
+              {/* Still one line of addresses; the suggestions complete the one
+                  being typed, from the addresses this project has met. */}
+              <Autocomplete freeSolo size="small" disableClearable
+                options={ccSuggestions}
+                filterOptions={(o) => o}
+                getOptionLabel={(o) => (typeof o === 'string' ? o : o.email)}
+                renderOption={({ key, ...props }, o) => (
+                  <li key={key} {...props}>{contactLabel(o)}</li>
+                )}
+                value={null}
+                inputValue={ccText}
+                onInputChange={(_e, v, reason) => { if (reason === 'input') setCcText(v) }}
+                onChange={(_e, picked) => {
+                  if (picked && typeof picked === 'object') setCcText(completeRecipient(ccText, picked.email))
+                }}
+                renderInput={(params) => (
+                  <TextField {...params} label="Cc" placeholder="Optional — separate addresses with commas"
+                    error={Boolean(ccProblem)} helperText={ccProblem || undefined} />
+                )} />
               <RichTextEditor ref={editor}
                 placeholder="Write to the customer…"
                 ariaLabel="Email to the customer"

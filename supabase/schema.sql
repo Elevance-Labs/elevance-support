@@ -343,6 +343,22 @@ alter table public.attachments
 create index if not exists attachments_email_idx on public.attachments(email_message_id)
   where email_message_id is not null;
 
+-- ---------- addresses a project has met (0017) ----------
+-- Ticket requesters and the Cc of emails the team sent, suggested back in the
+-- staff form's requester email and the email Cc. Written only by the triggers
+-- below; read by the project's members. Never by anon: these are customers'.
+create table if not exists public.project_contacts (
+  project_id   uuid not null references public.projects(id) on delete cascade,
+  email        text not null check (email = lower(btrim(email))),
+  -- The name it last came with; a Cc carries none and never wipes one.
+  name         text,
+  last_seen_at timestamptz not null default now(),
+  created_at   timestamptz not null default now(),
+  primary key (project_id, email)
+);
+create index if not exists project_contacts_recent_idx
+  on public.project_contacts(project_id, last_seen_at desc);
+
 -- ---------- status timeline ----------
 create table if not exists public.status_events (
   id          uuid primary key default gen_random_uuid(),
@@ -1151,6 +1167,100 @@ drop trigger if exists issues_log_status on public.issues;
 create trigger issues_log_status after insert or update of status on public.issues
   for each row execute function public.log_status_event();
 
+-- ---------- remembering addresses (0017) ----------
+-- An address is kept when it is used, never when it is typed: a ticket's
+-- requester, and the Cc of an email that actually went (the row exists only
+-- once Mailgun accepted it). Mirrors isEmail() in src/lib/email.js.
+create or replace function public.remember_contact(
+  p_project uuid, p_email text, p_name text default null, p_seen timestamptz default now()
+)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_email text := lower(btrim(coalesce(p_email, '')));
+  v_name  text := nullif(btrim(coalesce(p_name, '')), '');
+begin
+  if p_project is null
+     or v_email !~ '^[^\s@<>(),;:]+@[^\s@<>(),;:]+\.[^\s@<>(),;:]+$' then
+    return;
+  end if;
+
+  insert into public.project_contacts as c (project_id, email, name, last_seen_at)
+  values (p_project, v_email, v_name, coalesce(p_seen, now()))
+  on conflict (project_id, email) do update
+    set name         = coalesce(excluded.name, c.name),
+        last_seen_at = greatest(c.last_seen_at, excluded.last_seen_at);
+end $$;
+
+-- Trigger-only: from the browser it would plant addresses in any project.
+revoke all on function public.remember_contact(uuid, text, text, timestamptz) from public, anon, authenticated;
+
+create or replace function public.remember_issue_requester()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'UPDATE' and new.requester_email is not distinct from old.requester_email then
+    return null;
+  end if;
+  perform public.remember_contact(new.project_id, new.requester_email, new.requester_name);
+  return null;
+exception when others then
+  -- A suggestion list is never worth failing a ticket over.
+  return null;
+end $$;
+
+drop trigger if exists issues_remember_requester on public.issues;
+create trigger issues_remember_requester
+  after insert or update of requester_email on public.issues
+  for each row when (new.requester_email is not null)
+  execute function public.remember_issue_requester();
+
+-- Outbound only: who a customer copies on their reply is theirs, not ours.
+create or replace function public.remember_email_cc()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_project uuid;
+  v_cc      text;
+begin
+  select project_id into v_project from public.issues where id = new.issue_id;
+  foreach v_cc in array coalesce(new.cc_emails, '{}') loop
+    perform public.remember_contact(v_project, v_cc, null, new.created_at);
+  end loop;
+  return null;
+exception when others then
+  return null;
+end $$;
+
+drop trigger if exists email_messages_remember_cc on public.email_messages;
+create trigger email_messages_remember_cc
+  after insert on public.email_messages
+  for each row when (new.direction = 'outbound' and cardinality(new.cc_emails) > 0)
+  execute function public.remember_email_cc();
+
+-- A nameless address (one only ever Cc'd) takes the display name it writes in
+-- under. Never adds an address, never replaces a name a ticket gave.
+create or replace function public.remember_sender_name()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  update public.project_contacts c
+     set name = btrim(new.from_name)
+    from public.issues i
+   where i.id = new.issue_id
+     and c.project_id = i.project_id
+     and c.email = lower(btrim(new.from_email))
+     and c.name is null;
+  return null;
+exception when others then
+  return null;
+end $$;
+
+drop trigger if exists email_messages_remember_sender_name on public.email_messages;
+create trigger email_messages_remember_sender_name
+  after insert on public.email_messages
+  for each row when (
+    new.direction = 'inbound' and new.from_email is not null
+    and nullif(btrim(new.from_name), '') is not null and new.from_name not like '%@%'
+  )
+  execute function public.remember_sender_name();
+
 -- ============================================================
 -- Row level security
 -- ============================================================
@@ -1164,6 +1274,7 @@ alter table public.issues          enable row level security;
 alter table public.attachments     enable row level security;
 alter table public.comments        enable row level security;
 alter table public.email_messages  enable row level security;
+alter table public.project_contacts enable row level security;
 alter table public.status_events   enable row level security;
 alter table public.views           enable row level security;
 
@@ -1362,6 +1473,11 @@ create policy att_staff_delete on public.attachments for delete to authenticated
 drop policy if exists email_messages_read on public.email_messages;
 create policy email_messages_read on public.email_messages for select to authenticated
   using (public.can_see_issue(issue_id));
+
+-- ---------- addresses a project has met: members read, triggers write ----------
+drop policy if exists project_contacts_read on public.project_contacts;
+create policy project_contacts_read on public.project_contacts for select to authenticated
+  using (public.is_project_member(project_id));
 
 -- ---------- comments ----------
 -- Everyone who can see the ticket reads and posts; authors may edit/delete

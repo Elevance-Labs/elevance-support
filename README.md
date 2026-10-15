@@ -885,6 +885,34 @@ grant — a box to write the next one.
 
 Emails and their files never appear on the share link or the company page.
 
+### Suggested addresses
+
+Each project remembers the email addresses it has dealt with, and offers them
+back once you start typing — in the **Cc** box here, and in **Requester email**
+on the internal Create Issue form. An empty box suggests nothing: these
+complete what you have started, not a list to browse.
+
+- **What is remembered:** every ticket's requester email (from the public
+  form, the internal form, or an email that became a ticket), and every
+  address you **Cc** on an email — once it has actually been sent. A Cc typed
+  into a draft that never went is not kept, and neither is whoever a customer
+  copies on their reply.
+- **One address, one entry.** Addresses are compared ignoring case and stored
+  in lower case, so `Jane@Acme.com` and `jane@acme.com` are the same person.
+  The newest suggestions come first.
+- **Per project.** A project's members see its addresses; nobody else does,
+  and the public form never suggests anything.
+- **Names** come from tickets: each new ticket's requester name replaces the
+  one on file. An address with no name yet — usually one that was only ever
+  Cc'd — takes the display name it next writes in under (`Jane Doe
+  <jane@acme.com>`); that never replaces a name a ticket gave, and an incoming
+  email never adds an address on its own.
+- Picking a requester whose name is known also fills **Requester name**, if
+  you haven't typed one. A new address can always just be typed.
+- The list is kept by the database (`project_contacts`, migration 0017), which
+  also filled it once from every ticket and sent Cc that existed beforehand,
+  with names from the emails already received.
+
 ### Setting it up
 
 You need a Mailgun domain that can **receive** as well as send: a subdomain

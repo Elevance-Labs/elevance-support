@@ -140,6 +140,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `[REF] title`, mirrored in `email-send`), thread order, delivery labels, Cc
   parsing, the signature an email goes out with. Sending and receiving are Edge
   Functions, never the browser.
+- `contacts.js` — picking from a project's remembered email addresses: what a
+  box suggests (case-insensitive, newest first) and how a pick completes the
+  Cc line. Read through the `useProjectContacts` hook; staff only.
 - `richText.js` — the rich text **document** (paragraphs and lists of marked
   runs) that the email box and signatures are read into. HTML never leaves the
   browser and is never rendered from data: `email-send` re-checks the document
@@ -209,6 +212,13 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `email-send` and `email-webhook` write it. A reply finds its ticket by the
   ticket's random `email_token` in the Reply-To address — never by the public
   ticket reference — or by its threading headers; anything else is a new ticket.
+- `project_contacts` — the email addresses a project has met, stored lower-case,
+  one row per address: ticket requesters (on insert) and the Cc of outbound
+  emails (once sent — the `email_messages` row is the proof). Names come from
+  the requester name; an inbound email's display name only fills an empty one,
+  and never adds an address. Written only by triggers, read only by project
+  members, never anon. Suggested — once something is typed — in the email Cc
+  and the staff form's requester email.
 - `comment_templates` — canned comment text (title + body) managed under
   Configuration; picking one under the comment box only writes into the box.
   Its own table, not a `list_items` type, because `list_items` is anon-readable:

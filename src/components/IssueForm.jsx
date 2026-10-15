@@ -10,9 +10,11 @@ import { toInputDateTime } from '../lib/format'
 import { activeCompanies, findCompany } from '../lib/companies'
 import { ACCEPT, ATTACH_HINT, MAX_FILES } from '../lib/attachments'
 import { uploadAttachment } from '../lib/storage'
+import { contactLabel, suggestContacts } from '../lib/contacts'
 import { SeverityOption, SeverityValue } from './SeverityOption'
 import AttachmentGallery from './AttachmentGallery'
 import useAttachmentDraft from './useAttachmentDraft'
+import useProjectContacts from './useProjectContacts'
 
 export const EMPTY_ISSUE = {
   type: '', product: '', area: '', priority: '', title: '', description: '',
@@ -62,6 +64,9 @@ export default function IssueForm({
   const { files } = attach
   const [busy, setBusy] = useState(false)
   const fileInput = useRef(null)
+  // Only staff read the project's addresses — the public form has no session
+  // to read them with, and no business offering one customer another's.
+  const { contacts } = useProjectContacts(projectId, { enabled: staff })
 
   // Priority is optional, but the form opens on the first configured priority
   // rather than an empty box. The list is ordered by sort_order, so "first"
@@ -221,6 +226,36 @@ export default function IssueForm({
     </TextField>
   )
 
+  // Staff log the same customers again and again, so the address box offers
+  // the ones this project has met. Typing stays free — a new customer is just
+  // an address nobody has suggested yet — and picking one with a known name
+  // fills an empty Requester name too.
+  const requesterEmailField = () => isHidden('requester_email') ? null : (
+    <Autocomplete
+      key="requester_email" freeSolo disableClearable size="small"
+      options={suggestContacts(contacts, values.requester_email)}
+      filterOptions={(o) => o}
+      getOptionLabel={(o) => (typeof o === 'string' ? o : o.email)}
+      renderOption={({ key, ...props }, o) => <li key={key} {...props}>{contactLabel(o)}</li>}
+      value={null}
+      inputValue={values.requester_email ?? ''}
+      onInputChange={(_e, v, reason) => {
+        if (reason === 'input') setValues((prev) => ({ ...prev, requester_email: v }))
+      }}
+      onChange={(_e, picked) => {
+        if (!picked || typeof picked !== 'object') return
+        setValues((prev) => ({
+          ...prev,
+          requester_email: picked.email,
+          requester_name: prev.requester_name?.trim() ? prev.requester_name : (picked.name ?? ''),
+        }))
+      }}
+      renderInput={(params) => (
+        <TextField {...params} fullWidth label="Requester email" type="email" required />
+      )}
+    />
+  )
+
   const requestSection = ['type', 'product', 'area', 'priority'].some((f) => !isHidden(f))
   const submissionSection = ['company', 'requester_name', 'requester_email', 'source_url']
     .some((f) => !isHidden(f))
@@ -309,7 +344,9 @@ export default function IssueForm({
                 silently swapped. */}
             {companyField()}
             {textField({ field: 'requester_name', label: 'Requester name', required: true })}
-            {textField({ field: 'requester_email', label: 'Requester email', type: 'email', required: true })}
+            {staff ? requesterEmailField() : textField({
+              field: 'requester_email', label: 'Requester email', type: 'email', required: true,
+            })}
             {textField({
               field: 'source_url', label: 'Source URL',
               placeholder: 'https://…',

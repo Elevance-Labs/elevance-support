@@ -89,6 +89,8 @@ export const PROJECT_SCHEDULES = [
 
 export const captured = {
   inserts: [], updates: [], deletes: [], uploads: [], removals: [], auth: [], functionCalls: [],
+  // Which tables were read, so a test can tell a page never asked for one.
+  reads: [],
 }
 /**
  * A thenable query builder that actually applies `eq` and `in`.
@@ -109,6 +111,7 @@ const chain = (data) => {
       ? rows : [...rows].sort((a, b) => (a[col] < b[col] ? 1 : a[col] > b[col] ? -1 : 0)))
   p.eq = (col, value) => chain(rows.filter((r) => r[col] === value))
   p.in = (col, values) => chain(rows.filter((r) => (values ?? []).includes(r[col])))
+  p.limit = (n) => chain(rows.slice(0, n))
   // Only the `is null` / `not is null` forms the app uses.
   p.is = (col, value) => chain(rows.filter((r) => (r[col] ?? null) === value))
   p.not = (col, op, value) => op === 'is'
@@ -153,13 +156,14 @@ const tableData = (table) => {
   if (table === 'comment_templates') return COMMENT_TEMPLATES
   if (table === 'attachments') return FIXTURES.attachments
   if (table === 'email_messages') return FIXTURES.email_messages
+  if (table === 'project_contacts') return FIXTURES.project_contacts
   return []
 }
 
 export const supabase = {
   from(table) {
     return {
-      select: () => chain(tableData(table)),
+      select: () => { captured.reads.push(table); return chain(tableData(table)) },
       insert: (row) => { captured.inserts.push({ table, row }); return writeChain({ id: 'new-issue' }) },
       update: (row) => { captured.updates.push({ table, row }); return writeChain({ id: 'updated' }) },
       // Hands back the rows it matched, as `.delete().eq(…).select()` does, and
@@ -331,6 +335,15 @@ export const FIXTURES = {
       subject: 'Re: [ACME-42] Cannot export invoice', message_id: 'm2@mg.example.com',
       stripped_text: 'Thanks — trying it now.', error: 'Mailbox full',
       created_at: iso(10 * MIN) },
+  ],
+  // The addresses each project has met. Jane is issue-1's requester, so the Cc
+  // must not offer her; Sam belongs to the other project and must never show
+  // in this one's boxes.
+  project_contacts: [
+    { project_id: 'proj-1', email: 'jane@acme.com', name: 'Jane', last_seen_at: iso(3 * DAY) },
+    { project_id: 'proj-1', email: 'boss@acme.com', name: null, last_seen_at: iso(2 * HR) },
+    { project_id: 'proj-1', email: 'ops@acme.com', name: 'Ops Desk', last_seen_at: iso(5 * DAY) },
+    { project_id: 'proj-2', email: 'sam@globex.com', name: 'Sam', last_seen_at: iso(1 * DAY) },
   ],
   profiles: [
     // Ada has uploaded a photo; Grace has not — so every avatar site is exercised
