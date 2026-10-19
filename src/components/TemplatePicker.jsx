@@ -3,11 +3,13 @@ import { Box, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import { copyText } from '../lib/publicLink'
+import { docToHtml, docToText, storedDoc } from '../lib/richText'
 
 /**
  * The "Insert template…" menu under a composer: the comment box and the email
- * box. Picking one hands its body to `onPick`; nothing is ever sent from here.
- * Each row also has a copy button, for pasting the text somewhere else.
+ * box. Picking one hands its document to `onPick` — formatting included, and a
+ * template saved before rich text read as plain lines — and nothing is ever
+ * sent from here. Each row also has a copy button, for pasting it elsewhere.
  *
  * Draws nothing when no template is active.
  */
@@ -21,7 +23,8 @@ export default function TemplatePicker({ templates, disabled, onPick, onError })
    */
   const copyTemplate = async (e, template) => {
     e.stopPropagation()
-    if (await copyText(template.body)) {
+    const doc = storedDoc(template)
+    if (await copyText(docToText(doc), docToHtml(doc))) {
       setCopiedId(template.id)
       setTimeout(() => setCopiedId((id) => (id === template.id ? null : id)), 2000)
     } else {
@@ -38,7 +41,7 @@ export default function TemplatePicker({ templates, disabled, onPick, onError })
     <TextField select size="small" value="" disabled={disabled}
       onChange={(e) => {
         const template = offered.find((t) => t.id === e.target.value)
-        if (template) onPick(template.body)
+        if (template) onPick(storedDoc(template))
       }}
       sx={{ minWidth: 180 }}
       slotProps={{

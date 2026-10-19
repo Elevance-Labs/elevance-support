@@ -13,6 +13,7 @@ import { formatDateTime } from '../lib/format'
 import { jiraUrl } from '../lib/jira'
 import UserAvatar from '../components/UserAvatar'
 import AttachmentGallery from '../components/AttachmentGallery'
+import { StoredRichText } from '../components/RichTextEditor'
 
 function Splash() {
   return (
@@ -170,11 +171,7 @@ export default function PublicIssue() {
                         {formatDateTime(c.created_at)}
                       </Typography>
                     </Stack>
-                    {c.body && (
-                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 0.25 }}>
-                        {c.body}
-                      </Typography>
-                    )}
+                    <StoredRichText body={c.body} doc={c.body_doc} sx={{ mt: 0.25 }} />
                     {c.attachments?.length > 0 && (
                       <Box sx={{ mt: 1 }}>
                         <AttachmentGallery items={c.attachments.map(toItem)} size="small" />

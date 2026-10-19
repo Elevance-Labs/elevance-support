@@ -16,7 +16,7 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | **Schedule** | The selected project's support rota — who is on, and when. Managers and admins. |
 | **Projects** | Admin-only CRUD over projects, their keys, their members and their **support schedule**. |
 | **Users** | Admin-only CRUD over who can sign in and be assigned work, and which department they are in. |
-| **Configuration** | Admin-only CRUD over the lists that drive every dropdown — types, products, areas, priorities, severities, statuses, labels and sources — and over the comment **templates**. |
+| **Configuration** | CRUD over the lists that drive every dropdown — types, products, areas, priorities, severities, statuses, labels and sources — and over the comment **templates**. Admins manage all of it; managers see only **Labels** and **Templates**. |
 | **Profile** | Your own account — reached from the avatar in the header. Shows your name, email and role; lets you change your photo and your password. |
 
 ## Roles
@@ -41,7 +41,8 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | Create schedules; edit or delete current and upcoming ones | — | ✅ | ✅ |
 | Edit or delete a **past** schedule | — | — | ✅ |
 | **Delete tickets** | — | — | ✅ |
-| Configuration lists and comment templates | — | — | ✅ |
+| Manage labels and comment templates | — | ✅ | ✅ |
+| Every other Configuration list (types, statuses, severities…) | — | — | ✅ |
 
 Disabling an account bans it at the auth layer, so a disabled user genuinely
 cannot sign in — and is signed out automatically if they were already active.
@@ -239,6 +240,12 @@ Opening a ticket gives a three-column view:
   via the API. **Ctrl+Enter** (or **Cmd+Enter**) posts the comment, and saves an
   edit in progress; plain Enter is still a newline, since the box is multi-line.
   **Escape** cancels an edit.
+  The box is **rich text**, the same editor as the email box: bold, italic,
+  underline, bulleted and numbered lists, and links (**Ctrl/Cmd+K**). As with
+  email, what is saved is a small document, not HTML (`comments.body_doc`),
+  with its plain text beside it in `body`; it is drawn with React, so nothing
+  pasted in can run. Comments written before rich text have only `body`, and
+  read — and edit — exactly as they always did.
   A comment can carry **files** — images, PDFs or video, under the same limits
   as a request (see *Embedding the form*) — picked with the paperclip or pasted
   into the box as a screenshot. A comment may be just a file. The files show
@@ -246,11 +253,15 @@ Opening a ticket gives a three-column view:
   remove a comment's files, and only inside the same 5-minute window; deleting
   the comment takes its files with it. Row-level security enforces all three.
   Under the box, **Insert template…** offers the active comment templates
-  (Configuration → Templates — a title and the text). Picking one writes its
-  text into the box at the cursor, as a paste would, keeping whatever was
-  already typed; nothing is posted until you post it, so edit freely first.
-  Hovering a template in the list shows a **copy** button, which copies its
-  text to the clipboard instead — the box is left alone and the list stays open.
+  (Configuration → Templates — a title and rich text, managed by admins and
+  managers). Picking one writes it into the box at the cursor, formatting and
+  all, as a paste would, keeping whatever was already typed; nothing is posted
+  until you post it, so edit freely first. The email box offers the same list.
+  Hovering a template in the list shows a **copy** button, which copies it to
+  the clipboard instead — formatted where the browser allows, plain text
+  otherwise — and leaves the box alone with the list open. A template saved
+  before rich text is plain text, and inserts and edits as such; saving it again
+  stores it as a document.
   Templates live in their own staff-only table rather than with the dropdown
   lists, which the public form reads with the anon key.
   The thread sits on a **Comments** tab beside a **Conversation** tab — the
@@ -656,7 +667,8 @@ A trigger creates the matching profile automatically, and **the first account to
 exist becomes an admin** — so there's nothing to run by hand. From then on you can
 add everyone else from the **Users** page.
 
-> **Admin pages missing from the side nav?** Users and Configuration are admin-only.
+> **Admin pages missing from the side nav?** Users and Configuration need an admin (or, for a
+> narrower view of each, a manager).
 > If they aren't showing, your account has no `profiles` row or isn't an admin.
 > Re-run [`supabase/schema.sql`](supabase/schema.sql) in the SQL editor — it is
 > safe to run again — then promote your account with
@@ -1039,6 +1051,13 @@ includes files attached to **comments**: the comments are on the page, so what
 was attached to them is too. Don't attach anything to a comment you wouldn't
 write in one.
 
+A comment written as rich text goes out with its document (`body_doc`) beside
+its text, so the page shows its bold, lists and links. That adds nothing the
+text does not already say — a link's address is part of the plain text too —
+and the page draws it with React, re-checking every link, never as HTML.
+Apply migration 0018 before deploying this version of `public-issue`: it reads
+that column.
+
 Comment authors appear by **name and photo** on the public page — a support
 reply reads better from a person than from a grey circle. The photo is on the
 allow-list deliberately: the `avatars` bucket is public already, so the file was
@@ -1208,7 +1227,8 @@ ordinary text behaves as it always did. Videos are picked with the button.
 ## Notes
 
 - **Roles.** `admin` manages projects, users, configuration lists and saved
-  views, and can delete issues. `member` works the issues of the projects they
+  views, and can delete issues. `manager` manages saved views, labels and
+  comment templates, and some users. `member` works the issues of the projects they
   belong to. Roles are global; project membership decides which tickets you see.
 - **Attachments are private.** The bucket is not public; the app hands out
   60-second signed URLs when someone opens a file.

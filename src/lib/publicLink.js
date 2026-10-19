@@ -55,9 +55,18 @@ export async function fetchCompanyTickets(company, email) {
  * missing outside secure contexts, so callers need a way to fall back to
  * showing the link rather than silently doing nothing.
  */
-export async function copyText(text) {
+export async function copyText(text, html) {
   try {
-    await navigator.clipboard.writeText(text)
+    // With `html`, both go on the clipboard: a rich box keeps the formatting,
+    // a plain one takes the text. Browsers without ClipboardItem get the text.
+    if (html && typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+        'text/html': new Blob([html], { type: 'text/html' }),
+      })])
+    } else {
+      await navigator.clipboard.writeText(text)
+    }
     return true
   } catch {
     return false

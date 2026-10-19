@@ -8,9 +8,13 @@ import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
 import { useConfig, LIST_TYPES } from '../context/ConfigContext'
 import { STATUS_TYPES, STATUS_TYPE_LABELS, STATUS_TYPE_COLORS } from '../lib/sla'
+import { can } from '../lib/permissions'
+import { isEmptyDoc, storedDoc, toStored } from '../lib/richText'
 import Tag from '../components/Tag'
+import RichTextEditor, { StoredRichText } from '../components/RichTextEditor'
 
 /** "8h", "3d", "36h" — SLA targets read better than a raw hour count. */
 function formatSla(hours) {
@@ -30,10 +34,17 @@ const blank = {
 
 // Templates sit after the dropdown lists: they are configuration too, but text
 // for the comment box rather than a list anything is picked from on a ticket.
-const TEMPLATES_TAB = LIST_TYPES.length
+const TEMPLATES = 'templates'
 
 export default function Configuration() {
-  const [tab, setTab] = useState(0)
+  const { profile } = useAuth()
+  // Only the tabs this person may manage: everything for an admin, labels and
+  // templates for a manager. The database draws the same line.
+  const lists = LIST_TYPES.filter((l) => can.manageList(profile, l.key))
+  const tabs = [...lists.map((l) => l.key), ...(can.manageTemplates(profile) ? [TEMPLATES] : [])]
+  const [picked, setPicked] = useState(null)
+  const tab = tabs.includes(picked) ? picked : tabs[0]
+  const list = lists.find((l) => l.key === tab)
 
   return (
     <Stack spacing={2}>
@@ -41,18 +52,21 @@ export default function Configuration() {
       <Typography variant="body2" color="text.secondary">
         These lists drive every dropdown on the intake form and in the dashboard,
         and the templates offered under the comment box.
+        {!can.manageConfig(profile) && ' The other lists are managed by an admin.'}
       </Typography>
 
-      <Paper>
-        <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ borderBottom: '1px solid #e5e7eb' }}>
-          {LIST_TYPES.map((l) => <Tab key={l.key} label={l.label} />)}
-          <Tab label="Templates" />
-        </Tabs>
+      {tab && (
+        <Paper>
+          <Tabs value={tab} onChange={(_e, v) => setPicked(v)} sx={{ borderBottom: '1px solid #e5e7eb' }}>
+            {lists.map((l) => <Tab key={l.key} value={l.key} label={l.label} />)}
+            {tabs.includes(TEMPLATES) && <Tab value={TEMPLATES} label="Templates" />}
+          </Tabs>
 
-        {tab === TEMPLATES_TAB
-          ? <TemplatesPanel />
-          : <ListPanel key={LIST_TYPES[tab].key} type={LIST_TYPES[tab]} />}
-      </Paper>
+          {tab === TEMPLATES
+            ? <TemplatesPanel />
+            : <ListPanel key={list.key} type={list} />}
+        </Paper>
+      )}
     </Stack>
   )
 }
@@ -326,11 +340,13 @@ function ListPanel({ type }) {
   )
 }
 
-const blankTemplate = { title: '', body: '', sort_order: 0, is_active: true }
+const blankTemplate = { title: '', doc: null, sort_order: 0, is_active: true }
 
 /**
- * Comment templates: a title to pick by and the text it writes into the
- * comment box. Inactive ones stay here but are not offered under the box.
+ * Comment templates: a title to pick by and the rich text it writes into the
+ * comment box (or the email box). Inactive ones stay here but are not offered
+ * under the box. One saved before rich text is opened as its plain lines, and
+ * saved back as a document.
  */
 function TemplatesPanel() {
   const { templates, refresh } = useConfig()
@@ -342,12 +358,13 @@ function TemplatesPanel() {
     const { id, values } = dialog
     const payload = {
       title: values.title.trim(),
-      body: values.body.trim(),
+      // The document, and its plain text for anything that reads `body`.
+      ...toStored(values.doc),
       sort_order: Number(values.sort_order) || 0,
       is_active: values.is_active,
     }
     // The database refuses either blank; say so here rather than echo its error.
-    if (!payload.title || !payload.body) return setError('A template needs a title and text.')
+    if (!payload.title || isEmptyDoc(values.doc)) return setError('A template needs a title and text.')
     setBusy(true); setError('')
     const { error } = id
       ? await supabase.from('comment_templates').update(payload).eq('id', id)
@@ -411,12 +428,10 @@ function TemplatesPanel() {
                   <Typography variant="body2" sx={{ fontWeight: 500 }}>{t.title}</Typography>
                 </TableCell>
                 <TableCell>
-                  <Typography variant="body2" color="text.secondary" sx={{
-                    whiteSpace: 'pre-wrap', display: '-webkit-box',
-                    WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-                  }}>
-                    {t.body}
-                  </Typography>
+                  {/* The first few lines, formatting and all. */}
+                  <StoredRichText body={t.body} doc={t.body_doc} sx={{
+                    color: 'text.secondary', maxHeight: '4.5em', overflow: 'hidden',
+                  }} />
                 </TableCell>
                 <TableCell>{t.sort_order}</TableCell>
                 <TableCell>
@@ -428,7 +443,7 @@ function TemplatesPanel() {
                   <IconButton size="small" aria-label="Edit template" onClick={() => setDialog({
                     id: t.id,
                     values: {
-                      title: t.title, body: t.body,
+                      title: t.title, doc: storedDoc(t),
                       sort_order: t.sort_order, is_active: t.is_active,
                     },
                   })}>
@@ -460,9 +475,15 @@ function TemplatesPanel() {
             <TextField label="Title" fullWidth autoFocus
               value={dialog?.values.title ?? ''} onChange={patch('title')}
               helperText="What staff pick it by under the comment box." />
-            <TextField label="Text" fullWidth multiline minRows={5}
-              value={dialog?.values.body ?? ''} onChange={patch('body')}
-              helperText="Written into the comment box when picked. The author can still edit it before posting." />
+            <Box>
+              {/* Keyed per template: the editor reads its starting text once. */}
+              <RichTextEditor key={dialog?.id ?? 'new'} initialDoc={dialog?.values.doc}
+                ariaLabel="Template text" placeholder="Text" minHeight={120}
+                onChange={(doc) => setDialog((d) => d && ({ ...d, values: { ...d.values, doc } }))} />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, mx: 1.75 }}>
+                Written into the comment box when picked, formatting and all. The author can still edit it before posting.
+              </Typography>
+            </Box>
             <TextField label="Sort order" type="number" fullWidth
               value={dialog?.values.sort_order ?? 0} onChange={patch('sort_order')} />
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>

@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
       .is("email_message_id", null)
       .order("created_at"),
     admin.from("comments")
-      .select("id, body, created_at, author_id")
+      .select("id, body, body_doc, created_at, author_id")
       .eq("issue_id", issue.id)
       // Newest first, as the staff thread shows them.
       .order("created_at", { ascending: false }),
@@ -162,6 +162,10 @@ Deno.serve(async (req) => {
       return {
         id: c.id,
         body: c.body,
+        // The same comment with its formatting (0018) — nothing `body` does
+        // not already say, since a link's address is in the text too. Null on
+        // comments written before rich text; the page then draws `body`.
+        body_doc: c.body_doc ?? null,
         created_at: c.created_at,
         author_name: displayName(author),
         author_avatar_url: author?.avatar_url ?? null,

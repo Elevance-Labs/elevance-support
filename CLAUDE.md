@@ -66,7 +66,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `/projects` — admin-only CRUD over projects, their members and their
   **support schedule** (a dialog wrapping the same `ScheduleManager`).
 - `/users` — admin/manager CRUD over accounts.
-- `/config` — admin-only CRUD over the dropdown lists and the comment templates.
+- `/config` — CRUD over the dropdown lists and the comment templates. Admins get
+  every tab; managers only Labels and Templates (`can.manageList` /
+  `can.manageTemplates`).
 - `/profile` — your own account: shows name/email/role, changes photo and
   password, and — with the email grant — your email signature. Reached from the header avatar menu. No role guard — everyone has one.
 - `/embed/:key/form` — public, no auth, no chrome; one form per project.
@@ -99,7 +101,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   tickets you see. Also owns the 5-minute comment edit window, and `setSeverity`
   / `refile` — internal vs. the public form, not a role distinction — and
   `emailCustomer`, a per-person grant (`profiles.can_email`) rather than a role,
-  which only an admin hands out (`grantEmail`).
+  which only an admin hands out (`grantEmail`). Configuration is split by list:
+  admins every one, managers `labels` and the comment templates.
 - `sla.js` — status types (`new` → `in_progress` → `closed`, with `paused`
   outside the ladder), legal transitions, SLA bands and colours. Also the two
   gates on leaving `new`: the severity gate (no ticket enters `in_progress` or
@@ -144,10 +147,12 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   box suggests (case-insensitive, newest first) and how a pick completes the
   Cc line. Read through the `useProjectContacts` hook; staff only.
 - `richText.js` — the rich text **document** (paragraphs and lists of marked
-  runs) that the email box and signatures are read into. HTML never leaves the
-  browser and is never rendered from data: `email-send` re-checks the document
-  and builds the email's HTML from it; the UI draws it with React. Mirrored in
-  `email-send`.
+  runs) that the email box, signatures, comments and comment templates are read
+  into. HTML never leaves the browser and is never rendered from data:
+  `email-send` re-checks the document and builds the email's HTML from it; the
+  UI draws it with React. Also how a comment or template is stored — the
+  document plus its plain text — and read back, plain-text rows included.
+  Mirrored in `email-send`.
 - `publicLink.js` — calls the `public-issue` and `public-company` functions;
   clipboard helper.
 - `chat.js` — the Google Chat thread link built from a ticket's recorded thread
@@ -206,6 +211,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   insert (`email-webhook`) names its own channel, may not claim `Form`, and is
   pinned to now without a severity.
 - `comments` — thread on a ticket; author-editable for 5 minutes (RLS-enforced).
+  Rich text: `body_doc` is the document, `body` its plain text (what the public
+  page falls back to). Rows predating rich text have `body` only, and are drawn
+  and edited as plain text.
 - `email_messages` — the email thread with the requester, in and out, with
   delivery status, and — outbound — the rich text document it went as, body
   and signature. Browser read-only (same sight as the ticket); only
@@ -219,10 +227,11 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   and never adds an address. Written only by triggers, read only by project
   members, never anon. Suggested — once something is typed — in the email Cc
   and the staff form's requester email.
-- `comment_templates` — canned comment text (title + body) managed under
-  Configuration; picking one under the comment box only writes into the box.
-  Its own table, not a `list_items` type, because `list_items` is anon-readable:
-  signed-in read only, admin write.
+- `comment_templates` — canned comment text (title + rich text, stored like a
+  comment: `body_doc` + `body`, plain-only on old rows) managed under
+  Configuration; picking one under the comment or email box only writes into
+  the box. Its own table, not a `list_items` type, because `list_items` is
+  anon-readable: signed-in read only, admin or manager write.
 - `status_events` — every status change, written by trigger; feeds the timeline.
 - `attachments` + a **private** storage bucket; access via short-lived signed URLs.
   A row with a `comment_id` belongs to that comment, not the request; only the
@@ -234,7 +243,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   Everything that draws a person goes through `components/UserAvatar.jsx`; only
   `/profile` writes one.
 - `list_items` — one table backing every dropdown (`type`, `product`, `area`,
-  `priority`, `severity`, `status`, `labels`, `source`), plus per-status type and,
+  `priority`, `severity`, `status`, `labels`, `source`); admins write any row,
+  managers only `labels` rows (RLS pins the type both ways). Plus per-status type and,
   on severity rows only (a check constraint), `sla_hours` + `behavior` — the
   target and the sentence a severity commits the team to, which the pickers show
   beside the name. Status rows only may carry a `description` — customer-facing,
@@ -255,7 +265,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   passwords, ban and unban. Needed because `service_role` must never reach a browser.
 - `public-issue` — resolves `(project key, ticket number)` to a **field allow-list** for
   the sign-in-free page. Returns attachments as signed URLs — the request's, and
-  each comment's with its comment.
+  each comment's with its comment. A comment carries its rich text document
+  beside its text.
 - `public-company` — resolves a company code (or name) to its tickets, each cut
   to its own **field allow-list**: the request, its attachments (signed URLs),
   submission details including the **requester email** (deliberately — unlike

@@ -167,8 +167,8 @@ check('left column ordered Submission -> Request -> Details', (() => {
 check('comments appear above the comment box', (() => {
   const thread = [...dom.window.document.querySelectorAll('.MuiPaper-root')]
     .find((el) => el.textContent.includes('Looking into this.'))
-  const composerEl = [...dom.window.document.querySelectorAll('textarea')]
-    .find((t) => (t.getAttribute('placeholder') ?? '').startsWith('Add a comment'))
+  const composerEl = [...dom.window.document.querySelectorAll('[data-rich-text-editor]')]
+    .find((t) => (t.getAttribute('aria-label') ?? '').startsWith('Add a comment'))
   if (!thread || !composerEl) return false
   // DOCUMENT_POSITION_FOLLOWING === 4 -> composer comes after the comment
   return (thread.compareDocumentPosition(composerEl) & 4) !== 0
@@ -224,9 +224,9 @@ await render({ id: 'user-2', role: 'member', full_name: '', email: 'grace.hopper
 check('member sees NO Delete button', deleteButtons().length === 0,
   `found ${deleteButtons().length}`)
 check('member still sees the ticket', body().includes('Cannot export invoice'))
-// The composer is a placeholder attribute, not page text.
-const composer = () => [...dom.window.document.querySelectorAll('textarea')]
-  .some((t) => (t.getAttribute('placeholder') ?? '').startsWith('Add a comment'))
+// The composer is a labelled rich text box; its placeholder is not page text.
+const composer = () => [...dom.window.document.querySelectorAll('[data-rich-text-editor]')]
+  .some((t) => (t.getAttribute('aria-label') ?? '').startsWith('Add a comment'))
 check('member can still comment', composer())
 
 // No raw email address should appear anywhere in the ticket view. The requester's

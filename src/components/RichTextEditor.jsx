@@ -30,7 +30,7 @@ const TOOLS = [
 
 /**
  * A rich text box: bold, italic, underline, lists and links — what a support
- * email needs, and nothing a mail app might draw differently.
+ * email or a comment needs, and nothing a mail app might draw differently.
  *
  * What it holds is read into a document (`lib/richText.js`) on every change,
  * and that document is all `onChange` ever hands out — the editor's HTML never
@@ -41,8 +41,8 @@ const TOOLS = [
  * `footer` is drawn inside the same border, under the text, and cannot be
  * edited — the sender's signature, so the box shows the email as it will go.
  *
- * Imperative handle (`ref`): `clear()`, `focus()`, `insertText(text)` at the
- * caret, and `getDoc()`.
+ * Imperative handle (`ref`): `clear()`, `focus()`, `insertText(text)` and
+ * `insertDoc(doc)` at the caret, and `getDoc()`.
  */
 export default function RichTextEditor({
   ref, initialDoc, onChange, placeholder, disabled = false, onKeyDown, onPasteFiles,
@@ -114,6 +114,34 @@ export default function RichTextEditor({
     emit()
   }
 
+  /**
+   * Inserts a document at the caret, formatting and all — a template. One line
+   * goes into the line the caret is on; anything longer brings its own lines.
+   * The HTML is built from the document, so nothing in it is markup of its own.
+   */
+  const insertDoc = (doc) => {
+    const clean = normalizeDoc(doc)
+    if (isEmptyDoc(clean)) return
+    const oneLine = clean.blocks.length === 1 && clean.blocks[0].type === 'p'
+    const html = oneLine ? docToHtml(clean).replace(/^<div>|<\/div>$/g, '') : docToHtml(clean)
+    restore()
+    if (!exec('insertHTML', html)) {
+      const parsed = document.createElement('template')
+      parsed.innerHTML = html
+      const last = parsed.content.lastChild
+      const sel = document.getSelection?.()
+      if (sel?.rangeCount) {
+        const range = sel.getRangeAt(0)
+        range.deleteContents()
+        range.insertNode(parsed.content)
+        if (last) { range.setStartAfter(last); range.collapse(true) }
+      } else {
+        box.current.append(parsed.content)
+      }
+    }
+    emit()
+  }
+
   useImperativeHandle(ref, () => ({
     clear: () => {
       if (box.current) box.current.innerHTML = ''
@@ -122,6 +150,7 @@ export default function RichTextEditor({
     },
     focus: () => restore(),
     insertText,
+    insertDoc,
     getDoc: () => docFromDom(box.current),
   }))
 
@@ -270,8 +299,9 @@ function Runs({ runs }) {
 }
 
 /**
- * A document drawn as React elements — never as HTML — so a sent email, or a
- * signature, shows its formatting without anything in it being able to run.
+ * A document drawn as React elements — never as HTML — so a sent email, a
+ * signature or a comment shows its formatting without anything in it being
+ * able to run.
  */
 export function RichTextView({ doc, sx }) {
   const { blocks } = normalizeDoc(doc)
@@ -287,5 +317,20 @@ export function RichTextView({ doc, sx }) {
         )
       })}
     </Box>
+  )
+}
+
+/**
+ * A comment (or template) as stored: its document when it has one, otherwise
+ * the plain text it was written as before rich text — drawn exactly as it
+ * always was, line breaks and spacing kept.
+ */
+export function StoredRichText({ body, doc, sx }) {
+  if (doc) return <RichTextView doc={doc} sx={sx} />
+  if (!body) return null
+  return (
+    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', ...sx }}>
+      {body}
+    </Typography>
   )
 }

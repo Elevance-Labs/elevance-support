@@ -40,8 +40,7 @@ await settle()
 const tiles = () => [...D.querySelectorAll('[data-attachment-name]')].map((t) => t.textContent)
 const errorText = () => D.querySelector('.MuiAlert-message')?.textContent ?? ''
 const postButton = () => [...D.querySelectorAll('button')].find((b) => b.textContent === 'Comment')
-const composer = () => [...D.querySelectorAll('textarea')]
-  .find((t) => t.getAttribute('placeholder') === 'Add a comment…')
+const composer = () => D.querySelector('[data-rich-text-editor][aria-label="Add a comment…"]')
 
 const fakeFile = (name, type, size = 1000) => {
   const f = new dom.window.File(['x'], name, { type })
@@ -54,7 +53,9 @@ async function pick(files) {
   await act(async () => { input.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
 }
 async function paste(file) {
-  const ev = new dom.window.Event('paste', { bubbles: true })
+  // Cancelable, as a browser's is: taking the file is what stops it being
+  // pasted into the text as well.
+  const ev = new dom.window.Event('paste', { bubbles: true, cancelable: true })
   ev.clipboardData = { items: [{ kind: 'file', type: file.type, getAsFile: () => file }] }
   await act(async () => { composer().dispatchEvent(ev) })
 }

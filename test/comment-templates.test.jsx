@@ -5,6 +5,9 @@
  * Picking one only writes its text into the box. It must never post, and never
  * throw away what the author had already typed — the template is a starting
  * point they still edit and send themselves.
+ *
+ * A template is rich text, like the comment it starts. One saved before that
+ * is plain text, and must still list, insert, copy and edit as it always did.
  */
 import { setupDom, reporter } from './setup.js'
 const dom = setupDom('http://localhost/config')
@@ -28,6 +31,12 @@ const click = (node) => act(async () => {
   node.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   await new Promise((r) => setTimeout(r, 20))
 })
+// What typing into a rich text box amounts to: the browser rewrites the
+// editable region, then fires `input`.
+const typeHtml = (box, html) => act(async () => {
+  box.innerHTML = html
+  box.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+})
 const setValue = (node, value) => act(async () => {
   const proto = node.tagName === 'TEXTAREA'
     ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype
@@ -44,7 +53,9 @@ const cfgRoot = createRoot(cfg)
 await act(async () => {
   cfgRoot.render(
     <ThemeProvider theme={theme}><MemoryRouter initialEntries={['/config']}>
-      <ConfigProvider><Configuration /></ConfigProvider>
+      <AuthContext.Provider value={{ session: {}, profile: ada, loading: false }}>
+        <ConfigProvider><Configuration /></ConfigProvider>
+      </AuthContext.Provider>
     </MemoryRouter></ThemeProvider>)
 })
 await settle()
@@ -63,6 +74,10 @@ check('lists each template by title', rows.some((r) => r.includes('Need more inf
 check('shows the template text', rows.some((r) => r.includes('send a screenshot')), rows.join(' | '))
 check('inactive templates are still listed here', rows.some((r) => r.includes('Retired reply')),
   rows.join(' | '))
+const richRow = [...cfg.querySelectorAll('tbody tr')].find((r) => r.textContent.includes('Workaround'))
+check('a rich template is listed with its formatting',
+  richRow?.querySelector('strong')?.textContent === 'this' && Boolean(richRow?.querySelector('ul li')),
+  richRow?.innerHTML)
 
 // ---- add one ----
 await click([...cfg.querySelectorAll('button')].find((b) => b.textContent === 'Add Template'))
@@ -70,7 +85,10 @@ const dialog = D.querySelector('[role="dialog"]')
 check('Add Template opens a dialog', dialog?.textContent.startsWith('Add Template'),
   dialog?.textContent.slice(0, 40))
 const titleInput = dialog.querySelector('input:not([type="number"]):not([type="checkbox"])')
-const bodyInput = dialog.querySelector('textarea:not([aria-hidden])')
+const bodyInput = dialog.querySelector('[data-rich-text-editor][aria-label="Template text"]')
+check('the text is a rich text box, with formatting tools',
+  Boolean(bodyInput) && ['Bold', 'Bulleted list', 'Link']
+    .every((l) => dialog.querySelector(`[aria-label="${l}"]`)))
 const saveBtn = () => [...D.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === 'Save')
 
 await setValue(titleInput, 'Closing')
@@ -79,14 +97,36 @@ check('a template with no text is refused before it is sent',
   !captured.inserts.some((i) => i.table === 'comment_templates'),
   JSON.stringify(captured.inserts))
 
-await setValue(bodyInput, '  Closing this ticket now.  ')
+await typeHtml(bodyInput, '<div>  <b>Closing</b> this ticket now.  </div>'
+  + '<ul><li>Reopen it any time</li></ul><script>alert(1)</script>')
 await click(saveBtn())
 const inserted = captured.inserts.find((i) => i.table === 'comment_templates')?.row
 check('saves into comment_templates, not list_items', Boolean(inserted),
   JSON.stringify(captured.inserts))
 check('saves the title', inserted?.title === 'Closing', JSON.stringify(inserted))
-check('saves the text, trimmed', inserted?.body === 'Closing this ticket now.', JSON.stringify(inserted))
+check('saves the formatting as a document',
+  inserted?.body_doc?.blocks?.[0]?.runs?.[0]?.text === 'Closing' && inserted.body_doc.blocks[0].runs[0].b === true
+  && inserted.body_doc.blocks[1]?.type === 'ul',
+  JSON.stringify(inserted?.body_doc))
+check('and its plain text beside it, trimmed',
+  inserted?.body === 'Closing this ticket now.\n• Reopen it any time', JSON.stringify(inserted?.body))
+check('never as HTML', !JSON.stringify(inserted).includes('<') && !JSON.stringify(inserted).includes('alert'),
+  JSON.stringify(inserted))
 check('a new template is active', inserted?.is_active === true, JSON.stringify(inserted))
+
+// ---- a template from before rich text opens as its text, and saves as a document ----
+await settle()
+const legacyRow = [...cfg.querySelectorAll('tbody tr')].find((r) => r.textContent.includes('Need more info'))
+await click(legacyRow.querySelector('[aria-label="Edit template"]'))
+const editBox = D.querySelector('[role="dialog"] [data-rich-text-editor]')
+check('a plain-text template opens with its text in the box',
+  editBox?.textContent === 'Could you send a screenshot of the error?', editBox?.textContent)
+await click(saveBtn())
+const updated = captured.updates.filter((u) => u.table === 'comment_templates').at(-1)?.row
+check('and saves back unchanged in text, now with a document',
+  updated?.body === 'Could you send a screenshot of the error?'
+  && updated?.body_doc?.blocks?.[0]?.runs?.[0]?.text === 'Could you send a screenshot of the error?',
+  JSON.stringify(updated))
 
 await act(async () => { cfgRoot.unmount() })
 cfg.remove()
@@ -106,8 +146,7 @@ await act(async () => {
 })
 await settle()
 
-const composer = [...el.querySelectorAll('textarea')]
-  .find((t) => t.getAttribute('placeholder') === 'Add a comment…')
+const composer = el.querySelector('[data-rich-text-editor][aria-label="Add a comment…"]')
 const picker = () => el.querySelector('[aria-label="Insert template"]')
   ?.closest('.MuiInputBase-root')?.querySelector('[role="combobox"]')
 const commentInserts = () => captured.inserts.filter((i) => i.table === 'comments')
@@ -146,7 +185,7 @@ await click(copyBtn)
 await settle()
 check('the copy button copies the template text',
   clipboard.at(-1) === 'This is fixed and will ship in the next release.', JSON.stringify(clipboard))
-check('copying leaves the comment box alone', composer.value === '', JSON.stringify(composer.value))
+check('copying leaves the comment box alone', composer.textContent === '', composer.textContent)
 check('copying keeps the menu open', D.querySelectorAll('[role="option"]').length > 0)
 check('copying posts nothing', commentInserts().length === 0, JSON.stringify(commentInserts()))
 check('the button confirms the copy',
@@ -160,26 +199,56 @@ await settle()
 // ---- into an empty box ----
 await pick('Need more info')
 check('picking writes the template text into the box',
-  composer.value === 'Could you send a screenshot of the error?', composer.value)
+  composer.textContent === 'Could you send a screenshot of the error?', composer.textContent)
 check('picking does not post', commentInserts().length === 0, JSON.stringify(commentInserts()))
 check('the picker goes back to its prompt', picker()?.textContent.includes('Insert template'),
   picker()?.textContent)
 
 // ---- into a draft: inserted at the caret, nothing lost ----
-await setValue(composer, 'Hi Sam,\n\nThanks.')
-composer.setSelectionRange(8, 8)
+await typeHtml(composer, '<div>Hi Sam,</div><div><br></div><div>Thanks.</div>')
+await act(async () => {
+  // The caret on the blank line, as the browser reports it.
+  const range = D.createRange()
+  range.setStart(composer.children[1], 0)
+  range.collapse(true)
+  const sel = D.getSelection()
+  sel.removeAllRanges()
+  sel.addRange(range)
+  D.dispatchEvent(new dom.window.Event('selectionchange'))
+})
 await pick('Fixed')
+const lines = () => [...composer.children].map((c) => c.textContent)
 check('inserts at the caret, keeping the draft around it',
-  composer.value === 'Hi Sam,\nThis is fixed and will ship in the next release.\nThanks.',
-  JSON.stringify(composer.value))
+  lines().join('|') === 'Hi Sam,|This is fixed and will ship in the next release.|Thanks.',
+  lines().join('|'))
 
 // ---- still the author's to edit and post ----
-await setValue(composer, composer.value + ' Cheers')
+await typeHtml(composer, composer.innerHTML.replace('Thanks.', 'Thanks. Cheers'))
 await click([...el.querySelectorAll('button')].find((b) => b.textContent === 'Comment'))
 await settle()
 const posted = commentInserts().at(-1)?.row
 check('the edited text is what gets posted',
   posted?.body === 'Hi Sam,\nThis is fixed and will ship in the next release.\nThanks. Cheers',
   JSON.stringify(posted))
+
+// ---- a rich template keeps its formatting in the box ----
+await pick('Workaround')
+check('a rich template lands with its bold', composer.querySelector('strong')?.textContent === 'this',
+  composer.innerHTML)
+check('and its list', composer.querySelector('ul li')?.textContent === 'Clear the cache', composer.innerHTML)
+await click([...el.querySelectorAll('button')].find((b) => b.textContent === 'Comment'))
+await settle()
+const richPost = commentInserts().at(-1)?.row
+check('and is posted as a document, formatting included',
+  richPost?.body_doc?.blocks?.[0]?.runs?.some((r) => r.b && r.text === 'this')
+  && richPost?.body_doc?.blocks?.[1]?.type === 'ul'
+  && richPost?.body === 'Try this:\n• Clear the cache',
+  JSON.stringify(richPost))
+
+// ---- copying a rich template still gives its words ----
+await openPicker()
+await click(D.querySelector('[role="option"] button[aria-label="Copy Workaround"]'))
+check('copying a rich template copies its text', clipboard.at(-1) === 'Try this:\n• Clear the cache',
+  JSON.stringify(clipboard))
 
 done()

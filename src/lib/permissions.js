@@ -3,7 +3,8 @@
  *
  * admin   — everything
  * manager — everything a member can do, plus: manage saved views, see reports,
- *           reset passwords for managers/members, disable managers/members.
+ *           reset passwords for managers/members, disable managers/members,
+ *           manage labels and comment templates under Configuration.
  *           Cannot create or delete accounts, cannot touch admins.
  * member  — work issues on the Issues and Board pages, load (not manage) views,
  *           comment. Cannot delete tickets.
@@ -30,7 +31,7 @@ export const ROLE_LABELS = {
 
 export const ROLE_DESCRIPTIONS = {
   admin: 'Full access, including deleting tickets and managing users and configuration.',
-  manager: 'Manages views and reports, resets passwords and disables managers and members.',
+  manager: 'Manages views, reports, labels and comment templates; resets passwords and disables managers and members.',
   member: 'Works tickets on Issues and Board, uses saved views, comments.',
 }
 
@@ -38,6 +39,9 @@ const is = (role) => (p) => p?.role === role
 export const isAdmin = is('admin')
 export const isManager = is('manager')
 export const isManagerOrAdmin = (p) => isAdmin(p) || isManager(p)
+
+/** The `list_items` types a manager may manage, beside comment templates. */
+export const MANAGER_LISTS = ['labels']
 
 /** How long a comment stays editable by its author. */
 export const COMMENT_EDIT_WINDOW_MS = 5 * 60 * 1000
@@ -124,8 +128,18 @@ export const can = {
   // ---- pages ----
   seeReports:  isManagerOrAdmin,
   seeUsers:    isManagerOrAdmin,
-  seeConfig:   isAdmin,
-  manageConfig: isAdmin,
+  /**
+   * Configuration. An admin manages every list; a manager only the ones that
+   * describe how the team works rather than what a ticket means — labels and
+   * comment templates. Types, statuses and severities drive transitions, SLAs
+   * and the public form, so they stay an admin's. Mirrored by RLS on
+   * `list_items` and `comment_templates`.
+   */
+  seeConfig:       isManagerOrAdmin,
+  manageConfig:    isAdmin,  // every list
+  manageList:      (p, listType) =>
+    isAdmin(p) || (isManager(p) && MANAGER_LISTS.includes(listType)),
+  manageTemplates: isManagerOrAdmin,
 
   // ---- projects ----
   // Creating a project, re-keying who is in it and closing it are all admin

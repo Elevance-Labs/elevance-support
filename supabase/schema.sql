@@ -289,7 +289,15 @@ create table if not exists public.comments (
   id         uuid primary key default gen_random_uuid(),
   issue_id   uuid not null references public.issues(id) on delete cascade,
   author_id  uuid references public.profiles(id) on delete set null,
-  body       text not null,
+  body       text not null,           -- plain text; the document's, when there is one
+  -- The rich text document (src/lib/richText.js) it was written as (0018).
+  -- Null on comments written before rich text: those are `body` alone.
+  body_doc   jsonb
+             constraint comments_body_doc_shape
+             check (body_doc is null
+                    or (jsonb_typeof(body_doc) = 'object'
+                        and jsonb_typeof(body_doc -> 'blocks') = 'array'
+                        and pg_column_size(body_doc) < 200000)),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -1408,13 +1416,20 @@ create policy project_schedules_manager_delete on public.project_schedules
     and not public.schedule_is_past(ends_on)
   );
 
--- ---------- list_items: public form needs to read them; only admins write ----------
+-- ---------- list_items: public form needs to read them; admins write ----------
 drop policy if exists lists_read on public.list_items;
 create policy lists_read on public.list_items for select to anon, authenticated using (true);
 
 drop policy if exists lists_admin_write on public.list_items;
 create policy lists_admin_write on public.list_items for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
+
+-- ...and managers write labels, only (0018). Both clauses pin the type, so a
+-- manager can neither touch another list nor turn a label into one.
+drop policy if exists lists_manager_labels_write on public.list_items;
+create policy lists_manager_labels_write on public.list_items for all to authenticated
+  using (public.is_manager_or_admin() and list_type = 'labels')
+  with check (public.is_manager_or_admin() and list_type = 'labels');
 
 -- ---------- companies: everyone reads, nobody writes from a browser ----------
 -- The public form has to render the picker, so `anon` may read. There is no

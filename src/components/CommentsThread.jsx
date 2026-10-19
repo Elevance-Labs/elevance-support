@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Alert, Box, Button, IconButton, Paper, Stack, TextField, Tooltip, Typography,
+  Alert, Box, Button, IconButton, Paper, Stack, Tooltip, Typography,
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -13,11 +13,13 @@ import { useConfig } from '../context/ConfigContext'
 import { formatDateTime, toMillis } from '../lib/format'
 import { can, COMMENT_EDIT_WINDOW_MS } from '../lib/permissions'
 import { displayName } from '../lib/users'
+import { isEmptyDoc, normalizeDoc, storedDoc, toStored } from '../lib/richText'
 import UserAvatar from './UserAvatar'
 import AttachmentGallery from './AttachmentGallery'
 import useAttachmentDraft from './useAttachmentDraft'
 import TemplatePicker from './TemplatePicker'
-import { isSubmitChord, MOD_KEY_LABEL, spliceAtCaret } from './composer'
+import RichTextEditor, { StoredRichText } from './RichTextEditor'
+import { isSubmitChord, MOD_KEY_LABEL } from './composer'
 
 /**
  * Re-renders when a comment's 5-minute edit window expires, so the edit and
@@ -53,13 +55,14 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount }
   const { users, templates } = useConfig()
   const [comments, setComments] = useState([])
   const [filesOf, setFilesOf] = useState({}) // comment id → gallery items
-  const [draft, setDraft] = useState('')
-  const [editing, setEditing] = useState(null) // { id, body }
+  const [draft, setDraft] = useState(() => normalizeDoc(null))
+  const [editing, setEditing] = useState(null) // { id, doc }
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const attach = useAttachmentDraft(setError)
   const fileInput = useRef(null)
   const composer = useRef(null)
+  const editBox = useRef(null)
 
   useEditWindowTick(comments)
 
@@ -82,6 +85,8 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount }
 
   useEffect(() => { if (issueId) load() }, [issueId, load])
   useEffect(() => { onCount?.(comments.length) }, [comments.length, onCount])
+  // An edit starts with the caret in the box, at the end of what was written.
+  useEffect(() => { if (editing?.id) editBox.current?.focus() }, [editing?.id])
 
   const authorOf = useMemo(() => {
     const map = Object.fromEntries(users.map((u) => [u.id, u]))
@@ -89,21 +94,13 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount }
   }, [users])
 
   /**
-   * Writes a template into the box where the caret is. Nothing is posted: the
-   * author still edits and sends it themselves.
+   * Writes a template into the box where the caret is, formatting and all.
+   * Nothing is posted: the author still edits and sends it themselves.
    */
-  const insertTemplate = (text) => {
-    const { value, caret } = spliceAtCaret(composer.current, draft, text)
-    setDraft(value)
-    // After React has written the new value, put the caret after the insert.
-    requestAnimationFrame(() => {
-      composer.current?.focus()
-      composer.current?.setSelectionRange(caret, caret)
-    })
-  }
+  const insertTemplate = (doc) => composer.current?.insertDoc(doc)
 
   // A comment may be only a screenshot — text or a file, either will do.
-  const canPost = !busy && (draft.trim() !== '' || attach.files.length > 0)
+  const canPost = !busy && (!isEmptyDoc(draft) || attach.files.length > 0)
 
   const post = async () => {
     if (!canPost) return
@@ -111,8 +108,9 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount }
     // The id is minted here so the files can name their comment without
     // reading the row back.
     const id = crypto.randomUUID()
+    // The document, and its plain text beside it for whatever reads `body`.
     const { error } = await supabase.from('comments')
-      .insert({ id, issue_id: issueId, author_id: profile.id, body: draft.trim() })
+      .insert({ id, issue_id: issueId, author_id: profile.id, ...toStored(draft) })
     if (error) { setBusy(false); return setError(error.message) }
     try {
       for (const file of attach.files) await uploadAttachment(file, { issueId, commentId: id })
@@ -120,15 +118,15 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount }
       setError(`The comment was posted, but a file did not upload: ${err.message}`)
     }
     setBusy(false)
-    setDraft(''); attach.clear(); load()
+    composer.current?.clear(); attach.clear(); load()
   }
 
   const saveEdit = async () => {
-    const body = editing.body.trim()
-    if (!body && !filesOf[editing.id]?.length) return
+    const stored = toStored(editing.doc)
+    if (!stored.body_doc && !filesOf[editing.id]?.length) return
     setBusy(true); setError('')
     const { error } = await supabase.from('comments')
-      .update({ body }).eq('id', editing.id)
+      .update(stored).eq('id', editing.id)
     setBusy(false)
     if (error) {
       // The 5-minute rule is enforced by RLS too, so this can legitimately fail.
@@ -162,10 +160,9 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount }
 
       {/* composer — above the thread, next to where its comment will land */}
       <Paper sx={{ p: 1.5 }}>
-        <TextField
-          fullWidth multiline minRows={2} size="small" placeholder="Add a comment…"
-          inputRef={composer} value={draft} onChange={(e) => setDraft(e.target.value)}
-          onPaste={attach.onPaste}
+        <RichTextEditor ref={composer} placeholder="Add a comment…" minHeight={64}
+          onChange={setDraft}
+          onPasteFiles={attach.onPaste}
           onKeyDown={(e) => {
             if (!isSubmitChord(e)) return
             e.preventDefault()          // otherwise the chord also types a newline
@@ -234,7 +231,7 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount }
                       <>
                         <Tooltip title="Edit">
                           <IconButton size="small"
-                            onClick={() => setEditing({ id: c.id, body: c.body })}>
+                            onClick={() => setEditing({ id: c.id, doc: storedDoc(c) })}>
                             <EditIcon sx={{ fontSize: 15 }} />
                           </IconButton>
                         </Tooltip>
@@ -249,9 +246,9 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount }
 
                   {isEditing ? (
                     <Stack spacing={1} sx={{ mt: 1 }}>
-                      <TextField
-                        fullWidth multiline size="small" autoFocus value={editing.body}
-                        onChange={(e) => setEditing((s) => ({ ...s, body: e.target.value }))}
+                      <RichTextEditor ref={editBox} key={c.id} initialDoc={editing.doc}
+                        ariaLabel="Edit comment" minHeight={48}
+                        onChange={(doc) => setEditing((s) => ({ ...s, doc }))}
                         onKeyDown={(e) => {
                           // Same box, same chord — and Escape backs out, which is
                           // what every other cancellable edit in the app does.
@@ -271,10 +268,10 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount }
                         <Button size="small" onClick={() => setEditing(null)}>Cancel</Button>
                       </Stack>
                     </Stack>
-                  ) : c.body && (
-                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 0.25 }}>
-                      {c.body}
-                    </Typography>
+                  ) : (
+                    // Rich text when it was written as such; a comment from
+                    // before that is drawn as the plain text it always was.
+                    <StoredRichText body={c.body} doc={c.body_doc} sx={{ mt: 0.25 }} />
                   )}
 
                   {filesOf[c.id]?.length > 0 && (

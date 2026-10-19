@@ -37,6 +37,14 @@ export const COMMENT_TEMPLATES = [
     body: 'This is fixed and will ship in the next release.' },
   { id: 'tpl-3', title: 'Retired reply', sort_order: 3, is_active: false,
     body: 'No longer used.' },
+  // Written as rich text: a document, and its plain text beside it. The three
+  // above predate rich text and carry `body` alone.
+  { id: 'tpl-4', title: 'Workaround', sort_order: 4, is_active: true,
+    body: 'Try this:\n• Clear the cache',
+    body_doc: { blocks: [
+      { type: 'p', runs: [{ text: 'Try ' }, { text: 'this', b: true }, { text: ':' }] },
+      { type: 'ul', items: [[{ text: 'Clear the cache' }]] },
+    ] } },
 ]
 
 export const PROJECTS = [
@@ -399,6 +407,14 @@ export const PUBLIC_PAYLOAD = {
     { id: 'c1', body: 'Looking into this.', created_at: iso(2 * DAY),
       author_name: 'Ada Lovelace',
       author_avatar_url: 'https://public.example/avatars/user-1/avatar?v=1' },
+    // Written as rich text, so it comes with its document — one of whose links
+    // is not one a page may carry, as a hand-edited row might hold.
+    { id: 'c0', created_at: iso(3 * DAY), author_name: 'Ada Lovelace', author_avatar_url: null,
+      body: 'Workaround:\n• Use the CSV export',
+      body_doc: { blocks: [
+        { type: 'p', runs: [{ text: 'Workaround', b: true }, { text: ':' }] },
+        { type: 'ul', items: [[{ text: 'Use the ' }, { text: 'CSV export', href: 'javascript:alert(1)' }]] },
+      ] } },
   ],
 }
 

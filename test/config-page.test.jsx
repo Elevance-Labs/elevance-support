@@ -8,18 +8,24 @@ const { MemoryRouter } = await import('react-router-dom')
 const { ThemeProvider } = await import('@mui/material')
 const { theme } = await import('../src/theme')
 const { ConfigProvider } = await import('../src/context/ConfigContext')
+const { AuthContext } = await import('../src/context/AuthContext')
 const Configuration = (await import('../src/pages/Configuration')).default
 
 const { check, done } = reporter()
+const admin = { id: 'a', role: 'admin', is_active: true }
 
 const el = dom.window.document.createElement('div')
 dom.window.document.body.appendChild(el)
-await act(async () => {
-  createRoot(el).render(
+const root = createRoot(el)
+const render = (profile) => act(async () => {
+  root.render(
     <ThemeProvider theme={theme}><MemoryRouter initialEntries={['/config']}>
-      <ConfigProvider withUsers={false}><Configuration /></ConfigProvider>
+      <AuthContext.Provider value={{ session: {}, profile, loading: false }}>
+        <ConfigProvider withUsers={false}><Configuration /></ConfigProvider>
+      </AuthContext.Provider>
     </MemoryRouter></ThemeProvider>)
 })
+await render(admin)
 await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
 
 const tabs = [...el.querySelectorAll('[role="tab"]')].map((t) => t.textContent.trim())
@@ -115,5 +121,30 @@ check('modal title uses singular', dialog?.textContent.startsWith('Add Product')
 check('modal has Name field',
   dialog && [...dialog.querySelectorAll('.MuiFormLabel-root')].some((l) => l.textContent.includes('Name')),
   dialog ? [...dialog.querySelectorAll('.MuiFormLabel-root')].map(l=>l.textContent).join(', ') : 'no dialog')
+
+// ============================================================
+// A manager: labels and templates, and nothing that drives a ticket's rules
+// ============================================================
+await act(async () => { root.unmount() })
+D.body.innerHTML = ''
+D.body.appendChild(el)
+const managerRoot = createRoot(el)
+await act(async () => {
+  managerRoot.render(
+    <ThemeProvider theme={theme}><MemoryRouter initialEntries={['/config']}>
+      <AuthContext.Provider value={{ session: {}, profile: { id: 'm', role: 'manager', is_active: true }, loading: false }}>
+        <ConfigProvider withUsers={false}><Configuration /></ConfigProvider>
+      </AuthContext.Provider>
+    </MemoryRouter></ThemeProvider>)
+})
+await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
+{
+  const managerTabs = [...el.querySelectorAll('[role="tab"]')].map((t) => t.textContent.trim())
+  check('a manager sees only Labels and Templates', managerTabs.join() === 'Labels,Templates',
+    managerTabs.join(', '))
+  check('and opens on Labels, with an Add button', el.textContent.includes('Add Label'),
+    el.textContent.slice(0, 200))
+  check('and is told who manages the rest', el.textContent.includes('managed by an admin'))
+}
 
 done()

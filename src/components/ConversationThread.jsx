@@ -114,8 +114,8 @@ export default function ConversationThread({ issue, ticketRef, onCount }) {
 
   const canSend = mayWrite && reachable && !busy && !ccProblem && !isEmptyDoc(draft)
 
-  // A template is plain text, written in at the caret like a paste.
-  const insertTemplate = (text) => editor.current?.insertText(text)
+  // A template is written in at the caret like a paste, formatting and all.
+  const insertTemplate = (doc) => editor.current?.insertDoc(doc)
 
   const send = async () => {
     if (!canSend) return

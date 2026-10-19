@@ -1,7 +1,8 @@
 /**
- * Rich text for customer email, as a small document rather than as HTML.
+ * Rich text for customer email, comments and comment templates, as a small
+ * document rather than as HTML.
  *
- * The email box is a contentEditable, and what a contentEditable holds is
+ * Each box is a contentEditable, and what a contentEditable holds is
  * whatever HTML the browser, a paste or an extension put there. None of that
  * leaves the browser. It is read into the document below — paragraphs and
  * lists of runs of text, each run optionally bold, italic, underlined or a
@@ -98,6 +99,27 @@ export function normalizeDoc(input) {
 export const isEmptyDoc = (doc) =>
   !(doc?.blocks ?? []).some((b) =>
     b.type === 'p' ? !isBlankRuns(b.runs) : (b.items ?? []).some((it) => !isBlankRuns(it)))
+
+/**
+ * A comment or a template as stored: `body_doc` is the document, `body` its
+ * plain text. Rows written before rich text have only the text, so the text is
+ * read as a document of its own — one paragraph per line, which is how it was
+ * always drawn.
+ */
+export const storedDoc = (row) =>
+  (row?.body_doc ? normalizeDoc(row.body_doc) : docFromText(row?.body))
+
+/**
+ * The columns to write for a document: the document itself, and its plain text
+ * for everything that reads `body` — the public share page's fallback, search,
+ * a clipboard. An empty document stores no document, and an empty text.
+ */
+export function toStored(doc) {
+  const clean = normalizeDoc(doc)
+  return isEmptyDoc(clean)
+    ? { body: '', body_doc: null }
+    : { body: docToText(clean), body_doc: clean }
+}
 
 /** Plain text, one paragraph per line — what a plain-text paste becomes. */
 export const docFromText = (text) => normalizeDoc({

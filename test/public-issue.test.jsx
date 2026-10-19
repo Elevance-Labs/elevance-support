@@ -76,6 +76,16 @@ check('anon sees the Jira ticket', body().includes('ENG-77'))
 check('anon sees attachments', body().includes('screenshot.png'))
 check('anon sees comments', body().includes('Looking into this.') && body().includes('Just posted.'))
 check('anon sees comment authors by name', body().includes('Ada Lovelace'))
+{
+  const rich = [...dom.window.document.querySelectorAll('strong')].find((n) => n.textContent === 'Workaround')
+  const card = rich?.closest('.MuiPaper-root')
+  check('a rich comment is drawn with its formatting', Boolean(rich) && Boolean(card?.querySelector('ul li')),
+    card?.innerHTML)
+  check('an unsafe link in it is drawn as text, never as a link',
+    card?.textContent.includes('CSV export') && !card?.querySelector('a[href^="javascript"]'), card?.innerHTML)
+  check('a comment from before rich text still reads as its text',
+    [...dom.window.document.querySelectorAll('p')].some((p) => p.textContent === 'Looking into this.'))
+}
 check("anon sees a comment's attachment", body().includes('staging.png'))
 check('anon reads the newest comment first',
   body().indexOf('Just posted.') < body().indexOf('Looking into this.'))

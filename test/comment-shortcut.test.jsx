@@ -34,15 +34,14 @@ await act(async () => {
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 30)) })
 await settle()
 
-const composer = [...el.querySelectorAll('textarea')]
-  .find((t) => t.getAttribute('placeholder') === 'Add a comment…')
-check('composer is a multiline box', Boolean(composer))
+const composer = el.querySelector('[data-rich-text-editor][aria-label="Add a comment…"]')
+check('composer is a multiline box', composer?.getAttribute('aria-multiline') === 'true')
 
-const type = async (text) => {
-  const setter = Object.getOwnPropertyDescriptor(
-    dom.window.HTMLTextAreaElement.prototype, 'value').set
+// What typing amounts to in a rich text box: the browser rewrites the editable
+// region, then fires `input`.
+const type = async (html) => {
   await act(async () => {
-    setter.call(composer, text)
+    composer.innerHTML = html
     composer.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
   })
 }
@@ -61,7 +60,7 @@ await type('first line')
 await press({})
 check('plain Enter does not post', commentInserts().length === 0,
   JSON.stringify(commentInserts()))
-check('plain Enter leaves the draft alone', composer.value === 'first line', composer.value)
+check('plain Enter leaves the draft alone', composer.textContent === 'first line', composer.textContent)
 
 // ---- the chord posts ----
 await press({ ctrlKey: true })
@@ -70,7 +69,7 @@ const posted = commentInserts().at(-1)?.row
 check('posts the typed body', posted?.body === 'first line', JSON.stringify(posted))
 check('posts against the open ticket', posted?.issue_id === 'issue-1')
 check('posts as the signed-in author', posted?.author_id === ada.id)
-check('clears the box afterwards', composer.value === '', composer.value)
+check('clears the box afterwards', composer.textContent === '', composer.textContent)
 
 // ---- Cmd+Enter, for the other half of the world ----
 await type('from a mac')

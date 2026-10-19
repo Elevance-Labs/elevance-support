@@ -26,9 +26,19 @@ check('member cannot manage views', !can.manageViews(member))
 check('manager sees reports', can.seeReports(manager))
 check('member cannot see reports', !can.seeReports(member))
 
-// ---- configuration: admin only ----
+// ---- configuration: every list for an admin; labels and templates for a manager ----
 check('admin manages config', can.manageConfig(admin))
-check('manager cannot manage config', !can.manageConfig(manager))
+check('manager cannot manage every list', !can.manageConfig(manager))
+check('admin and manager reach the Configuration page', can.seeConfig(admin) && can.seeConfig(manager))
+check('member does not', !can.seeConfig(member))
+for (const list of ['type', 'product', 'area', 'priority', 'severity', 'status', 'labels', 'source'])
+  check(`admin manages ${list}`, can.manageList(admin, list))
+check('manager manages labels', can.manageList(manager, 'labels'))
+for (const list of ['type', 'product', 'area', 'priority', 'severity', 'status', 'source'])
+  check(`manager cannot manage ${list}`, !can.manageList(manager, list))
+check('member manages no list', !can.manageList(member, 'labels'))
+check('admin and manager manage templates', can.manageTemplates(admin) && can.manageTemplates(manager))
+check('member cannot manage templates', !can.manageTemplates(member))
 
 // ---- user creation/deletion: admin only ----
 check('admin creates users',           can.createUser(admin))

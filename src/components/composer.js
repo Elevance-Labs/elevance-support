@@ -1,5 +1,5 @@
-// What the comment box and the email box share: the send chord, how that
-// chord is named, and where an inserted template lands.
+// What the comment box and the email box share: the send chord, and how that
+// chord is named.
 
 /**
  * Ctrl+Enter posts, and so does Cmd+Enter.
@@ -19,14 +19,3 @@ export const MOD_KEY_LABEL =
   typeof navigator !== 'undefined' &&
   /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent || '')
     ? '⌘' : 'Ctrl'
-
-/**
- * Where a template's text lands in a draft: at the caret, replacing any
- * selected text — what pasting it would do — so a draft already typed is never
- * lost. Returns the new draft and where the caret should sit after it.
- */
-export function spliceAtCaret(box, draft, text) {
-  const start = box?.selectionStart ?? draft.length
-  const end = box?.selectionEnd ?? draft.length
-  return { value: draft.slice(0, start) + text + draft.slice(end), caret: start + text.length }
-}

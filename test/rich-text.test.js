@@ -8,6 +8,7 @@ import { setupDom, reporter } from './setup.js'
 setupDom('http://localhost/')
 const {
   docFromDom, docFromHtml, docFromText, docToHtml, docToText, isEmptyDoc, normalizeDoc, safeHref,
+  storedDoc, toStored,
 } = await import('../src/lib/richText.js')
 const { signatureDoc } = await import('../src/lib/email.js')
 
@@ -94,5 +95,25 @@ check('an empty saved signature counts as none',
 check('a saved one is used as it is',
   docToText(signatureDoc({ full_name: 'Ada', email_signature: { blocks: [{ type: 'p', runs: [{ text: 'Ada · Support' }] }] } }))
     === 'Ada · Support')
+
+// ---- comments and templates as stored: a document, and its text beside it ----
+{
+  const doc = read('<div><b>Fixed</b> in 2.4</div><ul><li>Update</li></ul>')
+  const stored = toStored(doc)
+  check('a document is stored with its plain text',
+    stored.body === 'Fixed in 2.4\n• Update' && stored.body_doc?.blocks?.length === 2, show(stored))
+  check('an empty one stores no document and an empty text',
+    show(toStored(read('<div><br></div>'))) === show({ body: '', body_doc: null }))
+  check('a stored document is read back as it is',
+    show(storedDoc(stored)) === show(normalizeDoc(doc)))
+  check('a row from before rich text is read as its lines',
+    show(storedDoc({ body: 'Hi,\n\nThanks' }))
+      === show({ blocks: [{ type: 'p', runs: [{ text: 'Hi,' }] }, { type: 'p', runs: [] },
+        { type: 'p', runs: [{ text: 'Thanks' }] }] }), show(storedDoc({ body: 'Hi,\n\nThanks' })))
+  check('a stored document is checked again on the way out',
+    !show(storedDoc({ body_doc: { blocks: [{ type: 'p', runs: [{ text: 'x', href: 'javascript:1' }] }] } }))
+      .includes('javascript'))
+  check('and a row with neither is empty', isEmptyDoc(storedDoc({ body: '' })) && isEmptyDoc(storedDoc(null)))
+}
 
 done()
