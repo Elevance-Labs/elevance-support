@@ -289,8 +289,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   skips RLS), decides from/subject/Reply-To/threading headers/layout itself, and
   records the message.
 - `email-webhook` — Mailgun's caller: inbound mail (filed on its ticket, or a
-  new `Email` ticket in `EMAIL_INTAKE_PROJECT_KEY`; machine mail never makes
-  one) and delivery events. Deploys with `--no-verify-jwt`; Mailgun's HMAC
+  new `Email` ticket in `EMAIL_INTAKE_PROJECT_KEY` — only when the helpdesk is
+  in its To, never from a Cc or Bcc; machine mail never makes one) and delivery
+  events. Deploys with `--no-verify-jwt`; Mailgun's HMAC
   signature authenticates it. Mailgun keys live in function env only.
 - All six are Deno, and deploy with `supabase functions deploy <name>`; the four
   browser-facing ones handle CORS preflight. None can import from `src/` — small,

@@ -13,9 +13,12 @@
 //      everything `email-send` sends.
 //   2. In-Reply-To / References naming a message already on a ticket.
 //   3. Neither: a new request. It becomes a ticket in EMAIL_INTAKE_PROJECT_KEY,
-//      with source `Email` — unless it is an auto-reply, a bounce or our own
-//      mail coming back, none of which is a request (and answering one is how
-//      mail loops start).
+//      with source `Email` — but only when the helpdesk is in its To. An email
+//      that merely copies the helpdesk (Cc), or blind-copies it (Bcc, which no
+//      header shows), is someone else's conversation, not a request; it is
+//      left in the helpdesk mailbox and files nothing. Nor do auto-replies,
+//      bounces or our own mail coming back, none of which is a request (and
+//      answering one is how mail loops start).
 //
 // Deploy with:  supabase functions deploy email-webhook --no-verify-jwt
 //
@@ -25,8 +28,11 @@
 //
 //   MAILGUN_WEBHOOK_SIGNING_KEY   Mailgun → Sending → Webhooks → signing key
 //   MAILGUN_DOMAIN                the domain reply addresses live on
-//   SUPPORT_FROM                  the address we send as; mail from it is ours
+//   SUPPORT_FROM                  the address we send as; mail from it is ours,
+//                                 and mail *to* it may open a ticket
 //   EMAIL_INTAKE_PROJECT_KEY      project key new email tickets go to, e.g. ACME
+//   EMAIL_INTAKE_ADDRESSES        optional, comma-separated: other helpdesk
+//                                 addresses that open a ticket when in To
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const json = (body: unknown, status = 200) =>
@@ -246,6 +252,25 @@ Deno.serve(async (req) => {
     if (machine || !sender) {
       console.log(`email-webhook dropped an unmatched automatic message ${messageId}`);
       return json({ ok: true, dropped: "automatic" });
+    }
+
+    // Only an email written *to* the helpdesk is a request. The forward from
+    // the helpdesk mailbox keeps the original To and Cc, so they say where the
+    // helpdesk stood; a Bcc'd helpdesk is in neither, and is treated like Cc.
+    const helpdesk = new Set(
+      [ourAddress, ...(Deno.env.get("EMAIL_INTAKE_ADDRESSES") ?? "").split(",")]
+        .map((a) => a.trim().toLowerCase()).filter(Boolean),
+    );
+    if (helpdesk.size === 0) {
+      // Without an address to look for, every request would be dropped — so
+      // fail loudly, and let Mailgun retry while it is set.
+      console.error("email-webhook has no helpdesk address (SUPPORT_FROM is unset)");
+      return json({ error: "No helpdesk address" }, 500);
+    }
+    if (!to.some((a) => helpdesk.has(a.email))) {
+      const where = cc.some((a) => helpdesk.has(a.email)) ? "cc" : "bcc";
+      console.log(`email-webhook filed no ticket for ${messageId}: the helpdesk was in ${where}, not To`);
+      return json({ ok: true, dropped: `helpdesk in ${where}` });
     }
 
     const projectKey = (Deno.env.get("EMAIL_INTAKE_PROJECT_KEY") ?? "").trim().toUpperCase();

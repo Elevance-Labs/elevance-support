@@ -887,8 +887,11 @@ grant — a box to write the next one.
 - **A new email to the support address becomes a ticket** in the intake
   project, with source *Email*, the subject as its title and the requester
   taken from the sender. It is assigned from the rota and announced in Chat
-  like any other ticket. Auto-replies, bounces and mailing lists never create a
-  ticket.
+  like any other ticket — but only when the support address is in the email's
+  **To**. An email that copies it (Cc) or blind-copies it (Bcc) is someone
+  else's conversation: it stays in the support mailbox and files nothing.
+  Replies on an existing ticket are matched as always, wherever the support
+  address sits. Auto-replies, bounces and mailing lists never create a ticket.
 - **Delivery is tracked.** Each sent email shows *Sent*, then *Delivered* — or
   *Not delivered* with the reason, when the customer's server refused it.
 - **Files** go both ways: images, PDFs and video, under the same limits as the
@@ -961,7 +964,10 @@ supabase secrets set \
 ```
 
 `MAILGUN_API_BASE` is `https://api.eu.mailgun.net` for an EU-region domain.
-`EMAIL_INTAKE_PROJECT_KEY` is the project new email tickets are filed in. The
+`EMAIL_INTAKE_PROJECT_KEY` is the project new email tickets are filed in. A new
+email opens one only when the `SUPPORT_FROM` address is in its To; if the
+helpdesk has other addresses that should do the same (an alias, say), list
+them in the optional `EMAIL_INTAKE_ADDRESSES`, comma-separated. The
 webhook function has no JWT to check — Mailgun is its caller — so it verifies
 Mailgun's signature on every request instead, which is why the signing key is
 required.
