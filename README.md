@@ -787,12 +787,17 @@ line each:
 | Status change | Status changed to **In Progress** by Ada Lovelace |
 | Email sent to the requester | Email sent by **Ada Lovelace** |
 | Email received from them | Email received from **Jane Doe (jane@acme.com)** |
+| Comment, with *Notify in thread* ticked | Comment by **Ada Lovelace**, then the comment's text |
 
 No time is written into a line: Chat stamps every message itself, in each
 reader's own time zone.
 
 An email's subject and body never go to Chat: the space is a wider audience
 than the ticket's project, and what a customer wrote stays on the ticket.
+A comment's text does, but only when its author ticks *Notify in thread* under
+the comment box — off by default, and off again after every post. The box is
+disabled on a ticket with no thread. Editing the comment afterwards posts
+nothing more ([migration 0019](supabase/migrations/0019_comment_thread_notify.sql)).
 
 These hang off inserts too — into `status_events` and `email_messages`
 ([migration 0016](supabase/migrations/0016_thread_updates.sql)) — through the
@@ -860,8 +865,9 @@ grant — a box to write the next one.
   admin from setting the grant, and `email-send` refuses anyone without it.
 - **What is sent** is decided server-side, so every email looks the same: from
   the support address, to the requester (plus anyone you Cc), in one layout
-  ending with your signature, with the ticket reference and "Follow this ticket
-  in Hub > Help Center > Support Tickets" in the footer — no public link. The
+  ending with your signature, with the ticket reference — linked to its share
+  page when `APP_BASE_URL` is set — and "Follow this ticket in Hub > Help
+  Center > Support Tickets" in the footer. The
   subject is always `[GDT-32] <ticket title>`, on the first email and every
   reply alike.
 - **Formatting.** The box takes **bold**, *italic*, underline, bulleted and

@@ -298,6 +298,8 @@ create table if not exists public.comments (
                     or (jsonb_typeof(body_doc) = 'object'
                         and jsonb_typeof(body_doc -> 'blocks') = 'array'
                         and pg_column_size(body_doc) < 200000)),
+  -- Posted into the ticket's Chat thread on insert (0019); off by default.
+  notify_thread boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

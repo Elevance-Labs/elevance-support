@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Alert, Box, Button, IconButton, Paper, Stack, Tooltip, Typography,
+  Alert, Box, Button, Checkbox, FormControlLabel, IconButton, Paper, Stack, Tooltip, Typography,
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -49,8 +49,10 @@ function useEditWindowTick(comments) {
 /**
  * `hideHeading` is for a host that already names the thread — the ticket
  * dialog's Comments tab — and `onCount` tells it how many there are.
+ * `hasChatThread` offers "Notify in thread", which posts the comment into the
+ * ticket's Google Chat thread (a trigger and `notify-issue` do the posting).
  */
-export default function CommentsThread({ issueId, hideHeading = false, onCount }) {
+export default function CommentsThread({ issueId, hideHeading = false, onCount, hasChatThread = false }) {
   const { profile } = useAuth()
   const { users, templates } = useConfig()
   const [comments, setComments] = useState([])
@@ -59,6 +61,8 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount }
   const [editing, setEditing] = useState(null) // { id, doc }
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // Off by default, and again after every post: sharing is a choice per comment.
+  const [notifyThread, setNotifyThread] = useState(false)
   const attach = useAttachmentDraft(setError)
   const fileInput = useRef(null)
   const composer = useRef(null)
@@ -110,7 +114,10 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount }
     const id = crypto.randomUUID()
     // The document, and its plain text beside it for whatever reads `body`.
     const { error } = await supabase.from('comments')
-      .insert({ id, issue_id: issueId, author_id: profile.id, ...toStored(draft) })
+      .insert({
+        id, issue_id: issueId, author_id: profile.id, ...toStored(draft),
+        notify_thread: hasChatThread && notifyThread,
+      })
     if (error) { setBusy(false); return setError(error.message) }
     try {
       for (const file of attach.files) await uploadAttachment(file, { issueId, commentId: id })
@@ -118,7 +125,7 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount }
       setError(`The comment was posted, but a file did not upload: ${err.message}`)
     }
     setBusy(false)
-    composer.current?.clear(); attach.clear(); load()
+    composer.current?.clear(); attach.clear(); setNotifyThread(false); load()
   }
 
   const saveEdit = async () => {
@@ -188,6 +195,17 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount }
           </Tooltip>
           <TemplatePicker templates={templates} disabled={busy}
             onPick={insertTemplate} onError={setError} />
+          <Tooltip title={hasChatThread
+            ? 'Also post this comment in the ticket\'s Google Chat thread'
+            : 'This ticket has no Google Chat thread'}>
+            <FormControlLabel
+              sx={{ ml: 0.5, mr: 0 }}
+              disabled={busy || !hasChatThread}
+              control={<Checkbox size="small" checked={hasChatThread && notifyThread}
+                onChange={(e) => setNotifyThread(e.target.checked)} />}
+              label={<Typography variant="caption">Notify in thread</Typography>}
+            />
+          </Tooltip>
           <Box sx={{ flexGrow: 1 }} />
           <Typography variant="caption" color="text.disabled">
             {MOD_KEY_LABEL}+Enter to post

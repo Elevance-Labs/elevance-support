@@ -498,7 +498,8 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
                     label={emailCount ? `Conversation (${emailCount})` : 'Conversation'} />
                 </Tabs>
                 <Box hidden={thread !== 'comments'}>
-                  <CommentsThread issueId={issue.id} hideHeading onCount={setCommentCount} />
+                  <CommentsThread issueId={issue.id} hideHeading onCount={setCommentCount}
+                    hasChatThread={Boolean(saved?.chat_thread)} />
                 </Box>
                 <Box hidden={thread !== 'conversation'}>
                   <ConversationThread issue={saved} ticketRef={issueRef(project, issue)}

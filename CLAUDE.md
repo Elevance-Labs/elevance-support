@@ -213,7 +213,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `comments` — thread on a ticket; author-editable for 5 minutes (RLS-enforced).
   Rich text: `body_doc` is the document, `body` its plain text (what the public
   page falls back to). Rows predating rich text have `body` only, and are drawn
-  and edited as plain text.
+  and edited as plain text. `notify_thread` (off by default) asks for the
+  comment to be posted into the ticket's Chat thread; only the insert reads it.
 - `email_messages` — the email thread with the requester, in and out, with
   delivery status, and — outbound — the rich text document it went as, body
   and signature. Browser read-only (same sight as the ticket); only
@@ -279,8 +280,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   keyed by the ticket reference, and records that thread on the ticket (the
   dialog's "View thread"). Status changes and emails sent/received then reply
   into that thread as one line each — who and what, never an email's
-  content — via insert triggers on `status_events` and `email_messages`; a
-  ticket with no recorded thread gets none. Called by an
+  content — via insert triggers on `status_events` and `email_messages`. A
+  comment posted with "Notify in thread" ticked replies with its text (a
+  `comments` insert trigger); a ticket with no recorded thread gets none. Called by an
   `issues` insert trigger via `pg_net`, not by the browser; authenticated by a
   shared secret, so it deploys with `--no-verify-jwt`. Webhook URL and secret
   live in function env + Vault, never in the repo.

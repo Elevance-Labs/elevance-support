@@ -1,16 +1,18 @@
 // Posts a card to Google Chat when a new ticket arrives, and a one-line reply
 // in that ticket's thread each time its status changes or an email is sent to
-// or received from the requester.
+// or received from the requester — and a comment, when its author ticks
+// "Notify in thread".
 //
-// Called by the `issues_notify_new` trigger (migration 0001) and the
-// `status_events_notify` / `email_messages_notify` triggers (migration 0016),
+// Called by the `issues_notify_new` trigger (migration 0001), the
+// `status_events_notify` / `email_messages_notify` triggers (migration 0016)
+// and the `comments_notify` trigger (migration 0019),
 // never by a browser: the Chat webhook URL is a bearer secret — anyone holding
 // it can post into the space — so it lives in this function's environment and
 // the anon key never comes near it.
 //
 // The triggers send only an id — `{ issue_id }` for a new ticket,
 // `{ status_event_id }` for a status change, `{ email_message_id }` for an
-// email; everything posted is read here with service_role, so the field list
+// email, `{ comment_id }` for a comment; everything posted is read here with service_role, so the field list
 // and the message that renders it stay in one place.
 //
 // Each ticket gets its own thread: the post carries a `threadKey` of the ticket
@@ -60,6 +62,16 @@ interface EmailMessageRow {
   profiles: { full_name: string | null; email: string | null } | null;
   issues: { number: number; chat_thread: string | null; projects: { key: string } };
 }
+
+/** A comment its author chose to share in the thread. */
+interface CommentRow {
+  body: string;
+  profiles: { full_name: string | null; email: string | null } | null;
+  issues: { number: number; chat_thread: string | null; projects: { key: string } };
+}
+
+/** Chat refuses a message over 4,096 characters; leave room for the header. */
+const MAX_COMMENT_CHARS = 3500;
 
 /** The service_role client every handler reads with; RLS does not apply. */
 const adminClient = () =>
@@ -168,7 +180,12 @@ Deno.serve(async (req) => {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  let body: { issue_id?: unknown; status_event_id?: unknown; email_message_id?: unknown };
+  let body: {
+    issue_id?: unknown;
+    status_event_id?: unknown;
+    email_message_id?: unknown;
+    comment_id?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
@@ -186,7 +203,10 @@ Deno.serve(async (req) => {
   if (typeof body?.email_message_id === "string" && body.email_message_id) {
     return announceEmail(admin, webhookUrl, body.email_message_id);
   }
-  return json({ error: "Missing issue_id, status_event_id or email_message_id" }, 400);
+  if (typeof body?.comment_id === "string" && body.comment_id) {
+    return announceComment(admin, webhookUrl, body.comment_id);
+  }
+  return json({ error: "Missing issue_id, status_event_id, email_message_id or comment_id" }, 400);
 });
 
 /** The new-ticket card, which starts the ticket's thread. */
@@ -386,4 +406,33 @@ async function announceEmail(admin: Admin, webhookUrl: string, messageId: string
     text = `Email received from *${from}*`;
   }
   return replyInThread(webhookUrl, ref, email.issues.chat_thread, text);
+}
+
+/**
+ * A comment, text and all — its author ticked "Notify in thread", so unlike an
+ * email it is meant for the space. Line breaks survive; angle brackets don't,
+ * for the same reason as plain(). A comment that is only a file says so.
+ */
+async function announceComment(admin: Admin, webhookUrl: string, commentId: string) {
+  const { data, error } = await admin
+    .from("comments")
+    .select(
+      "body, profiles!author_id(full_name, email), " +
+        "issues!inner(number, chat_thread, projects!inner(key))",
+    )
+    .eq("id", commentId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("notify-issue could not read the comment", error);
+    return json({ error: "Lookup failed" }, 500);
+  }
+  if (!data) return json({ error: "not_found" }, 404);
+
+  const comment = data as unknown as CommentRow;
+  const ref = `${comment.issues.projects.key}-${comment.issues.number}`;
+  let text = String(comment.body ?? "").replace(/[<>]/g, "").replace(/\n{3,}/g, "\n\n").trim();
+  if (text.length > MAX_COMMENT_CHARS) text = `${text.slice(0, MAX_COMMENT_CHARS).trimEnd()}…`;
+  return replyInThread(webhookUrl, ref, comment.issues.chat_thread,
+    `Comment by *${plain(displayName(comment.profiles))}*\n${text || "_(attachment only)_"}`);
 }

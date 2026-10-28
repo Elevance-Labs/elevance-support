@@ -31,6 +31,11 @@
 //                        domain of every reply address
 //   MAILGUN_API_BASE     https://api.mailgun.net (US) or https://api.eu.mailgun.net (EU)
 //   SUPPORT_FROM         e.g. "Example Support <support@example.com>"
+//
+// Optional env:
+//   APP_BASE_URL         origin of the deployed SPA, e.g. https://support.acme.com —
+//                        links the footer's ticket reference to its share page;
+//                        without it the reference goes out as plain text
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const cors = {
@@ -192,22 +197,31 @@ const signatureOf = (saved: unknown, sender: string): Doc => {
 };
 
 /**
- * Where a customer follows their ticket. Deliberately not a link: customers
- * reach their tickets through the Hub, signed in, rather than through a
- * guessable public page.
+ * Where a customer follows their ticket, signed in. The reference itself links
+ * to the ticket's share page when APP_BASE_URL is set.
  */
 const FOLLOW_UP = "Follow this ticket in Hub > Help Center > Support Tickets";
+
+/**
+ * Mirrors publicIssuePath() in src/lib/projects.js — a Deno function cannot
+ * import from src/. The share page shows only the `public-issue` allow-list.
+ */
+const publicIssueUrl = (origin: string, key: string, number: number) =>
+  `${origin.replace(/\/+$/, "")}/i/${encodeURIComponent(key)}/${number}`;
 
 /**
  * The one layout every message goes out in: the text as written, the
  * signature, and a footer naming the ticket and where to follow it.
  */
 function render(
-  { body, signature, ref }: { body: Doc; signature: Doc; ref: string },
+  { body, signature, ref, link }: { body: Doc; signature: Doc; ref: string; link: string | null },
 ) {
   const text = `${docToText(body)}\n\n${docToText(signature)}\n\n` +
-    `Ticket ${ref} · ${FOLLOW_UP}\n` +
+    `Ticket ${link ? `${ref} (${link})` : ref} · ${FOLLOW_UP}\n` +
     `Reply to this email to add to the conversation.`;
+  const refHtml = link
+    ? `<a href="${esc(link)}" style="color:#1976d2"><strong>${esc(ref)}</strong></a>`
+    : `<strong>${esc(ref)}</strong>`;
   const html = `<!doctype html><html><body style="margin:0;padding:0;background:#f5f6f8">
 <div style="max-width:600px;margin:0 auto;padding:24px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#1f2933">
 <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;padding:20px">
@@ -215,7 +229,7 @@ ${docToHtml(body)}
 <div style="margin:16px 0 0;color:#4b5563">${docToHtml(signature)}</div>
 </div>
 <p style="margin:12px 4px 0;font-size:12px;color:#6b7280">
-Ticket <strong>${esc(ref)}</strong> · ${esc(FOLLOW_UP)}<br>
+Ticket ${refHtml} · ${esc(FOLLOW_UP)}<br>
 Reply to this email to add to the conversation.
 </p>
 </div></body></html>`;
@@ -345,8 +359,10 @@ Deno.serve(async (req) => {
   const replyTo = `t-${issue.email_token}@${domain}`;
   const sender = displayName(me);
   const signature = signatureOf(me.email_signature, sender);
+  const appBaseUrl = Deno.env.get("APP_BASE_URL");
   const { text, html } = render({
     body, signature, ref,
+    link: appBaseUrl ? publicIssueUrl(appBaseUrl, key, issue.number) : null,
   });
   // The message as the customer reads it — body, a blank line, the signature —
   // which is what the thread draws.
