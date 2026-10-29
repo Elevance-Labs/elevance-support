@@ -101,7 +101,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
     // From the status the ticket is really in, but gated on the draft's
     // severity and assignees: all three are written by the one save.
     ? allowedStatuses(lists.status ?? [], saved.status, events, {
-        severity: issue.severity, assignees,
+        severity: issue.severity, assignees, reopen: can.reopen(profile),
       })
     : []
   const currentStatusType = issue ? statusTypeOf(lists.status ?? [], saved.status) : null
@@ -459,7 +459,10 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
                     inputLabel: { shrink: true },
                   }}
                   helperText={
-                    currentStatusType === 'closed' ? 'Closed — this ticket cannot be reopened'
+                    currentStatusType === 'closed'
+                      ? !can.reopen(profile) ? 'Closed — only an admin can reopen this ticket'
+                      : !triaged ? 'Closed — assign a severity to reopen it to In Progress'
+                      : 'Closed — reopen it by moving it to an In Progress status'
                     : currentStatusType === 'paused' ? 'Paused — the SLA clock is stopped'
                     : !assigned ? 'Assign someone before moving this ticket out of New'
                     : !triaged ? 'Assign a severity to start or pause this ticket'

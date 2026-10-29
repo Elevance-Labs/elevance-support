@@ -16,6 +16,9 @@ const tMember  = { id: 'u2', role: 'member' }
 check('admin deletes tickets',        can.deleteIssue(admin))
 check('manager cannot delete tickets', !can.deleteIssue(manager))
 check('member cannot delete tickets',  !can.deleteIssue(member))
+check('admin reopens closed tickets',  can.reopen(admin))
+check('manager cannot reopen tickets', !can.reopen(manager))
+check('member cannot reopen tickets',  !can.reopen(member))
 
 // ---- views: manager and admin ----
 check('admin manages views',   can.manageViews(admin))

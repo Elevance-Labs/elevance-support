@@ -6,6 +6,9 @@
  *
  *   new (0) ──▶ in_progress (1) ──▶ closed (2)
  *
+ * The one exception is reopening: an admin may move a closed ticket back to an
+ * in_progress status, for a ticket closed by mistake (`isReopen`).
+ *
  * Two things gate a move out of `new`, and both are enforced by the database
  * too: a severity (how bad it is) and an assignee (who has it). See
  * `needsSeverity` and `needsAssignee` below — they differ over `closed`.
@@ -113,15 +116,25 @@ export function effectiveStatusType(statuses, currentStatus, events = []) {
  * real guard, and defaulting to a block would quietly freeze every caller that
  * doesn't know about these gates yet.
  */
-export function canTransition(fromType, toType, { severity, assignees } = {}) {
+export function canTransition(fromType, toType, { severity, assignees, reopen = false } = {}) {
   if (!fromType || !toType) return true
   if (severity !== undefined && needsSeverity(toType) && !hasSeverity(severity)) return false
   if (assignees !== undefined && needsAssignee(toType) && !hasAssignees({ assignee_ids: assignees }))
     return false
   if (toType === 'paused') return fromType !== 'closed'
   if (fromType === 'paused') return true   // caller should pass the effective type
+  if (isReopen(fromType, toType)) return reopen
   return statusRank(toType) >= statusRank(fromType)
 }
+
+/**
+ * The one backward move: a ticket closed by mistake going back into the work.
+ * Only to In Progress — never New, since somebody has already looked at it, and
+ * never Paused, since a closed ticket has nothing to pause. Who may do it is
+ * `can.reopen`; the database checks the same.
+ */
+export const isReopen = (fromType, toType) =>
+  fromType === 'closed' && toType === 'in_progress'
 
 /**
  * The statuses a ticket may move to. Pass the timeline so a paused ticket is
@@ -136,7 +149,7 @@ export function canTransition(fromType, toType, { severity, assignees } = {}) {
  * nudge in the one place a human is making the decision, not a rule.
  */
 export function allowedStatuses(
-  statuses, currentStatus, events = [], { severity, assignees } = {},
+  statuses, currentStatus, events = [], { severity, assignees, reopen } = {},
 ) {
   const fromType = effectiveStatusType(statuses, currentStatus, events)
   const stuckInNew = fromType === 'new'
@@ -145,7 +158,7 @@ export function allowedStatuses(
     // Otherwise the current value always stays selectable, so an inactive or
     // unrecognised status never disappears from under the person reading it.
     return s.name === currentStatus
-      || (s.is_active && canTransition(fromType, s.status_type, { severity, assignees }))
+      || (s.is_active && canTransition(fromType, s.status_type, { severity, assignees, reopen }))
   })
 }
 

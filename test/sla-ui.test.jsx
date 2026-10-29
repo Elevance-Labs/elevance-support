@@ -159,14 +159,23 @@ check('from In Progress: forward statuses offered',
   (opts ?? []).join(', '))
 check('from In Progress: can be paused', opts?.includes('On Hold'), (opts ?? []).join(', '))
 
-// ---------- 4. Closed: cannot reopen ----------
+// ---------- 4. Closed: only an admin reopens, and only to In Progress ----------
+await render({ id: 'user-3', role: 'manager' },
+  { status: 'Done', closed_at: ago(1 * HR), submitted_date: ago(4 * HR) })
+opts = await optionsOf('Status')
+check('from Closed + manager: only Done offered', opts?.length === 1 && opts[0] === 'Done',
+  (opts ?? []).join(', '))
+check('closed + manager: says only an admin can reopen',
+  body().includes('only an admin can reopen'))
+
 await render({ id: 'user-1', role: 'admin' },
   { status: 'Done', closed_at: ago(1 * HR), submitted_date: ago(4 * HR) })
 opts = await optionsOf('Status')
-check('from Closed: only Done offered', opts?.length === 1 && opts[0] === 'Done',
-  (opts ?? []).join(', '))
+check('from Closed + admin: In Progress statuses offered to reopen',
+  opts?.includes('Triaged') && opts?.includes('In Progress'), (opts ?? []).join(', '))
+check('from Closed + admin: New is not offered', !opts?.includes('New'), (opts ?? []).join(', '))
 check('a closed ticket cannot be paused', !opts?.includes('On Hold'), (opts ?? []).join(', '))
-check('closed shows a cannot-reopen hint', body().includes('cannot be reopened'))
+check('closed + admin: says how to reopen', body().includes('reopen it by moving it'))
 
 // ---------- 5. SLA states in the elapsed box (Critical = 8h target) ----------
 await render({ id: 'user-1', role: 'admin' },

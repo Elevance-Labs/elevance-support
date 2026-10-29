@@ -435,7 +435,11 @@ resume or close, but still cannot go back to New.
 You can have as many statuses as you like inside each type. A ticket may move
 **within its own type or forward to a later one, never backward** — so New →
 In Progress → Closed is fine, but In Progress → New and Closed → anything are
-rejected. Paused sits outside that ladder and is always available. The status dropdown only offers legal moves, and the rule is enforced
+rejected. The one exception is a ticket **closed by mistake**: an admin may
+reopen it by moving it to any In Progress status (never New or Paused). The
+severity and assignee gates still apply, and reopening clears `closed_at`, so
+the SLA clock resumes — counted from submission, the closed spell included.
+Paused sits outside that ladder and is always available. The status dropdown only offers legal moves, and the rule is enforced
 again by a database trigger so it holds however the update arrives.
 
 **SLA targets are set per severity** (Configuration → Severities), in hours —

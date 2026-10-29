@@ -104,7 +104,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   which only an admin hands out (`grantEmail`). Configuration is split by list:
   admins every one, managers `labels` and the comment templates.
 - `sla.js` — status types (`new` → `in_progress` → `closed`, with `paused`
-  outside the ladder), legal transitions, SLA bands and colours. Also the two
+  outside the ladder), legal transitions — forward only, except that an **admin**
+  may reopen a closed ticket into an `in_progress` status (`can.reopen`, mirrored
+  by the rules trigger) — SLA bands and colours. Also the two
   gates on leaving `new`: the severity gate (no ticket enters `in_progress` or
   `paused` untriaged) and the assignee gate (nothing leaves `new` at all with
   nobody on it — `closed` included, which is where the two differ). The SLA

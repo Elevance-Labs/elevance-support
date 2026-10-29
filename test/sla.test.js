@@ -51,6 +51,20 @@ check('from In Progress: siblings and closed offered',
 const fromClosed = names(allowedStatuses(STATUSES, 'Done'))
 check('from Closed: only closed statuses',
   fromClosed.every((n) => ['Done', 'Rejected'].includes(n)), fromClosed.join(', '))
+
+// Reopening: a ticket closed by mistake goes back into the work — an admin's
+// call, and only ever to In Progress.
+check('Closed -> In Progress allowed when reopening', canTransition('closed', 'in_progress', { reopen: true }))
+check('Closed -> New BLOCKED even when reopening',    !canTransition('closed', 'new', { reopen: true }))
+check('Closed -> Paused BLOCKED even when reopening', !canTransition('closed', 'paused', { reopen: true }))
+check('reopening still needs a severity',
+  !canTransition('closed', 'in_progress', { reopen: true, severity: null }))
+check('reopening still needs an assignee',
+  !canTransition('closed', 'in_progress', { reopen: true, assignees: [] }))
+const reopenable = names(allowedStatuses(STATUSES, 'Done', [], { reopen: true }))
+check('from Closed, reopening offers closed and In Progress statuses only',
+  reopenable.join(',') === 'Triaged,In Progress,Done,Rejected', reopenable.join(', '))
+
 check('current status always selectable',
   names(allowedStatuses(STATUSES, 'Done')).includes('Done'))
 

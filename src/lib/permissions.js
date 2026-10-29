@@ -52,6 +52,13 @@ export const can = {
   deleteIssue: isAdmin,
 
   /**
+   * Reopening a closed ticket — moving it back to an In Progress status. A
+   * ticket only moves forward otherwise; this exists for one closed by mistake,
+   * and undoing a close is an admin's call. Mirrored by the rules trigger.
+   */
+  reopen: isAdmin,
+
+  /**
    * Severity is the team's own reading of a ticket — what it costs the customer
    * and what the team therefore commits to — so only an internal user assigns
    * one. That means anyone signed in, whatever their role: severity is what
