@@ -43,7 +43,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 | Path | Role |
 |---|---|
 | `src/pages/` | One file per route. Fetches data, owns page state. |
-| `src/components/` | Shared UI: ticket dialog, form, comments, email conversation, rich text editor, timeline, chips, avatars. |
+| `src/components/` | Shared UI: ticket dialog, form, comments, email conversation, linked tickets, rich text editor, timeline, chips, avatars. |
 | `src/components/charts/` | Hand-drawn SVG charts. No charting dependency. |
 | `src/context/` | App-wide state providers (auth, config, project, refresh). |
 | `src/lib/` | Pure domain logic + the Supabase client. Where rules live. |
@@ -160,6 +160,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   Mirrored in `email-send`.
 - `publicLink.js` — calls the `public-issue` and `public-company` functions;
   clipboard helper.
+- `links.js` — links between tickets: the ordered pair a link is stored as,
+  reading it from either end, what the link picker's text asks for and what
+  it offers (never the ticket itself or one already linked; same company first).
 - `chat.js` — the Google Chat thread link built from a ticket's recorded thread
   name; the web address is Google's, so it is built in this one place.
 - `jira.js`, `supabase.js` — Jira link building; the shared client.
@@ -238,6 +241,12 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   Configuration; picking one under the comment or email box only writes into
   the box. Its own table, not a `list_items` type, because `list_items` is
   anon-readable: signed-in read only, admin or manager write.
+- `issue_links` — undirected links between tickets (duplicates, mostly): one
+  row per pair, smaller id first (a trigger orders it, a check refuses a
+  self-link), read from either end; any number per ticket, across projects.
+  Seen, added and removed only by someone who can see **both** tickets (RLS);
+  any signed-in user (`can.linkIssues`). Staff-only — in neither public
+  allow-list.
 - `status_events` — every status change, written by trigger; feeds the timeline.
 - `attachments` + a **private** storage bucket; access via short-lived signed URLs.
   A row with a `comment_id` belongs to that comment, not the request; only the
@@ -318,7 +327,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   the ones that aren't closed — so a tile and a breakdown on it always add up.
 - Staff work it on **Issues** or **Board** → both open the same `IssueDetail`
   dialog → which composes `CommentsThread` and `ConversationThread` (two tabs,
-  both mounted) and `StatusTimeline`.
+  both mounted), `LinkedTickets` (saves on its own, outside the draft; a linked
+  ticket opens via its share link in a new tab) and `StatusTimeline`.
 - Customer email: Conversation tab → `email-send` → Mailgun → customer; their
   reply → the ticket's `t-<token>@` address (or the support inbox, forwarded) →
   Mailgun route → `email-webhook` → `email_messages`.

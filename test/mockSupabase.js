@@ -120,6 +120,11 @@ const chain = (data) => {
   p.eq = (col, value) => chain(rows.filter((r) => r[col] === value))
   p.in = (col, values) => chain(rows.filter((r) => (values ?? []).includes(r[col])))
   p.limit = (n) => chain(rows.slice(0, n))
+  // `%text%` only — a substring, ignoring case, as the link picker asks.
+  p.ilike = (col, pattern) => {
+    const needle = String(pattern).replace(/^%|%$/g, '').replace(/\\(.)/g, '$1').toLowerCase()
+    return chain(rows.filter((r) => String(r[col] ?? '').toLowerCase().includes(needle)))
+  }
   // Only the `is null` / `not is null` forms the app uses.
   p.is = (col, value) => chain(rows.filter((r) => (r[col] ?? null) === value))
   p.not = (col, op, value) => op === 'is'
@@ -165,6 +170,7 @@ const tableData = (table) => {
   if (table === 'attachments') return FIXTURES.attachments
   if (table === 'email_messages') return FIXTURES.email_messages
   if (table === 'project_contacts') return FIXTURES.project_contacts
+  if (table === 'issue_links') return FIXTURES.issue_links
   return []
 }
 
@@ -352,6 +358,11 @@ export const FIXTURES = {
     { project_id: 'proj-1', email: 'boss@acme.com', name: null, last_seen_at: iso(2 * HR) },
     { project_id: 'proj-1', email: 'ops@acme.com', name: 'Ops Desk', last_seen_at: iso(5 * DAY) },
     { project_id: 'proj-2', email: 'sam@globex.com', name: 'Sam', last_seen_at: iso(1 * DAY) },
+  ],
+  // ACME-42 and BILL-1, linked across projects. One row for the pair, smaller
+  // id first, as the table keeps it — each ticket must find it from its end.
+  issue_links: [
+    { issue_a: 'issue-1', issue_b: 'issue-2', created_by: 'user-1', created_at: iso(1 * HR) },
   ],
   profiles: [
     // Ada has uploaded a photo; Grace has not — so every avatar site is exercised

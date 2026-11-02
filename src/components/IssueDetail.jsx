@@ -38,6 +38,7 @@ import { StatusLabel } from './StatusDot'
 import { SeverityOption, SeverityValue } from './SeverityOption'
 import Tag from './Tag'
 import GoogleChatIcon from './GoogleChatIcon'
+import LinkedTickets from './LinkedTickets'
 
 /**
  * Three-column ticket view:
@@ -438,7 +439,10 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
                         </Link>
                       } />
                 </Stack>
-              </Paper>            </Stack>
+              </Paper>
+              {/* Saves on its own, like a comment — see LinkedTickets. */}
+              <LinkedTickets issue={saved} canLink={can.linkIssues(profile)} onError={setError} />
+            </Stack>
 
             {/* ---------- centre: assignment, description, comments ---------- */}
             <Stack spacing={2} sx={{ minWidth: 0 }}>

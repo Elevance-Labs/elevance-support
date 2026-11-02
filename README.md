@@ -228,6 +228,7 @@ Opening a ticket gives a three-column view:
   you paste is reduced to the ticket key (`ENG-1234`) when you leave the field
   and again when you save, so the "Open in Jira" link is always well formed.
   Text with no key in it is left exactly as you wrote it.
+  Under it, **Linked tickets** — see [Linking tickets](#linking-tickets).
 - **Centre** — **assignees and status side by side** at the top — the assignee
   picker shows each person's photo and holds **up to two** of them, and the
   status picker a coloured dot for the status *type*, the same dot the board
@@ -277,6 +278,31 @@ see [Share links](#share-links) below.
 New tickets automatically start at the first status in sort order, and every
 status change is recorded by a database trigger — so tickets submitted through
 the public form get a timeline too.
+
+### Linking tickets
+
+The same problem often arrives more than once — two people at one company
+writing in about it, or one person writing in twice. **Linked tickets**, under
+Details, ties such tickets together.
+
+- **A link has no direction.** Linking ACME-42 to ACME-57 shows on both; unlinking
+  from either removes it from both. It is stored once per pair
+  (`issue_links`), so the two sides cannot disagree.
+- A ticket may be linked to **any number** of others, in **any project** you
+  can see. Each is named by its own project's key, with its title, status and
+  company, and opens through its share link in a **new tab**, leaving this
+  ticket open beside it.
+- **Link a ticket** suggests the same company's tickets as soon as it is
+  focused — where a duplicate almost always comes from — and otherwise takes a
+  reference (`ACME-42`), a bare number (`42`, any project) or part of a title.
+  It never offers the ticket itself or one already linked.
+- A link **saves at once**, like a comment; it is not part of *Save changes*.
+- **Anyone signed in** may link and unlink — it is a note about the tickets,
+  not a change to either. Row-level security adds that you must be able to see
+  **both** tickets to see, add or remove a link, so a link never reveals a
+  ticket in a project you are not in.
+- Links are **staff-only**: they appear on neither the share page nor the
+  company page.
 
 ## Departments
 

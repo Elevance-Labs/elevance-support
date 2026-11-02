@@ -82,6 +82,13 @@ export const can = {
   refile: (p) => Boolean(p),
 
   /**
+   * Linking tickets to each other, and unlinking them. A note about the
+   * tickets rather than a change to either, so anyone signed in — the database
+   * adds that they must be able to see both ends (`issue_links` RLS).
+   */
+  linkIssues: (p) => Boolean(p),
+
+  /**
    * Putting people on a ticket — up to two of them.
    *
    * Picking up a ticket nobody holds is ordinary work, so anyone signed in may.
