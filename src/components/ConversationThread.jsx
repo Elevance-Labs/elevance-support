@@ -12,12 +12,12 @@ import { removeAttachmentFiles, signAttachments, uploadFile } from '../lib/stora
 import { ACCEPT, ATTACH_HINT, MAX_FILES } from '../lib/attachments'
 import { useAuth } from '../context/AuthContext'
 import { useConfig } from '../context/ConfigContext'
-import { formatDateTime } from '../lib/format'
+import { ago, formatDateTime } from '../lib/format'
 import { can } from '../lib/permissions'
 import { displayName } from '../lib/users'
 import { isEmptyDoc, normalizeDoc } from '../lib/richText'
 import {
-  deliveryOf, isEmail, MAX_CC, messageText, newestFirst, parseRecipients, signatureDoc,
+  deliveryOf, isEmail, latestMessage, MAX_CC, messageText, newestFirst, parseRecipients, signatureDoc,
   ticketSubject,
 } from '../lib/email'
 import { completeRecipient, contactLabel, suggestContacts, typedRecipient } from '../lib/contacts'
@@ -56,7 +56,7 @@ async function functionError(error) {
  * thread shows what a person wrote — the quoted history underneath is already
  * in the message above it.
  */
-export default function ConversationThread({ issue, ticketRef, onCount }) {
+export default function ConversationThread({ issue, ticketRef, onCount, onLast }) {
   const { profile } = useAuth()
   const { users, templates } = useConfig()
   const [messages, setMessages] = useState([])
@@ -93,6 +93,9 @@ export default function ConversationThread({ issue, ticketRef, onCount }) {
 
   useEffect(() => { load() }, [load])
   useEffect(() => { onCount?.(messages.length) }, [messages.length, onCount])
+
+  const last = latestMessage(messages)
+  useEffect(() => { onLast?.(last) }, [last, onLast])
 
   const senderOf = useMemo(() => {
     const map = Object.fromEntries(users.map((u) => [u.id, u]))
@@ -335,5 +338,33 @@ export default function ConversationThread({ issue, ticketRef, onCount }) {
         })}
       </Stack>
     </Stack>
+  )
+}
+
+/**
+ * Who spoke last and how long ago — whether the ball is in our court or the
+ * customer's: an in/out arrow and "1d 2h". Small enough for the tab's label,
+ * so it reads without opening the thread. Re-reads the clock each minute, as
+ * the dialog may stay open.
+ */
+export function LastEmail({ message }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(t)
+  }, [])
+  if (!message) return null
+  const outbound = message.direction === 'outbound'
+  const Arrow = outbound ? CallMadeIcon : CallReceivedIcon
+  return (
+    <Tooltip title={`Last email ${outbound ? 'sent' : 'received'} ${formatDateTime(message.created_at)}`}>
+      <Stack component="span" direction="row" spacing={0.25} data-last-email={message.direction}
+        sx={{ alignItems: 'center', color: outbound ? 'primary.main' : 'info.main' }}>
+        <Arrow sx={{ fontSize: 14 }} />
+        <Typography component="span" variant="caption" sx={{ fontWeight: 600 }}>
+          {ago(message.created_at, now)}
+        </Typography>
+      </Stack>
+    </Tooltip>
   )
 }

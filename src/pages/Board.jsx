@@ -55,6 +55,9 @@ export default function Board() {
   const [attachmentCounts, setAttachmentCounts] = useState({})
   const [error, setError] = useState('')
   const [selected, setSelected] = useState(null)
+  // The lane a card was opened from, top to bottom, pinned at that moment: the
+  // dialog's arrows step through it even if a save moves the ticket elsewhere.
+  const [laneIds, setLaneIds] = useState([])
   const [search, setSearch] = useState('')
   const [assignee, setAssignee] = useState('')
   const [type, setType] = useState('')
@@ -142,6 +145,12 @@ export default function Board() {
     return map
   }, [filtered, statuses])
 
+  // Only cards still on the board: one deleted or filtered away has nowhere to go.
+  const siblings = useMemo(() => {
+    const shown = new Set(filtered.map((i) => i.id))
+    return laneIds.filter((id) => shown.has(id))
+  }, [laneIds, filtered])
+
   // Drag a card to another lane to change its status.
   const drop = async (status) => {
     const id = dragging
@@ -216,7 +225,10 @@ export default function Board() {
                   severityColor={colorOf('severity', issue.severity)}
                   colorOf={colorOf}
                   sla={slaFor(issue)}
-                  onOpen={() => setSelected(issue.id)}
+                  onOpen={() => {
+                    setLaneIds((byStatus[s.name] ?? []).map((i) => i.id))
+                    setSelected(issue.id)
+                  }}
                   onDragStart={() => setDragging(issue.id)}
                 />
               ))}
@@ -238,6 +250,7 @@ export default function Board() {
       <IssueDetail
         issueId={selected} open={Boolean(selected)}
         onClose={() => setSelected(null)} onSaved={load}
+        siblings={siblings} onNavigate={setSelected}
       />
     </Stack>
   )

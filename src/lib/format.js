@@ -52,6 +52,22 @@ export function elapsed(from) {
   return `${Math.max(dayjs().diff(then, 'minute'), 0)}m`
 }
 
+/**
+ * How long ago something happened, coarse enough to read at a glance:
+ * "1d 2h", "23h", "5m", "just now". Days carry hours; hours drop minutes.
+ */
+export function ago(from, now = Date.now()) {
+  const then = toMillis(from)
+  if (Number.isNaN(then)) return ''
+  const mins = Math.max(Math.floor((now - then) / 60_000), 0)
+  if (mins < 1) return 'just now'
+  const d = Math.floor(mins / 1440)
+  const h = Math.floor((mins % 1440) / 60)
+  if (d) return h ? `${d}d ${h}h` : `${d}d`
+  if (h) return `${h}h`
+  return `${mins}m`
+}
+
 export const formatDate = (d) => toLocal(d)?.format(DATE_TIME_FORMAT) ?? '—'
 
 /** Deterministic pastel from a string, so unconfigured labels still get a colour. */

@@ -77,7 +77,11 @@ check("an email's file is shown once, in the conversation",
   tileNames().filter((n) => n === 'console.png').length === 1, tileNames().join(', '))
 const tabs = () => [...dom.window.document.querySelectorAll('[role="tab"]')].map((t) => t.textContent)
 check('comments and the conversation sit on two tabs, each with its count',
-  tabs().includes('Comments (2)') && tabs().includes('Conversation (3)'), tabs().join(', '))
+  tabs().includes('Comments (2)') && tabs().some((t) => t.startsWith('Conversation (3)')), tabs().join(', '))
+check('the conversation tab shows how long since the last email, and which way it went',
+  tabs().includes('Conversation (3)10m')
+  && dom.window.document.querySelector('[role="tab"] [data-last-email]')?.getAttribute('data-last-email') === 'outbound',
+  tabs().join(', '))
 check('the comment tab is the one showing first',
   dom.window.document.querySelector('[role="tab"][aria-selected="true"]')?.textContent === 'Comments (2)')
 check('shows the ticket identifier, prefixed with the project key',

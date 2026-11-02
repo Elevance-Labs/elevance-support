@@ -12,6 +12,8 @@ import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import ClearIcon from '@mui/icons-material/Clear'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import { supabase } from '../lib/supabase'
 import { useConfig } from '../context/ConfigContext'
 import { useRefreshSignal } from '../context/RefreshContext'
@@ -28,6 +30,7 @@ import { NoProject } from '../components/ProjectFilter'
 import { issueRef } from '../lib/projects'
 import { companyOptions } from '../lib/companies'
 import { assigneesOf, hasAssignees } from '../lib/assignees'
+import { DEFAULT_GROUP_BY, GROUP_BY, groupIssues, isGroupBy } from '../lib/grouping'
 
 // `resolvedWithin` hides tickets closed longer ago than this many days; '' is
 // "no limit". Only closed tickets are ever affected — open work always shows.
@@ -46,6 +49,21 @@ const EMPTY_FILTERS = {
   product: '', company: '', resolvedWithin: '7',
 }
 
+// How the list is grouped is a per-person convenience, so it is remembered in
+// this browser rather than in a saved view.
+const GROUP_KEY = 'issues.groupBy'
+const readGroupBy = () => {
+  try {
+    const v = localStorage.getItem(GROUP_KEY)
+    return isGroupBy(v) ? v : DEFAULT_GROUP_BY
+  } catch { return DEFAULT_GROUP_BY }
+}
+
+const compare = (a, b) => {
+  if (typeof a === 'number' && typeof b === 'number') return a - b
+  return String(a ?? '').localeCompare(String(b ?? ''), undefined, { numeric: true })
+}
+
 export default function Issues() {
   const { lists, users, companies, colorOf } = useConfig()
   const { profile } = useAuth()
@@ -60,6 +78,11 @@ export default function Issues() {
   const [views, setViews] = useState([])
   const [activeView, setActiveView] = useState('')
   const [viewDialog, setViewDialog] = useState(null) // { mode: 'create'|'rename', id?, name }
+  const [groupBy, setGroupBy] = useState(readGroupBy)
+  const [collapsed, setCollapsed] = useState(() => new Set())
+  // Sorting is done here rather than by the grid, so that it sorts within each
+  // group instead of shuffling tickets out from under their headings.
+  const [sortModel, setSortModel] = useState([])
   // The resolved-window cutoff is pinned to the last load, so a re-render never
   // silently drops a row the user is looking at.
   const [loadedAt, setLoadedAt] = useState(() => Date.now())
@@ -83,16 +106,25 @@ export default function Issues() {
       return next
     }, { replace: true })
   }, [wantedProject, projects, setProjectId, setParams])
+  // The order the dialog's arrows step through: the list as it was drawn when a
+  // row was opened — its sort, filters and groups, across every page, folded
+  // groups included. Pinned then, so a save that re-sorts the list or drops the
+  // ticket from a filter doesn't reshuffle it under the arrows. A ticket opened
+  // from a link has no snapshot and steps through the list as it stands.
+  const [navIds, setNavIds] = useState(null)
   const openIssue = (id) => setParams((prev) => {
     const next = new URLSearchParams(prev)
     next.set('issue', id)
     return next
   }, { replace: true })
-  const closeIssue = () => setParams((prev) => {
-    const next = new URLSearchParams(prev)
-    next.delete('issue')
-    return next
-  }, { replace: true })
+  const closeIssue = () => {
+    setNavIds(null)
+    setParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete('issue')
+      return next
+    }, { replace: true })
+  }
 
   // Every read is scoped to the selected project. Row level security says the
   // same thing, but asking for one project's tickets is also simply what the
@@ -186,6 +218,50 @@ export default function Issues() {
     })
   }, [rows, filters, project, statusTypeByName, loadedAt])
 
+  const changeGroupBy = (value) => {
+    setGroupBy(value)
+    setCollapsed(new Set())
+    try { localStorage.setItem(GROUP_KEY, value) } catch { /* not remembered, still applied */ }
+  }
+
+  const toggleGroup = (key) => setCollapsed((prev) => {
+    const next = new Set(prev)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  })
+
+  const sorted = useMemo(() => {
+    const [by] = sortModel
+    if (!by) return filtered
+    const valueOf = {
+      number: (r) => r.number,
+      assignee_ids: (r) => assigneesOf(r).map(userName).join(', '),
+      submitted_date: (r) => toMillis(r.submitted_date),
+    }[by.field] ?? ((r) => r[by.field])
+    const dir = by.sort === 'desc' ? -1 : 1
+    return [...filtered].sort((a, b) => dir * compare(valueOf(a), valueOf(b)))
+  }, [filtered, sortModel, userName])
+
+  const groups = useMemo(() => groupIssues(sorted, groupBy, {
+    order: ((groupBy === 'severity' ? lists.severity : lists.status) ?? []).map((o) => o.name),
+    nameOf: userName,
+  }), [sorted, groupBy, lists.status, lists.severity, userName])
+
+  // Grouped, the grid gets a heading row before each group's tickets. A ticket
+  // on two people sits under both, so its row id is made unique per group.
+  const gridRows = useMemo(() => (groups
+    ? groups.flatMap((g) => [
+      { id: `group:${g.key}`, group: { ...g, count: g.rows.length, open: !collapsed.has(g.key) } },
+      ...(collapsed.has(g.key) ? [] : g.rows.map((r) => ({ ...r, rowId: `${g.key}:${r.id}` }))),
+    ])
+    : sorted), [groups, sorted, collapsed])
+
+  const orderedIds = useMemo(
+    () => [...new Set((groups ? groups.flatMap((g) => g.rows) : sorted).map((r) => r.id))],
+    [groups, sorted],
+  )
+
   const applyView = (id) => {
     setActiveView(id)
     const v = views.find((x) => x.id === id)
@@ -217,10 +293,34 @@ export default function Issues() {
     setActiveView('') // editing filters detaches from the saved view
   }
 
+  const groupLabel = useCallback((g) => {
+    if (g.key === '') return <Typography variant="body2" color="text.secondary"><em>{g.label}</em></Typography>
+    if (groupBy === 'status') return <Tag value={g.key} color={statusColor(lists.status ?? [], g.key)} />
+    if (groupBy === 'severity') return <Tag value={g.key} color={colorOf('severity', g.key)} />
+    if (groupBy === 'assignee' && userById[g.key]) return <UserChip user={userById[g.key]} size={22} />
+    return <Typography variant="body2" sx={{ fontWeight: 600 }}>{g.label}</Typography>
+  }, [groupBy, lists.status, colorOf, userById])
+
   const columns = useMemo(() => [
     {
       field: 'number', headerName: 'ID', width: 100,
-      valueGetter: (_v, row) => issueRef(project, row),
+      valueGetter: (_v, row) => (row.group ? row.group.label : issueRef(project, row)),
+      // A heading row spans the whole width; the cells it covers are not drawn.
+      colSpan: (_v, row) => (row.group ? 99 : 1),
+      renderCell: (p) => {
+        const g = p.row.group
+        if (!g) return p.value
+        return (
+          <Stack direction="row" spacing={1} data-issue-group={g.key}
+            sx={{ height: '100%', alignItems: 'center' }}>
+            {g.open
+              ? <ExpandMoreIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+              : <ChevronRightIcon fontSize="small" sx={{ color: 'text.secondary' }} />}
+            {groupLabel(g)}
+            <Typography variant="caption" color="text.secondary">{g.count}</Typography>
+          </Stack>
+        )
+      },
     },
     {
       field: 'title', headerName: 'Title', flex: 2, minWidth: 220,
@@ -293,13 +393,22 @@ export default function Issues() {
         )
       },
     },
-  ], [attachmentCounts, colorOf, userName, userById, slaFor, lists.status, project])
+  ], [attachmentCounts, colorOf, userName, userById, slaFor, lists.status, project, groupLabel])
+
+  // Only tickets still loaded: one deleted since the snapshot has nowhere to go.
+  const siblings = useMemo(() => {
+    if (!selected) return null
+    const loaded = new Set(rows.map((r) => r.id))
+    return (navIds ?? orderedIds).filter((id) => loaded.has(id))
+  }, [selected, navIds, rows, orderedIds])
 
   const activeFilterCount = Object.entries(filters)
     .filter(([k, v]) => v && v !== EMPTY_FILTERS[k]).length
 
   return (
-    <Stack spacing={2}>
+    // The page fills the window below the header (64px) and its padding, so the
+    // grid can take whatever height the filters leave it.
+    <Stack spacing={2} sx={{ height: { xs: 'calc(100dvh - 104px)', sm: 'calc(100dvh - 112px)' } }}>
       <Stack direction="row" sx={{ alignItems: 'center', gap: 2 }}>
         <Typography variant="h5">Issues</Typography>
         <Box sx={{ flexGrow: 1 }} />
@@ -406,23 +515,45 @@ export default function Issues() {
           {activeView === '' && activeFilterCount > 0 && (
             <Chip size="small" label="unsaved filters" variant="outlined" />
           )}
+          <Box sx={{ flexGrow: 1 }} />
+          <TextField
+            select size="small" label="Group by" value={groupBy}
+            onChange={(e) => changeGroupBy(e.target.value)} sx={{ minWidth: 150 }}
+          >
+            {GROUP_BY.map((g) => <MenuItem key={g.value} value={g.value}>{g.label}</MenuItem>)}
+          </TextField>
         </Stack>
       </Paper>
 
-      <Paper sx={{ height: 620 }}>
+      <Paper sx={{ flex: 1, minHeight: 400 }}>
         <DataGrid
-          rows={filtered} columns={columns} loading={loading}
+          rows={gridRows} columns={columns} loading={loading}
+          getRowId={(r) => r.rowId ?? r.id}
+          getRowClassName={(p) => (p.row.group ? 'issue-group' : '')}
           disableRowSelectionOnClick
-          onRowClick={(p) => openIssue(p.row.id)}
-          initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
+          // The grid's own column filter would hide group headings along with
+          // tickets; the filters above are the page's filters.
+          disableColumnFilter
+          sortingMode="server" sortModel={sortModel} onSortModelChange={setSortModel}
+          onRowClick={(p) => {
+            if (p.row.group) return toggleGroup(p.row.group.key)
+            setNavIds(orderedIds)
+            openIssue(p.row.id)
+          }}
+          initialState={{ pagination: { paginationModel: { pageSize: 100 } } }}
           pageSizeOptions={[25, 50, 100]}
-          sx={{ border: 0, '& .MuiDataGrid-row': { cursor: 'pointer' } }}
+          sx={{
+            border: 0,
+            '& .MuiDataGrid-row': { cursor: 'pointer' },
+            '& .issue-group': { bgcolor: 'grey.50' },
+          }}
         />
       </Paper>
 
       <IssueDetail
         issueId={selected} open={Boolean(selected)}
         onClose={closeIssue} onSaved={load}
+        siblings={siblings} onNavigate={openIssue}
       />
 
       <Dialog open={Boolean(viewDialog)} onClose={() => setViewDialog(null)} fullWidth maxWidth="xs">

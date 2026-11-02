@@ -57,7 +57,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `/login` — email/password sign-in.
 - `/dashboard` — the selected project's open work: your queue, what is close to
   breaching, and status/assignee/severity breakdowns. No role guard.
-- `/issues` — filterable DataGrid of tickets; admins/managers save **views**.
+- `/issues` — filterable DataGrid of tickets, grouped (status by default;
+  remembered per browser, not in a view); admins/managers save **views**.
 - `/board` — kanban by status; drag between lanes to change status.
 - `/report` — manager/admin analytics over the selected range.
 - `/schedule` — the selected project's **support rota**; manager/admin. Exists
@@ -125,6 +126,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `schedules.js` — the support rota: day keys (plain `YYYY-MM-DD` strings, never
   parsed into instants), which schedule covers a date, overlap detection, and
   past/current/upcoming.
+- `grouping.js` — the Issues list's group-by choices and group order; a ticket
+  on two people sits under both.
 - `projects.js` — key format/normalisation, ticket refs, embed and share URLs.
 - `format.js` — timestamp parsing (all `timestamptz`, shown local), durations,
   initials, hashed colours.

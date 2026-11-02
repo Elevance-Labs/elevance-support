@@ -1,6 +1,6 @@
 import { reporter } from './setup.js'
 import {
-  formatDate, formatDateTime, toLocal, toMillis, duration, elapsed, DATE_TIME_FORMAT,
+  formatDate, formatDateTime, toLocal, toMillis, duration, elapsed, ago, DATE_TIME_FORMAT,
 } from '../src/lib/format.js'
 
 const { check, done } = reporter()
@@ -73,5 +73,15 @@ check('duration between UTC and an equal +05:00 instant is zero',
   duration('2026-08-22T00:00:00Z', '2026-08-22T05:00:00+05:00') === '0s',
   duration('2026-08-22T00:00:00Z', '2026-08-22T05:00:00+05:00'))
 check('elapsed handles a missing value', elapsed(null) === '')
+
+// ---- ago: hours drop minutes, days keep hours ----
+const T = Date.parse('2026-08-22T12:00:00Z')
+const before = (ms) => new Date(T - ms).toISOString()
+check('ago: minutes', ago(before(5 * 60_000), T) === '5m')
+check('ago: hours without minutes', ago(before(23 * 3_600_000 + 40 * 60_000), T) === '23h')
+check('ago: days with hours', ago(before(26 * 3_600_000), T) === '1d 2h')
+check('ago: whole days', ago(before(48 * 3_600_000), T) === '2d')
+check('ago: under a minute', ago(before(10_000), T) === 'just now')
+check('ago: nothing to measure', ago(null, T) === '')
 
 done()

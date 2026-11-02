@@ -17,7 +17,7 @@ const { theme } = await import('../src/theme')
 const { AuthContext } = await import('../src/context/AuthContext')
 const { ConfigProvider } = await import('../src/context/ConfigContext')
 const { captured, FIXTURES } = await import('./mockSupabase.js')
-const ConversationThread = (await import('../src/components/ConversationThread')).default
+const { default: ConversationThread, LastEmail } = await import('../src/components/ConversationThread')
 
 const { check, done } = reporter()
 const [ada, grace] = FIXTURES.profiles
@@ -29,6 +29,7 @@ const setValue = (node, value) => act(async () => {
   node.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
 })
 
+let lastReported = null
 async function render(profile, issue = FIXTURES.issue) {
   D.body.innerHTML = ''
   const el = D.createElement('div')
@@ -38,7 +39,8 @@ async function render(profile, issue = FIXTURES.issue) {
       <ThemeProvider theme={theme}><MemoryRouter>
         <AuthContext.Provider value={{ session: {}, profile, loading: false }}>
           <ConfigProvider>
-            <ConversationThread issue={issue} ticketRef="ACME-42" />
+            <ConversationThread issue={issue} ticketRef="ACME-42"
+              onLast={(m) => { lastReported = m }} />
           </ConfigProvider>
         </AuthContext.Provider>
       </MemoryRouter></ThemeProvider>)
@@ -76,6 +78,7 @@ check('and it says who to ask', text().includes('Ask an admin'))
 const kinds = [...D.querySelectorAll('[data-email-message]')].map((p) => p.getAttribute('data-email-message'))
 check('sent and received are told apart', kinds.join() === 'outbound,inbound,outbound', kinds.join())
 check('a delivered send says so', text().includes('Delivered'))
+check('the thread reports its newest email, for the tab to show', lastReported?.id === 'em-3')
 check('a bounced send says so, rather than failing silently', text().includes('Not delivered'))
 check('a received email names who sent it', text().includes('Jane') && text().includes('jane@acme.com'))
 check('and who else was copied', text().includes('Cc boss@acme.com'))
@@ -168,5 +171,16 @@ check("a sent email's formatting shows in the thread", Boolean(sentCard?.querySe
 await render(writer, { ...FIXTURES.issue, requester_email: null })
 check('a ticket with no requester email has no composer',
   !box() && text().includes('no requester email'))
+
+// ---- the tab's label: which way the last email went, and how long ago ----
+D.body.innerHTML = ''
+const tabEl = D.createElement('div')
+D.body.appendChild(tabEl)
+await act(async () => {
+  createRoot(tabEl).render(<ThemeProvider theme={theme}><LastEmail message={FIXTURES.email_messages[1]} /></ThemeProvider>)
+})
+const marker = D.querySelector('[data-last-email]')
+check('the tab says a received email came in, and how long ago',
+  marker?.getAttribute('data-last-email') === 'inbound' && marker.textContent === '1h', marker?.textContent)
 
 done()

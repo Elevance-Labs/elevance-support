@@ -47,6 +47,9 @@ const stamp = (m) => String(m?.created_at ?? '')
 export const newestFirst = (messages = []) =>
   [...messages].sort((a, b) => stamp(b).localeCompare(stamp(a)))
 
+/** The most recent message in a thread, whichever way it went; null when none. */
+export const latestMessage = (messages = []) => newestFirst(messages)[0] ?? null
+
 /** The words a delivery status is shown with, and the chip colour for it. */
 export const DELIVERY = {
   sent:      { label: 'Sent',      color: 'default', hint: 'Handed to the mail service; not yet confirmed delivered.' },

@@ -8,6 +8,8 @@ import LockIcon from '@mui/icons-material/Lock'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import LinkIcon from '@mui/icons-material/Link'
 import CheckIcon from '@mui/icons-material/Check'
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import { supabase } from '../lib/supabase'
 import { useConfig } from '../context/ConfigContext'
 import { useAuth } from '../context/AuthContext'
@@ -30,7 +32,7 @@ import {
 import StatusTimeline from './StatusTimeline'
 import AttachmentGallery from './AttachmentGallery'
 import CommentsThread from './CommentsThread'
-import ConversationThread from './ConversationThread'
+import ConversationThread, { LastEmail } from './ConversationThread'
 import UserAvatar, { UserOption } from './UserAvatar'
 import { StatusLabel } from './StatusDot'
 import { SeverityOption, SeverityValue } from './SeverityOption'
@@ -47,8 +49,12 @@ import GoogleChatIcon from './GoogleChatIcon'
  * customer's account of their problem — type and priority, frozen as submitted
  * — plus the one judgement the team makes about how bad it is. "Details" is
  * everything the team decides for itself and may keep changing.
+ *
+ * `siblings` is the list the ticket was opened from, in the order the page
+ * draws it — the grid's sort and filters, or the board lane. With it, the
+ * header steps up and down that list through `onNavigate`.
  */
-export default function IssueDetail({ issueId, open, onClose, onSaved }) {
+export default function IssueDetail({ issueId, open, onClose, onSaved, siblings, onNavigate }) {
   const { lists, users, statuses, colorOf } = useConfig()
   const userById = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u])), [users])
   const { profile } = useAuth()
@@ -69,6 +75,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
   const [thread, setThread] = useState('comments')
   const [commentCount, setCommentCount] = useState(0)
   const [emailCount, setEmailCount] = useState(0)
+  const [lastEmail, setLastEmail] = useState(null)
 
   const load = useCallback(async () => {
     if (!issueId) return
@@ -164,6 +171,29 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
     onClose()
   }
 
+  // Stepping to a neighbour leaves this ticket just as closing does, so it asks
+  // the same question first.
+  const position = siblings && onNavigate ? siblings.indexOf(issueId) : -1
+  const prevId = position > 0 ? siblings[position - 1] : null
+  const nextId = position >= 0 && position < siblings.length - 1 ? siblings[position + 1] : null
+  const go = (id) => {
+    if (!id) return
+    if (dirty && !confirm('You have unsaved changes. Discard them and move on?')) return
+    onNavigate(id)
+  }
+
+  // Alt+↑ / Alt+↓, so plain arrows still scroll the panes and move the caret.
+  useEffect(() => {
+    if (!open || position < 0) return
+    const onKey = (e) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+      if (e.key === 'ArrowUp' && prevId) { e.preventDefault(); go(prevId) }
+      if (e.key === 'ArrowDown' && nextId) { e.preventDefault(); go(nextId) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
   // The same question for a reload or a closed tab, which the browser asks in
   // its own words.
   useEffect(() => {
@@ -235,6 +265,29 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
           <Stack direction="row" spacing={2} sx={{
             p: 2, alignItems: 'flex-start', borderBottom: '1px solid #e5e7eb',
           }}>
+            {position >= 0 && (
+              <Stack sx={{ alignItems: 'center', mt: -0.5 }}>
+                <Tooltip title="Previous ticket (Alt+↑)" placement="left">
+                  <span>
+                    <IconButton size="small" onClick={() => go(prevId)} disabled={!prevId}
+                      aria-label="Previous ticket">
+                      <KeyboardArrowUpIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1 }}>
+                  {position + 1}/{siblings.length}
+                </Typography>
+                <Tooltip title="Next ticket (Alt+↓)" placement="left">
+                  <span>
+                    <IconButton size="small" onClick={() => go(nextId)} disabled={!nextId}
+                      aria-label="Next ticket">
+                      <KeyboardArrowDownIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Stack>
+            )}
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
               {/* Project first, then the ticket's own identifier: which queue
                   this belongs to is the context for reading the number. */}
@@ -498,7 +551,12 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
                   <Tab value="comments" sx={{ minHeight: 36, py: 0.5 }}
                     label={commentCount ? `Comments (${commentCount})` : 'Comments'} />
                   <Tab value="conversation" sx={{ minHeight: 36, py: 0.5 }}
-                    label={emailCount ? `Conversation (${emailCount})` : 'Conversation'} />
+                    label={(
+                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                        <span>{emailCount ? `Conversation (${emailCount})` : 'Conversation'}</span>
+                        <LastEmail message={lastEmail} />
+                      </Stack>
+                    )} />
                 </Tabs>
                 <Box hidden={thread !== 'comments'}>
                   <CommentsThread issueId={issue.id} hideHeading onCount={setCommentCount}
@@ -506,7 +564,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved }) {
                 </Box>
                 <Box hidden={thread !== 'conversation'}>
                   <ConversationThread issue={saved} ticketRef={issueRef(project, issue)}
-                    onCount={setEmailCount} />
+                    onCount={setEmailCount} onLast={setLastEmail} />
                 </Box>
               </Box>
             </Stack>
