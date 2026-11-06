@@ -44,10 +44,23 @@ const RESOLVED_WINDOWS = [
 // `assignee_id` is singular on purpose, though it now filters against the
 // ticket's whole set: these keys are what a saved view stores, and renaming one
 // would silently drop that filter from every view already saved.
+//
+// Every dropdown filter holds a list, and several picks widen it: a ticket
+// matching any of them shows. Views saved when each held one value carry a
+// string, so `readFilters` lifts it into a list of one.
+const MULTI = ['status', 'type', 'priority', 'severity', 'assignee_id', 'product', 'company', 'labels']
 const EMPTY_FILTERS = {
-  search: '', status: '', type: '', priority: '', severity: '', assignee_id: '',
-  product: '', company: '', labels: [], resolvedWithin: '7',
+  search: '', status: [], type: [], priority: [], severity: [], assignee_id: [],
+  product: [], company: [], labels: [], resolvedWithin: '7',
 }
+const asList = (v) => (Array.isArray(v) ? v : v ? [v] : [])
+const readFilters = (saved) => {
+  const f = { ...EMPTY_FILTERS, ...saved }
+  MULTI.forEach((k) => { f[k] = asList(f[k]) })
+  return f
+}
+// An empty pick is no filter at all.
+const allows = (picked, value) => !picked.length || picked.includes(value)
 
 // A filter counts as applied when it differs from its empty value; `labels` is
 // a list, so an empty one is as unapplied as an empty string.
@@ -210,19 +223,17 @@ export default function Issues() {
         const closedAt = toMillis(r.closed_at)
         if (closedAt && closedAt < cutoff) return false
       }
-      if (filters.status && r.status !== filters.status) return false
-      if (filters.type && r.type !== filters.type) return false
-      if (filters.priority && r.priority !== filters.priority) return false
-      if (filters.severity && r.severity !== filters.severity) return false
-      if (filters.product && r.product !== filters.product) return false
-      if (filters.company && r.company !== filters.company) return false
-      // Several labels widen the filter: a ticket carrying any of them shows.
-      if (filters.labels?.length && !(r.labels ?? []).some((l) => filters.labels.includes(l))) return false
+      if (!allows(filters.status, r.status)) return false
+      if (!allows(filters.type, r.type)) return false
+      if (!allows(filters.priority, r.priority)) return false
+      if (!allows(filters.severity, r.severity)) return false
+      if (!allows(filters.product, r.product)) return false
+      if (!allows(filters.company, r.company)) return false
+      if (filters.labels.length && !(r.labels ?? []).some((l) => filters.labels.includes(l))) return false
       // A ticket can be on two people; it belongs in either of their filters.
-      if (filters.assignee_id) {
-        const match = filters.assignee_id === 'unassigned'
-          ? !hasAssignees(r)
-          : assigneesOf(r).includes(filters.assignee_id)
+      if (filters.assignee_id.length) {
+        const match = (filters.assignee_id.includes('unassigned') && !hasAssignees(r))
+          || assigneesOf(r).some((id) => filters.assignee_id.includes(id))
         if (!match) return false
       }
       if (q) {
@@ -281,7 +292,7 @@ export default function Issues() {
   const applyView = (id) => {
     setActiveView(id)
     const v = views.find((x) => x.id === id)
-    setFilters(v ? { ...EMPTY_FILTERS, ...v.filters } : EMPTY_FILTERS)
+    setFilters(v ? readFilters(v.filters) : EMPTY_FILTERS)
   }
 
   const saveView = async () => {
@@ -308,6 +319,14 @@ export default function Issues() {
     setFilters((f) => ({ ...f, [field]: e.target.value }))
     setActiveView('') // editing filters detaches from the saved view
   }
+  const pick = (field) => (_e, v) => {
+    setFilters((f) => ({ ...f, [field]: v }))
+    setActiveView('')
+  }
+  const names = (list) => (list ?? []).map((o) => o.name)
+  const assigneeChoices = useMemo(
+    () => ['unassigned', ...[...users].sort(byDisplayName).map((u) => u.id)], [users])
+  const assigneeLabel = (id) => (id === 'unassigned' ? 'Unassigned' : userName(id) || 'Unknown')
 
   const groupLabel = useCallback((g) => {
     if (g.key === '') return <Typography variant="body2" color="text.secondary"><em>{g.label}</em></Typography>
@@ -448,27 +467,15 @@ export default function Issues() {
               },
             }}
           />
-          <Filter label="Status"   value={filters.status}   onChange={set('status')}   options={lists.status} />
-          <Filter label="Type"     value={filters.type}     onChange={set('type')}     options={lists.type} />
-          <Filter label="Priority" value={filters.priority} onChange={set('priority')} options={lists.priority} />
-          <Filter label="Severity" value={filters.severity} onChange={set('severity')} options={lists.severity} />
-          <Filter label="Product"  value={filters.product}  onChange={set('product')}  options={lists.product} />
+          <MultiFilter label="Status"   value={filters.status}   onChange={pick('status')}   options={names(lists.status)} />
+          <MultiFilter label="Type"     value={filters.type}     onChange={pick('type')}     options={names(lists.type)} />
+          <MultiFilter label="Priority" value={filters.priority} onChange={pick('priority')} options={names(lists.priority)} />
+          <MultiFilter label="Severity" value={filters.severity} onChange={pick('severity')} options={names(lists.severity)} />
+          <MultiFilter label="Product"  value={filters.product}  onChange={pick('product')}  options={names(lists.product)} />
           {/* Options include companies already on a ticket, so a value typed
               before the list existed can still be filtered for. */}
-          <TextField
-            select size="small" label="Company" value={filters.company}
-            onChange={set('company')} sx={{ minWidth: 180 }}
-          >
-            <MenuItem value="">All</MenuItem>
-            {companyChoices.map((name) => <MenuItem key={name} value={name}>{name}</MenuItem>)}
-          </TextField>
-          <Autocomplete
-            multiple size="small" limitTags={2} disableCloseOnSelect
-            options={labelChoices} value={filters.labels ?? []}
-            onChange={(_e, v) => { setFilters((f) => ({ ...f, labels: v })); setActiveView('') }}
-            renderInput={(p) => <TextField {...p} label="Labels" placeholder={filters.labels?.length ? '' : 'All'} />}
-            sx={{ minWidth: 200 }}
-          />
+          <MultiFilter label="Company" value={filters.company} onChange={pick('company')} options={companyChoices} width={200} />
+          <MultiFilter label="Labels" value={filters.labels} onChange={pick('labels')} options={labelChoices} width={200} />
           <TextField
             select size="small" label="Resolved" value={filters.resolvedWithin}
             onChange={set('resolvedWithin')} sx={{ minWidth: 150 }}
@@ -477,18 +484,20 @@ export default function Issues() {
               <MenuItem key={w.value} value={w.value}>{w.label}</MenuItem>
             ))}
           </TextField>
-          <TextField
-            select size="small" label="Assignee" value={filters.assignee_id}
-            onChange={set('assignee_id')} sx={{ minWidth: 150 }}
-          >
-            <MenuItem value="">All</MenuItem>
-            <MenuItem value="unassigned"><em>Unassigned</em></MenuItem>
-            {[...users].sort(byDisplayName).map((u) => (
-              <MenuItem key={u.id} value={u.id}>
-                <UserChip user={u} size={22} />
-              </MenuItem>
-            ))}
-          </TextField>
+          <MultiFilter
+            label="Assignee" value={filters.assignee_id} onChange={pick('assignee_id')}
+            options={assigneeChoices} getOptionLabel={assigneeLabel} width={200}
+            renderOption={(props, id) => {
+              const { key, ...rest } = props
+              return (
+                <li key={key} {...rest}>
+                  {id === 'unassigned'
+                    ? <em>Unassigned</em>
+                    : <UserChip user={userById[id] ?? { id }} size={22} />}
+                </li>
+              )
+            }}
+          />
           {activeFilterCount > 0 && (
             <Button size="small" startIcon={<ClearIcon />}
               onClick={() => { setFilters(EMPTY_FILTERS); setActiveView('') }}>
@@ -602,11 +611,15 @@ export default function Issues() {
   )
 }
 
-function Filter({ label, value, onChange, options = [] }) {
+// A dropdown that takes several picks; none picked reads as "All".
+function MultiFilter({ label, value, onChange, options = [], width = 160, ...rest }) {
   return (
-    <TextField select size="small" label={label} value={value} onChange={onChange} sx={{ minWidth: 140 }}>
-      <MenuItem value="">All</MenuItem>
-      {options.map((o) => <MenuItem key={o.id} value={o.name}>{o.name}</MenuItem>)}
-    </TextField>
+    <Autocomplete
+      multiple size="small" limitTags={1} disableCloseOnSelect
+      options={options} value={value} onChange={onChange}
+      renderInput={(p) => <TextField {...p} label={label} placeholder={value.length ? '' : 'All'} />}
+      sx={{ minWidth: width }}
+      {...rest}
+    />
   )
 }
