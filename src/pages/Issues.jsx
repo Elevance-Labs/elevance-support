@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
   IconButton, InputAdornment, MenuItem, Paper, Stack, TextField, Tooltip,
-  Typography, Chip,
+  Typography, Chip, Autocomplete,
 } from '@mui/material'
 import { DataGrid } from '@mui/x-data-grid'
 import { useSearchParams } from 'react-router-dom'
@@ -46,8 +46,14 @@ const RESOLVED_WINDOWS = [
 // would silently drop that filter from every view already saved.
 const EMPTY_FILTERS = {
   search: '', status: '', type: '', priority: '', severity: '', assignee_id: '',
-  product: '', company: '', resolvedWithin: '7',
+  product: '', company: '', labels: [], resolvedWithin: '7',
 }
+
+// A filter counts as applied when it differs from its empty value; `labels` is
+// a list, so an empty one is as unapplied as an empty string.
+const isApplied = (key, value) => (Array.isArray(value)
+  ? value.length > 0
+  : Boolean(value) && value !== EMPTY_FILTERS[key])
 
 // How the list is grouped is a per-person convenience, so it is remembered in
 // this browser rather than in a saved view.
@@ -186,6 +192,14 @@ export default function Issues() {
 
   const companyChoices = useMemo(() => companyOptions(companies, rows), [companies, rows])
 
+  // Every label configured, plus any already on a ticket — a retired label can
+  // still be filtered for while tickets carry it.
+  const labelChoices = useMemo(() => {
+    const names = new Set((lists.labels ?? []).map((l) => l.name))
+    rows.forEach((r) => (r.labels ?? []).forEach((l) => names.add(l)))
+    return [...names].sort((a, b) => a.localeCompare(b))
+  }, [lists.labels, rows])
+
   const filtered = useMemo(() => {
     const q = filters.search.trim().toLowerCase()
     const days = Number(filters.resolvedWithin)
@@ -202,6 +216,8 @@ export default function Issues() {
       if (filters.severity && r.severity !== filters.severity) return false
       if (filters.product && r.product !== filters.product) return false
       if (filters.company && r.company !== filters.company) return false
+      // Several labels widen the filter: a ticket carrying any of them shows.
+      if (filters.labels?.length && !(r.labels ?? []).some((l) => filters.labels.includes(l))) return false
       // A ticket can be on two people; it belongs in either of their filters.
       if (filters.assignee_id) {
         const match = filters.assignee_id === 'unassigned'
@@ -403,7 +419,7 @@ export default function Issues() {
   }, [selected, navIds, rows, orderedIds])
 
   const activeFilterCount = Object.entries(filters)
-    .filter(([k, v]) => v && v !== EMPTY_FILTERS[k]).length
+    .filter(([k, v]) => isApplied(k, v)).length
 
   return (
     // The page fills the window below the header (64px) and its padding, so the
@@ -446,6 +462,13 @@ export default function Issues() {
             <MenuItem value="">All</MenuItem>
             {companyChoices.map((name) => <MenuItem key={name} value={name}>{name}</MenuItem>)}
           </TextField>
+          <Autocomplete
+            multiple size="small" limitTags={2} disableCloseOnSelect
+            options={labelChoices} value={filters.labels ?? []}
+            onChange={(_e, v) => { setFilters((f) => ({ ...f, labels: v })); setActiveView('') }}
+            renderInput={(p) => <TextField {...p} label="Labels" placeholder={filters.labels?.length ? '' : 'All'} />}
+            sx={{ minWidth: 200 }}
+          />
           <TextField
             select size="small" label="Resolved" value={filters.resolvedWithin}
             onChange={set('resolvedWithin')} sx={{ minWidth: 150 }}
