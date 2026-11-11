@@ -174,6 +174,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   it offers (never the ticket itself or one already linked; same company first).
 - `chat.js` — the Google Chat thread link built from a ticket's recorded thread
   name; the web address is Google's, so it is built in this one place.
+- `install.js` — the device and browser (`detectDevice`), running installed
+  or in a tab (`isStandalone`), the install steps for each (`installGuide`).
 - `suite.js` — the Elevance suite (Work, Support, People): where each app
   lives (the sibling folder, or `VITE_SUITE_*_URL`) and the `?sso=<email>`
   hand-over. `components/AppSwitcher` is the grid icon before the logo;
@@ -373,8 +375,11 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   prefix when the app is not served from the root (GitHub Pages project site);
   it feeds Vite's `base`, the router `basename` and `appOrigin()`.
 - **PWA**: `vite.pwa.js` (build plugin, no dependency) emits
-  `manifest.webmanifest` and `sw.js`; `src/pwa.js` registers it and
-  `components/UpdatePrompt` offers a waiting build. The worker caches the app's
+  `manifest.webmanifest` and `sw.js`; `src/pwa.js` registers it, keeps the
+  browser's install offer, and `components/UpdatePrompt` offers a waiting build.
+  `components/InstallApp` is the Install button (nav foot beside Collapse; a
+  dismissible banner atop the phone navigation): the browser's dialog where it
+  has one, else steps from `lib/install.js`; hidden when running installed. The worker caches the app's
   own files only — **never a Supabase response** — stays inside its own folder
   (sibling apps share the origin), and leaves the public routes (`embed/`,
   `i/`, `tickets`) to the network; they are listed twice, in `vite.config.js`

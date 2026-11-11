@@ -29,6 +29,7 @@ import { displayName } from '../lib/users'
 import UserAvatar from './UserAvatar'
 import AppSwitcher from './AppSwitcher'
 import { useNavCollapsed } from './useNavCollapsed'
+import { InstallBanner, InstallNavButton } from './InstallApp'
 
 // The shell is the one the other Elevance apps wear: a header across the top
 // (navigation toggle, app switcher, logo, account) and the navigation under
@@ -164,6 +165,8 @@ function AppLayoutInner() {
         slotProps={{ paper: { sx: { width: narrow ? WIDTH : width, boxSizing: 'border-box', overflowX: 'hidden', border: 0, borderRight: '1px solid #e5e7eb', borderRadius: 0 } } }}
       >
         <Toolbar />
+        {/* On a phone the offer to install leads the navigation, until dismissed. */}
+        {narrow && <InstallBanner />}
         <List sx={{ px: rail ? 1 : 1.5, py: 1.5 }}>
           {NAV.filter((n) => !n.show || n.show(profile)).map((n) => (
             <Tooltip key={n.to} title={rail ? n.label : ''} placement="right">
@@ -188,23 +191,31 @@ function AppLayoutInner() {
           ))}
         </List>
         {/* Pinned to the foot of the navigation, where it stays put whether the
-            navigation is folded or not. Not a page, so not a list item. */}
+            navigation is folded or not. Not a page, so not a list item. Install
+            shares the row, after Collapse; on the rail it sits above it. */}
         {!narrow && (
-          <Box sx={{ mt: 'auto', position: 'sticky', bottom: 0, p: 1, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider' }}>
+          <Box
+            sx={{
+              mt: 'auto', position: 'sticky', bottom: 0, p: 1, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider',
+              display: 'flex', flexDirection: rail ? 'column' : 'row', gap: 0.5,
+            }}
+          >
+            {rail && <InstallNavButton rail />}
             <Tooltip title={rail ? navLabel : ''} placement="right">
               <ButtonBase
                 onClick={toggleCollapsed}
                 aria-label={navLabel}
                 aria-expanded={!rail}
                 sx={{
-                  width: '100%', borderRadius: 2, py: 1, px: rail ? 0 : 1.5, gap: 2, color: 'text.secondary',
+                  flex: rail ? 'none' : 1, minWidth: 0, borderRadius: 2, py: 1, px: rail ? 0 : 1.25, gap: 1.5, color: 'text.secondary',
                   justifyContent: rail ? 'center' : 'flex-start', '&:hover': { bgcolor: 'action.hover' },
                 }}
               >
                 {rail ? <KeyboardDoubleArrowRightIcon /> : <KeyboardDoubleArrowLeftIcon />}
-                {!rail && <Typography variant="body2" sx={{ fontWeight: 500 }}>Collapse</Typography>}
+                {!rail && <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>Collapse</Typography>}
               </ButtonBase>
             </Tooltip>
+            {!rail && <InstallNavButton rail={false} />}
           </Box>
         )}
       </Drawer>

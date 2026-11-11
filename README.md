@@ -80,9 +80,25 @@ the list gets the screen; a ticket, the Create Issue form and the rota open
 full screen; the board and every table scroll sideways inside themselves
 rather than widening the page.
 
-The app can also be **installed** (a PWA): *Install app* in Chrome or Edge's
-address bar, *Add to Home Screen* from Safari's share menu on an iPhone. It
-then opens in its own window with its own icon.
+The app can also be **installed** (a PWA). It then opens in its own window
+(or full screen from the home screen) with its own icon.
+
+- **The Install button.** On a computer it sits at the foot of the
+  navigation, beside *Collapse* (an icon above it when the navigation is
+  folded). On a phone or narrow window it leads the navigation as *Get the
+  app*, with an **×** that hides it for good in that browser.
+- **What it does depends on the browser.** Where the browser lets a page ask
+  (Chrome, Edge and Samsung Internet on a computer or Android), it opens the
+  browser's own install dialog. Everywhere else — every iPhone and iPad, Safari
+  on a Mac — it shows the steps for that device and browser, including "open
+  this in Safari / Chrome first" inside another app's built-in browser.
+  Firefox on a computer cannot install web apps, and says so.
+- **Nothing is offered once you are in the app.** The button is hidden when
+  the page is running installed, and disappears as soon as an install finishes.
+- You can still install by hand: *Install app* in Chrome or Edge's address
+  bar, or *Add to Home Screen* from Safari's share menu.
+- **iPhones open links in Safari, not the app.** iOS has no way for a
+  home-screen app to take over its links.
 
 - **What is kept on the device** is the app itself — its scripts, styles and
   icons — so it opens at once. **Nothing from Supabase is ever cached**:

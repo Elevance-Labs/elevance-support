@@ -48,3 +48,63 @@ export function registerServiceWorker(onUpdate, { skip = [] } = {}) {
 
 /** Public pages: served by the network, never by the cached app shell. */
 export const PUBLIC_PATHS = ['embed/', 'i/', 'tickets']
+
+// ---------------------------------------------------------------------------
+// Installing
+// ---------------------------------------------------------------------------
+
+// Chrome, Edge and Samsung Internet's offer to install the app
+// (`beforeinstallprompt`): `prompt()`, then `userChoice.outcome`.
+let offer = null
+// `installed`: during this visit (the page itself is still a browser tab).
+let state = { installed: false }
+const listeners = new Set()
+let listening = false
+
+const setState = (next) => {
+  state = { ...state, ...next }
+  for (const l of listeners) l()
+}
+
+/**
+ * Keeps the browser's install offer for the Install button, instead of the
+ * browser's own banner. The offer can come as soon as the page loads, so
+ * main.tsx calls this before rendering; calling it again does nothing.
+ */
+export function listenForInstall() {
+  if (listening || typeof window === 'undefined') return
+  listening = true
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault()
+    offer = event
+  })
+  window.addEventListener('appinstalled', () => {
+    offer = null
+    setState({ installed: true })
+  })
+}
+
+export const installState = () => state
+export function subscribeInstall(listener) {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+/**
+ * Shows the browser's install dialog. An offer can be used once: afterwards
+ * the button falls back to the steps. `null` when there was no offer to use.
+ */
+export async function promptInstall() {
+  const event = offer
+  if (!event) return null
+  offer = null
+  try {
+    await event.prompt()
+    const { outcome } = await event.userChoice
+    return outcome
+  } catch {
+    return null
+  }
+}
