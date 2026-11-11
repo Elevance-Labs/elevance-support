@@ -83,6 +83,7 @@ then opens in its own window with its own icon.
   version is available"* with a **Reload** button; until you press it (or
   close every window of the app) you keep the build you started with, so
   nothing changes under you mid-ticket.
+- **Opening the app always asks for the latest page.** The copy kept on the device is used only with no connection, so a deploy shows the next time the app is opened; the prompt above is for an app that is already open.
 - **The public pages are not part of it.** The embedded form, share links and
   company pages are always loaded fresh from the network, are never answered
   from the installed app's copy, and never install anything in a customer's

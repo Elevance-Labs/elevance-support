@@ -21,7 +21,10 @@ import { createHash } from 'node:crypto'
  *     ever deletes its own.
  *   - It never replaces a running app under someone. A new build waits until
  *     the page asks for it (`skip-waiting`, sent from the "new version"
- *     prompt) or every tab has closed.
+ *     prompt) or every tab has closed. The one exception is a version that
+ *     is serving a page it cannot load: that is replaced at once.
+ *   - It never prefers its stored page to the real one. A page load goes to
+ *     the network first; the stored page is for when there is no network.
  *
  * `passthrough` lists path prefixes (relative to the app's folder) whose page
  * loads are left to the network: public pages that must never be served a
@@ -81,9 +84,40 @@ const CACHE = PREFIX + ${JSON.stringify(version)}
 const FILES = ${JSON.stringify(files)}
 const PASSTHROUGH = ${JSON.stringify(passthrough)}
 
+// 'reload' goes past the browser's HTTP cache. The host lets a page be reused
+// for ten minutes, and a copy of index.html from before a deploy names scripts
+// the deploy has removed: stored here, it would be a blank page for good.
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(FILES)))
+  event.waitUntil(
+    caches.open(CACHE)
+      .then((cache) => cache.addAll(FILES.map((file) => new Request(file, { cache: 'reload' }))))
+      .then(brokenShell)
+      .then((broken) => {
+        if (!broken) return
+        // The version in charge is serving a page it cannot load. Take over
+        // now rather than wait to be asked: nobody can press Reload on a
+        // blank page.
+        healing = true
+        return self.skipWaiting()
+      }))
 })
+
+// Whether an older cache of this app holds a page whose scripts or styles are
+// not in it — a build that can only ever render blank.
+let healing = false
+async function brokenShell() {
+  const scope = self.registration.scope
+  const keys = (await caches.keys()).filter((k) => k.startsWith(PREFIX) && k !== CACHE)
+  for (const key of keys) {
+    const cache = await caches.open(key)
+    const shell = await cache.match(scope)
+    if (!shell) continue
+    const html = await shell.text()
+    const refs = [...html.matchAll(/(?:src|href)="([^"]+\\.(?:js|css))"/g)].map((m) => new URL(m[1], scope).href)
+    for (const ref of refs) if (!(await cache.match(ref))) return true
+  }
+  return false
+}
 
 // Only this app's older caches: sibling apps share the origin.
 self.addEventListener('activate', (event) => {
@@ -91,7 +125,9 @@ self.addEventListener('activate', (event) => {
     caches.keys()
       .then((keys) => Promise.all(
         keys.filter((k) => k.startsWith(PREFIX) && k !== CACHE).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim()))
+      .then(() => self.clients.claim())
+      .then(() => healing && self.clients.matchAll({ type: 'window' }))
+      .then((windows) => { for (const w of windows || []) w.navigate(w.url) }))
 })
 
 self.addEventListener('message', (event) => {
@@ -108,8 +144,15 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     if (PASSTHROUGH.some((prefix) => path.startsWith(prefix))) return
+    // The page itself is asked of the network first, revalidated rather than
+    // reused, so a deploy shows on the next load and a stored page is never
+    // preferred to the real one. The stored copy answers when there is no
+    // network, and for an address the host has no file for (a deep link).
+    const stored = () => caches.open(CACHE).then((cache) => cache.match(scope))
     event.respondWith(
-      caches.open(CACHE).then((cache) => cache.match(scope)).then((hit) => hit || fetch(request)))
+      fetch(request.url, { cache: 'no-cache' })
+        .then((response) => (response.ok ? response : stored().then((hit) => hit || response)))
+        .catch(() => stored().then((hit) => hit || Response.error())))
     return
   }
   event.respondWith(
