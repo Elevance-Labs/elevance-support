@@ -16,13 +16,23 @@
 export const googleDomain = () =>
   (import.meta.env?.VITE_GOOGLE_DOMAIN ?? '').trim().toLowerCase()
 
-/** The options `signInWithOAuth` is called with. */
-export function googleSignIn(redirectTo, domain = googleDomain()) {
+/**
+ * The options `signInWithOAuth` is called with.
+ *
+ * Ordinarily Google shows its account chooser. With a `hint` — the email a
+ * sibling app handed over (see `suite.js`) — it is told which account instead
+ * and shown no chooser, so someone already signed in to Google comes straight
+ * back signed in here.
+ */
+export function googleSignIn(redirectTo, domain = googleDomain(), hint = '') {
   return {
     provider: 'google',
     options: {
       redirectTo,
-      queryParams: { prompt: 'select_account', ...(domain ? { hd: domain } : {}) },
+      queryParams: {
+        ...(hint ? { login_hint: hint } : { prompt: 'select_account' }),
+        ...(domain ? { hd: domain } : {}),
+      },
     },
   }
 }

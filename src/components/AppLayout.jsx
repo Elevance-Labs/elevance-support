@@ -24,6 +24,7 @@ import CreateIssueDialog from './CreateIssueDialog'
 import ProjectFilter from './ProjectFilter'
 import { displayName } from '../lib/users'
 import UserAvatar from './UserAvatar'
+import AppSwitcher from './AppSwitcher'
 
 const WIDTH = 224
 
@@ -82,7 +83,8 @@ function AppLayoutInner() {
           '& .MuiDrawer-paper': { width: WIDTH, boxSizing: 'border-box', bgcolor: '#fff' },
         }}
       >
-        <Toolbar sx={{ gap: 1, px: 2 }}>
+        <Toolbar sx={{ gap: 1, px: 1 }}>
+          <AppSwitcher current="support" email={profile?.email} />
           <SupportAgentIcon color="primary" />
           <Typography variant="h6" noWrap>Support</Typography>
         </Toolbar>
@@ -115,6 +117,9 @@ function AppLayoutInner() {
                 <MenuIcon />
               </IconButton>
             )}
+            {/* The side nav, and the switcher at its top, are behind the menu
+                button on a narrow screen: keep the way to the other apps out. */}
+            {narrow && <AppSwitcher current="support" email={profile?.email} />}
             {scoped && <ProjectFilter />}
             <Box sx={{ flexGrow: 1 }} />
             {narrow ? (

@@ -169,6 +169,12 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   it offers (never the ticket itself or one already linked; same company first).
 - `chat.js` — the Google Chat thread link built from a ticket's recorded thread
   name; the web address is Google's, so it is built in this one place.
+- `suite.js` — the Elevance suite (Work, Support, People): where each app
+  lives (the sibling folder, or `VITE_SUITE_*_URL`) and the `?sso=<email>`
+  hand-over. `components/AppSwitcher` is the grid icon before the logo;
+  `AuthContext` takes the hint once at load, strips it from the address and,
+  with no session, goes to Google with `login_hint` and no chooser. Never
+  trusted: the account is still found by Google's answer.
 - `signin.js` — what Google is asked for (`VITE_GOOGLE_DOMAIN` narrows the
   chooser, nothing more), reading a refused sign-in out of the address, and
   putting it into words.

@@ -51,6 +51,17 @@ The rules live in [`src/lib/permissions.js`](src/lib/permissions.js) and are
 mirrored by row-level security and the `admin-users` function, so the UI is a
 convenience rather than the only guard.
 
+## Switching between the Elevance apps
+
+The grid icon at the top left opens the **app switcher**: Work, Support and People. Picking one opens that app; the one you are in is marked *You are here*.
+
+**You are not asked to sign in again.** Each app has its own database and its own session, so the switcher is a link that carries your company email (`?sso=you@…`). An app that opens with no session hands that email to Google as a hint and skips the account chooser; Google already knows you, so you land signed in without seeing a screen. If you are not signed in to Google with that account, Google asks as usual.
+
+- The email is only a hint. Who gets in is still decided by Google and by the receiving app's own rules, so being sent to an app you have no account in ends on its login page, saying so.
+- When `VITE_GOOGLE_DOMAIN` is set, only an address on that domain is ever sent or accepted.
+- The hint is used once and removed from the address, so a reload or a bookmark never carries it.
+- By default each app is the sibling folder beside this one (`…/elevance-work/`, `…/elevance-support/`, `…/elevance-people/`). To place one elsewhere (a custom domain, or another port in development), set `VITE_SUITE_WORK_URL`, `VITE_SUITE_SUPPORT_URL` or `VITE_SUITE_PEOPLE_URL` at build time.
+
 ## On a phone, and as an installed app
 
 Every staff page works at phone width. The navigation becomes a drawer opened

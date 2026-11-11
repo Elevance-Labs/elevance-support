@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { appOrigin } from '../lib/projects'
-import { googleSignIn, returnedError, signInErrorMessage } from '../lib/signin'
+import { googleDomain, googleSignIn, returnedError, signInErrorMessage } from '../lib/signin'
+import { SSO_PARAM, ssoHint } from '../lib/suite'
 
 // A sign-in Google or Supabase refused comes back as an error in the address.
 // Read once, as the module loads: the router replaces the address on its first
@@ -11,6 +12,20 @@ const refused = typeof window === 'undefined' ? '' : returnedError(window.locati
 // Exported so tests can inject a role without a real session.
 export const AuthContext = createContext(null)
 export const useAuth = () => useContext(AuthContext)
+
+// A sibling app's switcher hands the person over with their company email in
+// the address (`?sso=`). Read once, and taken out of the address so a reload,
+// a bookmark or the return from Google never carries it again.
+function takeSsoHint() {
+  if (typeof window === 'undefined') return null
+  const url = new URL(window.location.href)
+  if (!url.searchParams.has(SSO_PARAM)) return null
+  const hint = ssoHint(url.search, googleDomain())
+  url.searchParams.delete(SSO_PARAM)
+  window.history.replaceState(window.history.state, '', url)
+  return hint
+}
+const handedOver = takeSsoHint()
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
@@ -37,6 +52,16 @@ export function AuthProvider({ children }) {
     supabase.auth.getSession().then(async ({ data }) => {
       setSession(data.session)
       await loadProfile(data.session?.user?.id)
+      // Handed over with no session here: straight to Google, naming the
+      // account and showing no chooser. The page stays on its spinner until
+      // Google takes over; only a sign-in that could not start falls through
+      // to the login page.
+      if (!data.session && handedOver) {
+        const { error } = await supabase.auth.signInWithOAuth(
+          googleSignIn(`${appOrigin()}/`, googleDomain(), handedOver))
+        if (!error) return
+        setAuthError(signInErrorMessage(error.message))
+      }
       setLoading(false)
     })
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
