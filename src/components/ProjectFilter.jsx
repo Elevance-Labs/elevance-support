@@ -26,7 +26,8 @@ export default function ProjectFilter() {
     <TextField
       select size="small" label="Project" value={projectId ?? ''}
       onChange={(e) => setProjectId(e.target.value)}
-      sx={{ minWidth: 260 }}
+      // Shrinks beside the header's buttons on a phone rather than pushing them off.
+      sx={{ minWidth: { xs: 0, sm: 260 }, flex: { xs: '1 1 0', sm: '0 0 auto' } }}
       slotProps={{
         input: {
           startAdornment: (

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Alert, Button, Dialog, DialogContent, DialogTitle, IconButton, MenuItem,
-  Stack, TextField, Typography,
+  Stack, TextField, Typography, useMediaQuery,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
@@ -15,6 +15,7 @@ import { useProject } from '../context/ProjectContext'
 export default function CreateIssueDialog({ open, onClose, onCreated }) {
   const { projects, projectId } = useProject()
   const [created, setCreated] = useState(false)
+  const phone = useMediaQuery((t) => t.breakpoints.down('sm'))
   // Opens on whichever project the person is already working in, but stays a
   // choice: the call you are logging isn't always about the board you're on.
   const [target, setTarget] = useState(projectId)
@@ -29,7 +30,7 @@ export default function CreateIssueDialog({ open, onClose, onCreated }) {
   }
 
   return (
-    <Dialog open={open} onClose={close} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={close} fullWidth maxWidth="sm" fullScreen={phone}>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Stack sx={{ flexGrow: 1 }}>
           <Typography variant="h6">Create issue</Typography>

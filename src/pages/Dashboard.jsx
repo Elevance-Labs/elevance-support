@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Alert, Box, Chip, LinearProgress, Paper, Stack, Table, TableBody, TableCell,
+  Alert, Box, Chip, LinearProgress, Paper, Stack, TableBody, TableCell,
   TableHead, TableRow, Tooltip, Typography,
 } from '@mui/material'
 import { supabase } from '../lib/supabase'
@@ -23,6 +23,7 @@ import StatTile from '../components/charts/StatTile'
 import { CHART } from '../components/charts/palette'
 import { issueRef } from '../lib/projects'
 import { assigneesOf } from '../lib/assignees'
+import ScrollTable from '../components/ScrollTable'
 
 /** How many rows a list card shows before it says how many it is holding back. */
 const LIST_LIMIT = 8
@@ -236,7 +237,7 @@ function ListCard({ title, subtitle, rows, columns, renderRow, empty, onOpen }) 
       </Stack>
       <Typography variant="caption" color="text.secondary">{subtitle}</Typography>
 
-      <Table size="small" sx={{ mt: 1.5 }}>
+      <ScrollTable minWidth={420} sx={{ mt: 1.5 }}>
         <TableHead>
           <TableRow>
             {columns.map((c, i) => (
@@ -258,7 +259,7 @@ function ListCard({ title, subtitle, rows, columns, renderRow, empty, onOpen }) 
             </TableRow>
           )}
         </TableBody>
-      </Table>
+      </ScrollTable>
 
       {hidden > 0 && (
         <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 1 }}>

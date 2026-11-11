@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert, Autocomplete, AvatarGroup, Box, Button, Chip, Dialog, DialogActions,
   DialogContent, DialogTitle, IconButton, InputAdornment, MenuItem, Paper, Stack,
-  Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
+  TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
@@ -19,6 +19,7 @@ import { byDisplayName, displayName } from '../lib/users'
 import { copyText } from '../lib/publicLink'
 import UserAvatar, { UserChip } from '../components/UserAvatar'
 import ScheduleDialog from '../components/ScheduleDialog'
+import ScrollTable from '../components/ScrollTable'
 import {
   PROJECT_STATUSES, PROJECT_STATUS_COLORS, PROJECT_STATUS_LABELS,
   embedFormUrl, isValidKey, normalizeKey,
@@ -167,7 +168,7 @@ export default function Projects() {
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
 
       <Paper>
-        <Table size="small">
+        <ScrollTable minWidth={820}>
           <TableHead>
             <TableRow>
               <TableCell>Name</TableCell>
@@ -256,7 +257,7 @@ export default function Projects() {
               </TableRow>
             )}
           </TableBody>
-        </Table>
+        </ScrollTable>
       </Paper>
 
       <ScheduleDialog project={scheduling} open={Boolean(scheduling)}

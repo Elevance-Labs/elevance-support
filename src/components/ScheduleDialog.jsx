@@ -1,4 +1,6 @@
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material'
+import {
+  Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography, useMediaQuery,
+} from '@mui/material'
 import ScheduleManager from './ScheduleManager'
 
 /**
@@ -10,8 +12,9 @@ import ScheduleManager from './ScheduleManager'
  * the same power as renaming or deleting the project it belongs to.
  */
 export default function ScheduleDialog({ project, open, onClose }) {
+  const phone = useMediaQuery((t) => t.breakpoints.down('sm'))
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md" fullScreen={phone}>
       <DialogTitle sx={{ pb: 0.5 }}>
         Support schedule
         <Typography variant="body2" color="text.secondary">

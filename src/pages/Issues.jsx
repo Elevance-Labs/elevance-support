@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
   IconButton, InputAdornment, MenuItem, Paper, Stack, TextField, Tooltip,
-  Typography, Chip, Autocomplete,
+  Typography, Chip, Autocomplete, Collapse, useMediaQuery,
 } from '@mui/material'
+import FilterListIcon from '@mui/icons-material/FilterList'
 import { DataGrid } from '@mui/x-data-grid'
 import { useSearchParams } from 'react-router-dom'
 import SearchIcon from '@mui/icons-material/Search'
@@ -437,13 +438,17 @@ export default function Issues() {
     return (navIds ?? orderedIds).filter((id) => loaded.has(id))
   }, [selected, navIds, rows, orderedIds])
 
+  const narrow = useMediaQuery((t) => t.breakpoints.down('md'))
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const activeFilterCount = Object.entries(filters)
     .filter(([k, v]) => isApplied(k, v)).length
 
   return (
-    // The page fills the window below the header (64px) and its padding, so the
-    // grid can take whatever height the filters leave it.
-    <Stack spacing={2} sx={{ height: { xs: 'calc(100dvh - 104px)', sm: 'calc(100dvh - 112px)' } }}>
+    // From a tablet up the page fills the window below the header (64px) and its
+    // padding, so the grid takes whatever height the filters leave it. On a
+    // phone there is no height to share: the page scrolls, the filters fold
+    // away behind a button, and the grid gets most of a screen to itself.
+    <Stack spacing={2} sx={{ height: { xs: 'auto', md: 'calc(100dvh - 112px)' } }}>
       <Stack direction="row" sx={{ alignItems: 'center', gap: 2 }}>
         <Typography variant="h5">Issues</Typography>
         <Box sx={{ flexGrow: 1 }} />
@@ -456,11 +461,22 @@ export default function Issues() {
 
       {!projectsLoading && !projectId && <NoProject />}
 
+      {narrow && (
+        <Box>
+          <Button variant="outlined" startIcon={<FilterListIcon />}
+            aria-expanded={filtersOpen} onClick={() => setFiltersOpen((o) => !o)}>
+            {filtersOpen ? 'Hide filters' : 'Filters'}
+            {activeFilterCount > 0 && ` (${activeFilterCount})`}
+          </Button>
+        </Box>
+      )}
+
+      <Collapse in={!narrow || filtersOpen} sx={{ flexShrink: 0 }}>
       <Paper sx={{ p: 2 }}>
         <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1.5, alignItems: 'center' }}>
           <TextField
             size="small" placeholder="Search title, requester, Jira…" value={filters.search}
-            onChange={set('search')} sx={{ minWidth: 260 }}
+            onChange={set('search')} sx={{ minWidth: { xs: '100%', sm: 260 } }}
             slotProps={{
               input: {
                 startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
@@ -506,7 +522,7 @@ export default function Issues() {
           )}
         </Stack>
 
-        <Stack direction="row" sx={{ mt: 2, gap: 1, alignItems: 'center' }}>
+        <Stack direction="row" sx={{ mt: 2, gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
           <TextField
             select size="small" label="Saved view" value={activeView}
             onChange={(e) => applyView(e.target.value)} sx={{ minWidth: 200 }}
@@ -556,8 +572,9 @@ export default function Issues() {
           </TextField>
         </Stack>
       </Paper>
+      </Collapse>
 
-      <Paper sx={{ flex: 1, minHeight: 400 }}>
+      <Paper sx={{ flex: { md: 1 }, minHeight: 400, height: { xs: '78dvh', md: 'auto' } }}>
         <DataGrid
           rows={gridRows} columns={columns} loading={loading}
           getRowId={(r) => r.rowId ?? r.id}

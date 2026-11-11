@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, IconButton, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell,
+  FormControlLabel, IconButton, MenuItem, Paper, Stack, Switch, TableBody, TableCell,
   TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
@@ -15,6 +15,7 @@ import { formatDateTime, stringColor } from '../lib/format'
 import { can, ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS } from '../lib/permissions'
 import { DEPARTMENTS, departmentOf, displayName } from '../lib/users'
 import UserAvatar from '../components/UserAvatar'
+import ScrollTable from '../components/ScrollTable'
 
 /** Account changes need the service_role key, so they go through an Edge Function. */
 async function adminCall(body) {
@@ -139,7 +140,7 @@ export default function Users() {
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
 
       <Paper>
-        <Table size="small">
+        <ScrollTable minWidth={860}>
           <TableHead>
             <TableRow>
               {/* View only. A photo is changed by its owner on /profile and
@@ -244,7 +245,7 @@ export default function Users() {
               </TableRow>
             )}
           </TableBody>
-        </Table>
+        </ScrollTable>
       </Paper>
 
       {/* create / edit */}

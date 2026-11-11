@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Alert, AppBar, Box, Button, Divider, Drawer, IconButton, List, ListItemButton,
-  ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Typography,
+  ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Typography, useMediaQuery,
 } from '@mui/material'
+import MenuIcon from '@mui/icons-material/Menu'
 import DashboardIcon from '@mui/icons-material/Dashboard'
 import ListAltIcon from '@mui/icons-material/ListAlt'
 import BarChartIcon from '@mui/icons-material/BarChart'
@@ -54,6 +55,11 @@ function AppLayoutInner() {
   const { refresh } = useRefreshSignal()
   const [anchor, setAnchor] = useState(null)
   const [creating, setCreating] = useState(false)
+  // Below a tablet's width the navigation is a drawer opened from the header,
+  // so the page gets the whole screen. Asked as "is it narrow?" so that where
+  // the answer is unknown (no media queries) the full layout is what shows.
+  const narrow = useMediaQuery((t) => t.breakpoints.down('md'))
+  const [navOpen, setNavOpen] = useState(false)
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const scoped = NAV.some((n) => n.scoped && (pathname === n.to || pathname.startsWith(`${n.to}/`)))
@@ -67,9 +73,12 @@ function AppLayoutInner() {
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <Drawer
-        variant="permanent"
+        variant={narrow ? 'temporary' : 'permanent'}
+        open={narrow ? navOpen : true}
+        onClose={() => setNavOpen(false)}
         sx={{
-          width: WIDTH,
+          width: narrow ? 0 : WIDTH,
+          flexShrink: 0,
           '& .MuiDrawer-paper': { width: WIDTH, boxSizing: 'border-box', bgcolor: '#fff' },
         }}
       >
@@ -84,6 +93,7 @@ function AppLayoutInner() {
               key={n.to}
               component={NavLink}
               to={n.to}
+              onClick={() => setNavOpen(false)}
               sx={{
                 borderRadius: 2, mb: 0.5,
                 '&.active': { bgcolor: 'primary.main', color: '#fff',
@@ -99,14 +109,27 @@ function AppLayoutInner() {
 
       <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <AppBar position="sticky" sx={{ borderBottom: '1px solid #e5e7eb', bgcolor: '#fff' }}>
-          <Toolbar sx={{ gap: 1 }}>
+          <Toolbar sx={{ gap: 1, px: { xs: 1.5, sm: 3 } }}>
+            {narrow && (
+              <IconButton edge="start" aria-label="Open navigation" onClick={() => setNavOpen(true)}>
+                <MenuIcon />
+              </IconButton>
+            )}
             {scoped && <ProjectFilter />}
             <Box sx={{ flexGrow: 1 }} />
-            <Button variant="contained" startIcon={<AddIcon />}
-              onClick={() => setCreating(true)} sx={{ mr: 1 }}>
-              Create Issue
-            </Button>
-            <Typography variant="body2" color="text.secondary">
+            {narrow ? (
+              <Button variant="contained" aria-label="Create issue"
+                onClick={() => setCreating(true)} sx={{ minWidth: 0, px: 1 }}>
+                <AddIcon />
+              </Button>
+            ) : (
+              <Button variant="contained" startIcon={<AddIcon />}
+                onClick={() => setCreating(true)} sx={{ mr: 1 }}>
+                Create Issue
+              </Button>
+            )}
+            <Typography variant="body2" color="text.secondary" noWrap
+              sx={{ display: { xs: 'none', md: 'block' } }}>
               {displayName(profile, '')}
               {profile?.role && ` · ${ROLE_LABELS[profile.role] ?? profile.role}`}
             </Typography>
@@ -126,7 +149,7 @@ function AppLayoutInner() {
             </Menu>
           </Toolbar>
         </AppBar>
-        <Box sx={{ p: 3, flexGrow: 1, minWidth: 0 }}>
+        <Box sx={{ p: { xs: 1.5, sm: 3 }, flexGrow: 1, minWidth: 0 }}>
           {/* A signed-in user with no profiles row isn't an admin and isn't a member —
               they're in a broken state. Say so instead of quietly hiding pages. */}
           {!profile && (

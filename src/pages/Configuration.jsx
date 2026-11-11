@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
-  IconButton, MenuItem, Paper, Stack, Switch, Tab, Table, TableBody, TableCell,
+  IconButton, MenuItem, Paper, Stack, Switch, Tab, TableBody, TableCell,
   TableHead, TableRow, Tabs, TextField, Tooltip, Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
@@ -15,6 +15,7 @@ import { can } from '../lib/permissions'
 import { isEmptyDoc, storedDoc, toStored } from '../lib/richText'
 import Tag from '../components/Tag'
 import RichTextEditor, { StoredRichText } from '../components/RichTextEditor'
+import ScrollTable from '../components/ScrollTable'
 
 /** "8h", "3d", "36h" — SLA targets read better than a raw hour count. */
 function formatSla(hours) {
@@ -163,7 +164,7 @@ function ListPanel({ type }) {
           </Button>
         </Stack>
 
-        <Table size="small">
+        <ScrollTable minWidth={720}>
           <TableHead>
             <TableRow>
               <TableCell>Name</TableCell>
@@ -273,7 +274,7 @@ function ListPanel({ type }) {
               </TableRow>
             )}
           </TableBody>
-        </Table>
+        </ScrollTable>
       </Box>
 
       <Dialog open={Boolean(dialog)} onClose={() => setDialog(null)} fullWidth maxWidth="xs">
@@ -411,7 +412,7 @@ function TemplatesPanel() {
           </Button>
         </Stack>
 
-        <Table size="small">
+        <ScrollTable minWidth={720}>
           <TableHead>
             <TableRow>
               <TableCell width={220}>Title</TableCell>
@@ -465,7 +466,7 @@ function TemplatesPanel() {
               </TableRow>
             )}
           </TableBody>
-        </Table>
+        </ScrollTable>
       </Box>
 
       <Dialog open={Boolean(dialog)} onClose={() => setDialog(null)} fullWidth maxWidth="sm">

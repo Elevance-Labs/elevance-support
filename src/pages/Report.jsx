@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Alert, Box, Chip, LinearProgress, MenuItem, Paper, Stack, Table, TableBody,
+  Alert, Box, Chip, LinearProgress, MenuItem, Paper, Stack, TableBody,
   TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
 import { supabase } from '../lib/supabase'
@@ -23,6 +23,7 @@ import { ORDINAL, SERIES_1, SERIES_2, seriesColor } from '../components/charts/p
 import { useProject } from '../context/ProjectContext'
 import { NoProject } from '../components/ProjectFilter'
 import { issueRef } from '../lib/projects'
+import ScrollTable from '../components/ScrollTable'
 
 /** Two-up on a wide screen, stacked on a narrow one. */
 const cols = (n) => ({
@@ -249,7 +250,7 @@ export default function Report() {
           every ticket at that severity against it — open ones included, since a ticket
           can breach before it is closed. Untriaged tickets have no target yet.
         </Typography>
-        <Table size="small" sx={{ mt: 1.5 }}>
+        <ScrollTable minWidth={680} sx={{ mt: 1.5 }}>
           <TableHead>
             <TableRow>
               <TableCell>Severity</TableCell>
@@ -289,7 +290,7 @@ export default function Report() {
               </TableRow>
             )}
           </TableBody>
-        </Table>
+        </ScrollTable>
       </Paper>
 
       <Paper sx={{ p: 2 }}>
@@ -299,7 +300,7 @@ export default function Report() {
         <Typography variant="caption" color="text.secondary">
           Open tickets that have used the most of their target. Click one to open it.
         </Typography>
-        <Table size="small" sx={{ mt: 1.5 }}>
+        <ScrollTable minWidth={680} sx={{ mt: 1.5 }}>
           <TableHead>
             <TableRow>
               <TableCell>ID</TableCell>
@@ -346,7 +347,7 @@ export default function Report() {
               </TableRow>
             )}
           </TableBody>
-        </Table>
+        </ScrollTable>
       </Paper>
 
       <IssueDetail

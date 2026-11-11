@@ -247,7 +247,7 @@ export default function ScheduleManager({ project, open = true }) {
               <Stack spacing={1} sx={{ mt: 0.5 }}>
                 {grouped[phase].map((r) => (
                   <Paper key={r.id} variant="outlined"
-                    sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 2 }}>
+                    sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
                     <Box sx={{ minWidth: 200 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
                         {formatRange(r)}

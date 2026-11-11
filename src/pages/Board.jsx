@@ -173,7 +173,7 @@ export default function Board() {
         <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1.5 }}>
           <TextField
             size="small" placeholder="Search…" value={search}
-            onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 240 }}
+            onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: { xs: '100%', sm: 240 } }}
             slotProps={{
               input: {
                 startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
@@ -207,7 +207,7 @@ export default function Board() {
             key={s.id}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => drop(s.name)}
-            sx={{ width: 300, flexShrink: 0, bgcolor: '#f1f3f5', p: 1.5, maxHeight: '72vh', overflowY: 'auto' }}
+            sx={{ width: { xs: 280, sm: 300 }, flexShrink: 0, bgcolor: '#f1f3f5', p: 1.5, maxHeight: '72vh', overflowY: 'auto' }}
           >
             <Stack direction="row" spacing={1} sx={{ mb: 1.5, px: 0.5, alignItems: 'center' }}>
               <StatusDot statusType={s.status_type} />

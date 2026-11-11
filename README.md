@@ -51,6 +51,42 @@ The rules live in [`src/lib/permissions.js`](src/lib/permissions.js) and are
 mirrored by row-level security and the `admin-users` function, so the UI is a
 convenience rather than the only guard.
 
+## On a phone, and as an installed app
+
+Every staff page works at phone width. The navigation becomes a drawer opened
+from the header; the Issues filters fold away behind a **Filters** button so
+the list gets the screen; a ticket, the Create Issue form and the rota open
+full screen; the board and every table scroll sideways inside themselves
+rather than widening the page.
+
+The app can also be **installed** (a PWA): *Install app* in Chrome or Edge's
+address bar, *Add to Home Screen* from Safari's share menu on an iPhone. It
+then opens in its own window with its own icon.
+
+- **What is kept on the device** is the app itself — its scripts, styles and
+  icons — so it opens at once. **Nothing from Supabase is ever cached**:
+  tickets, comments, emails and attachments are fetched every time, and none
+  of it is readable offline. Without a connection the app opens and shows
+  nothing.
+- **A new version waits to be asked.** After a deploy the app says *"A new
+  version is available"* with a **Reload** button; until you press it (or
+  close every window of the app) you keep the build you started with, so
+  nothing changes under you mid-ticket.
+- **The public pages are not part of it.** The embedded form, share links and
+  company pages are always loaded fresh from the network, are never answered
+  from the installed app's copy, and never install anything in a customer's
+  browser.
+- There is no working offline and there are no push notifications; Google
+  Chat stays the channel for those.
+
+It is built by [`vite.pwa.js`](vite.pwa.js) — a small build plugin, no
+dependency — which writes `manifest.webmanifest` and `sw.js` at build time.
+The icons are in `public/icons/`; replace those three files to change the
+artwork (keep it inside the middle 80% of the square, since phones crop it to
+a circle). Several of our apps are served from one origin, so the service
+worker only ever answers for, and only ever clears caches belonging to, its
+own folder.
+
 ## Signing in
 
 Staff sign in with **Google**. There are no passwords, and nothing to type on

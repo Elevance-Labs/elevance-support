@@ -80,6 +80,10 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `&email=` it splits into My tickets / All tickets. Staff see the same page;
   no redirect.
 - Guarding happens in `src/App.jsx` via `<Protected require={can.x}>`.
+- Staff pages are phone-ready: `AppLayout` swaps the side nav for a drawer
+  below `md`; dialogs go full screen below `sm`; tables go through
+  `components/ScrollTable`. Ask "is it narrow?" (`breakpoints.down`), so the
+  full layout is what renders where media queries are unknown (the tests).
 
 ## 5. Contexts — the app's shared state
 
@@ -357,6 +361,14 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `VITE_JIRA_BASE_URL` and `VITE_GOOGLE_DOMAIN`. See `.env.example`. Build-time `VITE_BASE` sets the URL
   prefix when the app is not served from the root (GitHub Pages project site);
   it feeds Vite's `base`, the router `basename` and `appOrigin()`.
+- **PWA**: `vite.pwa.js` (build plugin, no dependency) emits
+  `manifest.webmanifest` and `sw.js`; `src/pwa.js` registers it and
+  `components/UpdatePrompt` offers a waiting build. The worker caches the app's
+  own files only — **never a Supabase response** — stays inside its own folder
+  (sibling apps share the origin), and leaves the public routes (`embed/`,
+  `i/`, `tickets`) to the network; they are listed twice, in `vite.config.js`
+  (`passthrough`) and `src/pwa.js` (`PUBLIC_PATHS`): a new public route goes in
+  both. Icons in `public/icons/`.
 - Deploys: Vercel/Netlify from `dist/` (rewrites in `vercel.json` /
   `public/_redirects`), or GitHub Pages via `.github/workflows/pages.yml`
   (no rewrites there — `404.html` is the SPA fallback).

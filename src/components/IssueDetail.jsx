@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert, Box, Button, Chip, Dialog, Divider, IconButton, Link, MenuItem,
-  Paper, Stack, Tab, Tabs, TextField, Tooltip, Typography, Autocomplete, CircularProgress,
+  Paper, Stack, Tab, Tabs, TextField, Tooltip, Typography, Autocomplete, CircularProgress, useMediaQuery,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import LockIcon from '@mui/icons-material/Lock'
@@ -70,6 +70,8 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
   const [events, setEvents] = useState([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // A phone has no room for a dialog's margins: the ticket takes the screen.
+  const phone = useMediaQuery((t) => t.breakpoints.down('sm'))
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
   // Which thread is showing under the description, and how long each is.
@@ -254,8 +256,8 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
   }
 
   return (
-    <Dialog open={open} onClose={close} fullWidth maxWidth="xl"
-      slotProps={{ paper: { sx: { height: '92vh' } } }}>
+    <Dialog open={open} onClose={close} fullWidth maxWidth="xl" fullScreen={phone}
+      slotProps={{ paper: { sx: { height: phone ? '100%' : '92vh' } } }}>
       {loading || !issue ? (
         <Box sx={{ display: 'grid', placeItems: 'center', height: '100%' }}>
           <CircularProgress />
@@ -263,8 +265,11 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
       ) : (
         <Stack sx={{ height: '100%' }}>
           {/* header */}
-          <Stack direction="row" spacing={2} sx={{
-            p: 2, alignItems: 'flex-start', borderBottom: '1px solid #e5e7eb',
+          {/* On a phone the title takes the first line and the buttons wrap
+              under it, rather than squeezing the title into a sliver. */}
+          <Stack direction="row" spacing={{ xs: 1, md: 2 }} useFlexGap sx={{
+            p: { xs: 1.5, md: 2 }, alignItems: 'flex-start', borderBottom: '1px solid #e5e7eb',
+            flexWrap: { xs: 'wrap', md: 'nowrap' }, justifyContent: 'flex-end',
           }}>
             {position >= 0 && (
               <Stack sx={{ alignItems: 'center', mt: -0.5 }}>
@@ -289,7 +294,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
                 </Tooltip>
               </Stack>
             )}
-            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Box sx={{ flexGrow: 1, minWidth: 0, flexBasis: { xs: 'calc(100% - 96px)', md: 'auto' } }}>
               {/* Project first, then the ticket's own identifier: which queue
                   this belongs to is the context for reading the number. */}
               <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
@@ -335,7 +340,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
           <Box sx={{
             display: 'grid',
             gridTemplateColumns: { xs: '1fr', md: '320px minmax(0, 1fr)', lg: '320px minmax(0, 1fr) 320px' },
-            gap: 2, p: 2, overflowY: 'auto', flexGrow: 1, alignItems: 'start',
+            gap: 2, p: { xs: 1.5, md: 2 }, overflowY: 'auto', flexGrow: 1, alignItems: 'start',
           }}>
             {/* ---------- left: details and controls ---------- */}
             <Stack spacing={2}>

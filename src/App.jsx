@@ -19,6 +19,7 @@ import Configuration from './pages/Configuration'
 import EmbedForm from './pages/EmbedForm'
 import PublicIssue from './pages/PublicIssue'
 import CompanyTickets from './pages/CompanyTickets'
+import UpdatePrompt from './components/UpdatePrompt'
 
 function Splash() {
   return (
@@ -45,6 +46,7 @@ export default function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <UpdatePrompt />
       {/* basename follows Vite's base, so a GitHub Pages project site served
           from /<repo>/ routes the same as a root deployment. */}
       <BrowserRouter basename={import.meta.env.BASE_URL}>
