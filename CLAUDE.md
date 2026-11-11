@@ -80,6 +80,11 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `&email=` it splits into My tickets / All tickets. Staff see the same page;
   no redirect.
 - Guarding happens in `src/App.jsx` via `<Protected require={can.x}>`.
+- **One shell, three apps.** The theme (indigo, Roboto, bold `h5` titles) and
+  the layout (header: switcher, logo, account button with name and role;
+  tinted current page; navigation that folds to a rail from **Collapse** at its
+  foot, via `components/useNavCollapsed`, one localStorage key shared by the
+  apps) match Work, Support and People. A change to either belongs in all three.
 - Staff pages are phone-ready: `AppLayout` swaps the side nav for a drawer
   below `md`; dialogs go full screen below `sm`; tables go through
   `components/ScrollTable`. Ask "is it narrow?" (`breakpoints.down`), so the

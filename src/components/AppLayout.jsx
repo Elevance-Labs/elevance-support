@@ -1,20 +1,23 @@
 import { useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  Alert, AppBar, Box, Button, Divider, Drawer, IconButton, List, ListItemButton,
-  ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Typography, useMediaQuery,
+  Alert, AppBar, Avatar, Box, Button, ButtonBase, Divider, Drawer, IconButton, List, ListItemButton,
+  ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Tooltip, Typography, useMediaQuery,
 } from '@mui/material'
 import MenuIcon from '@mui/icons-material/Menu'
-import DashboardIcon from '@mui/icons-material/Dashboard'
-import ListAltIcon from '@mui/icons-material/ListAlt'
-import BarChartIcon from '@mui/icons-material/BarChart'
-import ViewKanbanIcon from '@mui/icons-material/ViewKanban'
-import PeopleIcon from '@mui/icons-material/People'
-import FolderIcon from '@mui/icons-material/Folder'
-import EventNoteIcon from '@mui/icons-material/EventNote'
-import SettingsIcon from '@mui/icons-material/Settings'
+import KeyboardDoubleArrowLeftIcon from '@mui/icons-material/KeyboardDoubleArrowLeft'
+import KeyboardDoubleArrowRightIcon from '@mui/icons-material/KeyboardDoubleArrowRight'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import DashboardIcon from '@mui/icons-material/DashboardOutlined'
+import ListAltIcon from '@mui/icons-material/ListAltOutlined'
+import BarChartIcon from '@mui/icons-material/BarChartOutlined'
+import ViewKanbanIcon from '@mui/icons-material/ViewKanbanOutlined'
+import PeopleIcon from '@mui/icons-material/PeopleOutlined'
+import FolderIcon from '@mui/icons-material/FolderOutlined'
+import EventNoteIcon from '@mui/icons-material/EventNoteOutlined'
+import SettingsIcon from '@mui/icons-material/SettingsOutlined'
 import LogoutIcon from '@mui/icons-material/Logout'
-import PersonIcon from '@mui/icons-material/Person'
+import PersonIcon from '@mui/icons-material/PersonOutlined'
 import SupportAgentIcon from '@mui/icons-material/SupportAgent'
 import AddIcon from '@mui/icons-material/Add'
 import { useAuth } from '../context/AuthContext'
@@ -25,8 +28,14 @@ import ProjectFilter from './ProjectFilter'
 import { displayName } from '../lib/users'
 import UserAvatar from './UserAvatar'
 import AppSwitcher from './AppSwitcher'
+import { useNavCollapsed } from './useNavCollapsed'
 
-const WIDTH = 224
+// The shell is the one the other Elevance apps wear: a header across the top
+// (navigation toggle, app switcher, logo, account) and the navigation under
+// it on the left. Sizes and spacing match theirs.
+const WIDTH = 248
+// Collapsed, the navigation is a rail just wide enough for its icons.
+const RAIL = 68
 
 // `show` decides visibility per role; see src/lib/permissions.js.
 // `scoped` marks a page that shows one project's data: the header carries the
@@ -52,7 +61,7 @@ export default function AppLayout() {
 }
 
 function AppLayoutInner() {
-  const { profile, signOut } = useAuth()
+  const { profile, session, signOut } = useAuth()
   const { refresh } = useRefreshSignal()
   const [anchor, setAnchor] = useState(null)
   const [creating, setCreating] = useState(false)
@@ -61,9 +70,17 @@ function AppLayoutInner() {
   // the answer is unknown (no media queries) the full layout is what shows.
   const narrow = useMediaQuery((t) => t.breakpoints.down('md'))
   const [navOpen, setNavOpen] = useState(false)
+  // On a wide screen the navigation can be folded to a rail of icons instead.
+  const [collapsed, toggleCollapsed] = useNavCollapsed()
+  const rail = !narrow && collapsed
+  const width = rail ? RAIL : WIDTH
   const navigate = useNavigate()
   const { pathname } = useLocation()
-  const scoped = NAV.some((n) => n.scoped && (pathname === n.to || pathname.startsWith(`${n.to}/`)))
+  const on = (n) => pathname === n.to || pathname.startsWith(`${n.to}/`)
+  const scoped = NAV.some((n) => n.scoped && on(n))
+  const name = displayName(profile, '')
+  const email = profile?.email ?? session?.user?.email ?? ''
+  const role = profile?.role ? (ROLE_LABELS[profile.role] ?? profile.role) : ''
 
   const handleSignOut = async () => {
     setAnchor(null)
@@ -71,101 +88,139 @@ function AppLayoutInner() {
     navigate('/login')
   }
 
+  const navLabel = rail ? 'Expand navigation' : 'Collapse navigation'
+
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      <AppBar position="fixed"
+        sx={{ zIndex: (t) => t.zIndex.drawer + 1, borderBottom: 1, borderColor: 'divider', bgcolor: '#fff' }}>
+        <Toolbar sx={{ gap: { xs: 0.75, sm: 1.5 } }}>
+          {narrow && (
+            <IconButton edge="start" aria-label="Open navigation" onClick={() => setNavOpen(true)}>
+              <MenuIcon />
+            </IconButton>
+          )}
+          <AppSwitcher current="support" email={profile?.email} />
+          <Avatar variant="rounded" sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>
+            <SupportAgentIcon sx={{ fontSize: 20 }} />
+          </Avatar>
+          <Typography variant="h6" component="div" noWrap sx={{ display: { xs: 'none', lg: 'block' } }}>
+            Elevance Support
+          </Typography>
+          {scoped && <ProjectFilter />}
+          <Box sx={{ flexGrow: 1 }} />
+          {narrow ? (
+            <Tooltip title="Create issue">
+              <IconButton color="primary" aria-label="Create issue" onClick={() => setCreating(true)}>
+                <AddIcon />
+              </IconButton>
+            </Tooltip>
+          ) : (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>
+              Create Issue
+            </Button>
+          )}
+          <ButtonBase
+            onClick={(e) => setAnchor(e.currentTarget)}
+            aria-label="Account menu"
+            sx={{ borderRadius: 6, py: 0.5, pl: 0.5, pr: 1, gap: 1.25, flexShrink: 0, '&:hover': { bgcolor: 'action.hover' } }}
+          >
+            <UserAvatar user={profile} size={34} />
+            <Box sx={{ textAlign: 'left', display: { xs: 'none', md: 'block' } }}>
+              <Typography variant="body2" sx={{ fontWeight: 500, lineHeight: 1.2 }}>{name}</Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>{role}</Typography>
+            </Box>
+            <ExpandMoreIcon fontSize="small" sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'block' } }} />
+          </ButtonBase>
+          <Menu
+            anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            slotProps={{ paper: { sx: { mt: 1, minWidth: 240 } } }}
+          >
+            <Box sx={{ px: 2, py: 1 }}>
+              <Typography variant="subtitle2">{name}</Typography>
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>{email}</Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>{role}</Typography>
+            </Box>
+            <Divider />
+            <MenuItem onClick={() => { setAnchor(null); navigate('/profile') }}>
+              <ListItemIcon><PersonIcon fontSize="small" /></ListItemIcon>
+              Profile
+            </MenuItem>
+            <MenuItem onClick={handleSignOut}>
+              <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
+              Sign out
+            </MenuItem>
+          </Menu>
+        </Toolbar>
+      </AppBar>
+
       <Drawer
         variant={narrow ? 'temporary' : 'permanent'}
         open={narrow ? navOpen : true}
         onClose={() => setNavOpen(false)}
-        sx={{
-          width: narrow ? 0 : WIDTH,
-          flexShrink: 0,
-          '& .MuiDrawer-paper': { width: WIDTH, boxSizing: 'border-box', bgcolor: '#fff' },
-        }}
+        sx={{ width: narrow ? 0 : width, flexShrink: 0 }}
+        slotProps={{ paper: { sx: { width: narrow ? WIDTH : width, boxSizing: 'border-box', overflowX: 'hidden', border: 0, borderRight: '1px solid #e5e7eb', borderRadius: 0 } } }}
       >
-        <Toolbar sx={{ gap: 1, px: 1 }}>
-          <AppSwitcher current="support" email={profile?.email} />
-          <SupportAgentIcon color="primary" />
-          <Typography variant="h6" noWrap>Support</Typography>
-        </Toolbar>
-        <Divider />
-        <List sx={{ px: 1, py: 1 }}>
+        <Toolbar />
+        <List sx={{ px: rail ? 1 : 1.5, py: 1.5 }}>
           {NAV.filter((n) => !n.show || n.show(profile)).map((n) => (
-            <ListItemButton
-              key={n.to}
-              component={NavLink}
-              to={n.to}
-              onClick={() => setNavOpen(false)}
-              sx={{
-                borderRadius: 2, mb: 0.5,
-                '&.active': { bgcolor: 'primary.main', color: '#fff',
-                  '& .MuiListItemIcon-root': { color: '#fff' } },
-              }}
-            >
-              <ListItemIcon sx={{ minWidth: 36 }}>{n.icon}</ListItemIcon>
-              <ListItemText primary={n.label} slotProps={{ primary: { fontSize: 14 } }} />
-            </ListItemButton>
+            <Tooltip key={n.to} title={rail ? n.label : ''} placement="right">
+              <ListItemButton
+                component={Link}
+                to={n.to}
+                selected={on(n)}
+                aria-label={n.label}
+                onClick={() => setNavOpen(false)}
+                sx={{
+                  borderRadius: 2, mb: 0.5, justifyContent: rail ? 'center' : 'flex-start',
+                  '&.Mui-selected': {
+                    color: 'primary.main',
+                    '& .MuiListItemIcon-root': { color: 'primary.main' },
+                  },
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: rail ? 0 : 40 }}>{n.icon}</ListItemIcon>
+                {!rail && <ListItemText primary={n.label} slotProps={{ primary: { sx: { fontWeight: 500 } } }} />}
+              </ListItemButton>
+            </Tooltip>
           ))}
         </List>
+        {/* Pinned to the foot of the navigation, where it stays put whether the
+            navigation is folded or not. Not a page, so not a list item. */}
+        {!narrow && (
+          <Box sx={{ mt: 'auto', position: 'sticky', bottom: 0, p: 1, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider' }}>
+            <Tooltip title={rail ? navLabel : ''} placement="right">
+              <ButtonBase
+                onClick={toggleCollapsed}
+                aria-label={navLabel}
+                aria-expanded={!rail}
+                sx={{
+                  width: '100%', borderRadius: 2, py: 1, px: rail ? 0 : 1.5, gap: 2, color: 'text.secondary',
+                  justifyContent: rail ? 'center' : 'flex-start', '&:hover': { bgcolor: 'action.hover' },
+                }}
+              >
+                {rail ? <KeyboardDoubleArrowRightIcon /> : <KeyboardDoubleArrowLeftIcon />}
+                {!rail && <Typography variant="body2" sx={{ fontWeight: 500 }}>Collapse</Typography>}
+              </ButtonBase>
+            </Tooltip>
+          </Box>
+        )}
       </Drawer>
 
-      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <AppBar position="sticky" sx={{ borderBottom: '1px solid #e5e7eb', bgcolor: '#fff' }}>
-          <Toolbar sx={{ gap: 1, px: { xs: 1.5, sm: 3 } }}>
-            {narrow && (
-              <IconButton edge="start" aria-label="Open navigation" onClick={() => setNavOpen(true)}>
-                <MenuIcon />
-              </IconButton>
-            )}
-            {/* The side nav, and the switcher at its top, are behind the menu
-                button on a narrow screen: keep the way to the other apps out. */}
-            {narrow && <AppSwitcher current="support" email={profile?.email} />}
-            {scoped && <ProjectFilter />}
-            <Box sx={{ flexGrow: 1 }} />
-            {narrow ? (
-              <Button variant="contained" aria-label="Create issue"
-                onClick={() => setCreating(true)} sx={{ minWidth: 0, px: 1 }}>
-                <AddIcon />
-              </Button>
-            ) : (
-              <Button variant="contained" startIcon={<AddIcon />}
-                onClick={() => setCreating(true)} sx={{ mr: 1 }}>
-                Create Issue
-              </Button>
-            )}
-            <Typography variant="body2" color="text.secondary" noWrap
-              sx={{ display: { xs: 'none', md: 'block' } }}>
-              {displayName(profile, '')}
-              {profile?.role && ` · ${ROLE_LABELS[profile.role] ?? profile.role}`}
-            </Typography>
-            <IconButton onClick={(e) => setAnchor(e.currentTarget)} size="small">
-              <UserAvatar user={profile} size={32} />
-            </IconButton>
-            <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
-              <MenuItem onClick={() => { setAnchor(null); navigate('/profile') }}>
-                <ListItemIcon><PersonIcon fontSize="small" /></ListItemIcon>
-                Profile
-              </MenuItem>
-              <Divider />
-              <MenuItem onClick={handleSignOut}>
-                <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
-                Sign out
-              </MenuItem>
-            </Menu>
-          </Toolbar>
-        </AppBar>
-        <Box sx={{ p: { xs: 1.5, sm: 3 }, flexGrow: 1, minWidth: 0 }}>
-          {/* A signed-in user with no profiles row isn't an admin and isn't a member —
-              they're in a broken state. Say so instead of quietly hiding pages. */}
-          {!profile && (
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              Your account has no profile record, so admin pages (Users,
-              Configuration) are hidden. Run{' '}
-              <code>supabase/schema.sql</code> to create one.
-            </Alert>
-          )}
-          <Outlet />
-        </Box>
+      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, p: { xs: 2, md: 3 } }}>
+        <Toolbar />
+        {/* A signed-in user with no profiles row isn't an admin and isn't a member —
+            they're in a broken state. Say so instead of quietly hiding pages. */}
+        {!profile && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Your account has no profile record, so admin pages (Users,
+            Configuration) are hidden. Run{' '}
+            <code>supabase/schema.sql</code> to create one.
+          </Alert>
+        )}
+        <Outlet />
 
         <CreateIssueDialog
           open={creating}
