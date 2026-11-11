@@ -1,8 +1,8 @@
 /**
  * The Profile page: what a person may change about themselves, and what they
  * may not. Name, email and role identify them to everyone else, so the page
- * must show them without offering to edit them; the photo and the password are
- * theirs.
+ * must show them without offering to edit them; the photo is theirs. There is
+ * no password: they sign in with Google.
  */
 import { setupDom, reporter } from './setup.js'
 const dom = setupDom('http://localhost/profile')
@@ -13,7 +13,7 @@ const { MemoryRouter } = await import('react-router-dom')
 const { ThemeProvider } = await import('@mui/material')
 const { theme } = await import('../src/theme')
 const { AuthContext } = await import('../src/context/AuthContext')
-const { captured, CURRENT_PASSWORD, FIXTURES } = await import('./mockSupabase.js')
+const { captured, FIXTURES } = await import('./mockSupabase.js')
 const Profile = (await import('../src/pages/Profile')).default
 
 const { check, done } = reporter()
@@ -87,50 +87,12 @@ await pick(fakeFile('image/png', 5 * 1024 * 1024))
 check('rejects an oversized image without uploading', captured.uploads.length === uploadsBefore)
 check('says why', el.textContent.includes('larger than 2 MB'), el.textContent.slice(-300))
 
-// ---- password ----
-const pw = [...el.querySelectorAll('input[type="password"]')]
-check('three password fields', pw.length === 3, String(pw.length))
-
-const setValue = (input, value) => {
-  const setter = Object.getOwnPropertyDescriptor(
-    dom.window.HTMLInputElement.prototype, 'value').set
-  setter.call(input, value)
-  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-}
-const submitPassword = async (current, next, confirm) => {
-  await act(async () => {
-    setValue(pw[0], current); setValue(pw[1], next); setValue(pw[2], confirm)
-  })
-  const form = pw[0].closest('form')
-  await act(async () => {
-    form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
-  })
-  await settle()
-}
-
-await submitPassword(CURRENT_PASSWORD, 'new-password-1', 'different-1')
-check('mismatched confirmation never reaches auth', captured.auth.length === 0,
-  JSON.stringify(captured.auth))
-check('says the passwords differ', el.textContent.includes('do not match'))
-
-await submitPassword(CURRENT_PASSWORD, 'short', 'short')
-check('a too-short password never reaches auth', captured.auth.length === 0)
-
-await submitPassword('wrong-password', 'new-password-1', 'new-password-1')
-check('proves the current password first',
-  captured.auth[0]?.call === 'signInWithPassword', JSON.stringify(captured.auth))
-check('a wrong current password does not change anything',
-  !captured.auth.some((c) => c.call === 'updateUser'), JSON.stringify(captured.auth))
-check('says the current password is wrong', el.textContent.includes('not right'))
-
-captured.auth.length = 0
-await submitPassword(CURRENT_PASSWORD, 'new-password-1', 'new-password-1')
-check('changes the password once the current one checks out',
-  captured.auth.map((c) => c.call).join(',') === 'signInWithPassword,updateUser',
-  JSON.stringify(captured.auth))
-check('sends the new password', captured.auth.at(-1)?.password === 'new-password-1')
-check('confirms it worked', el.textContent.includes('Password changed'))
-check('clears the fields', pw.every((i) => i.value === ''),
-  pw.map((i) => i.value).join('|'))
+// ---- no password ----
+// Sign-in is Google's, so there is nothing here to change — and nothing for an
+// unattended browser to be used to take over.
+check('offers no password fields',
+  el.querySelectorAll('input[type="password"]').length === 0)
+check('says how they sign in', el.textContent.includes('sign in with the Google account'))
+check('never touches auth', captured.auth.length === 0, JSON.stringify(captured.auth))
 
 done()

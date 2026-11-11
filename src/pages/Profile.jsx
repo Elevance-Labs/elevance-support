@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import {
-  Alert, Avatar, Box, Button, Chip, Divider, Paper, Stack, TextField, Typography,
+  Alert, Avatar, Box, Button, Chip, Paper, Stack, Typography,
 } from '@mui/material'
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -14,7 +14,6 @@ import { departmentOf, displayName } from '../lib/users'
 
 const MAX_BYTES = 2 * 1024 * 1024        // matches the `avatars` bucket limit
 const ACCEPT = 'image/png,image/jpeg,image/gif,image/webp'
-const MIN_PASSWORD = 8                   // Supabase's own default minimum
 
 /**
  * Your own account.
@@ -22,8 +21,8 @@ const MIN_PASSWORD = 8                   // Supabase's own default minimum
  * Name, email, role and department belong to whoever administers the team — they identify
  * you to everybody else, and the share link, the roster and the Google Chat
  * card all read them. So they are shown here, not edited here. The things
- * that are genuinely yours are your photo, your password and — if you write to
- * customers — your email signature.
+ * that are genuinely yours are your photo and — if you write to customers —
+ * your email signature. There is no password to keep: you sign in with Google.
  */
 export default function Profile() {
   const { session, profile, refreshProfile } = useAuth()
@@ -37,7 +36,6 @@ export default function Profile() {
         {can.emailCustomer(profile) && (
           <SignatureCard key={profile.id} profile={profile} onSaved={refreshProfile} />
         )}
-        <PasswordCard email={email} />
       </Stack>
     </Box>
   )
@@ -131,7 +129,7 @@ function AvatarCard({ profile, email, onSaved }) {
 
       <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
         Your name, email and department are managed by an administrator. You can
-        change your photo here.
+        change your photo here. You sign in with the Google account for this email.
       </Typography>
 
       <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
@@ -228,79 +226,6 @@ function SignatureCard({ profile, onSaved }) {
       </Stack>
       {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
       {done && <Alert severity="success" sx={{ mt: 2 }}>{done}</Alert>}
-    </Paper>
-  )
-}
-
-/** Change your own password. */
-function PasswordCard({ email }) {
-  const [current, setCurrent] = useState('')
-  const [next, setNext] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [done, setDone] = useState('')
-
-  const submit = async (e) => {
-    e.preventDefault()
-    setError(''); setDone('')
-    if (next.length < MIN_PASSWORD) {
-      return setError(`Your new password must be at least ${MIN_PASSWORD} characters.`)
-    }
-    if (next !== confirm) return setError('The two new passwords do not match.')
-    if (next === current) return setError('Your new password must be different from the current one.')
-
-    setBusy(true)
-    try {
-      // Supabase will happily change the password of whoever holds the session,
-      // so an unattended browser would be enough. Proving the current password
-      // first is what makes this a password *change* rather than a takeover.
-      const { error: signInErr } = await supabase.auth.signInWithPassword({
-        email, password: current,
-      })
-      if (signInErr) throw new Error('That current password is not right.')
-
-      const { error: updErr } = await supabase.auth.updateUser({ password: next })
-      if (updErr) throw updErr
-
-      setCurrent(''); setNext(''); setConfirm('')
-      setDone('Password changed.')
-    } catch (err) {
-      setError(err.message ?? 'Could not change your password.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Paper sx={{ p: 3 }} component="form" onSubmit={submit}>
-      <Typography variant="h6">Change password</Typography>
-      <Divider sx={{ my: 2 }} />
-      <Stack spacing={2}>
-        {error && <Alert severity="error">{error}</Alert>}
-        {done && <Alert severity="success">{done}</Alert>}
-        <TextField
-          label="Current password" type="password" required fullWidth
-          autoComplete="current-password"
-          value={current} onChange={(e) => setCurrent(e.target.value)}
-        />
-        <TextField
-          label="New password" type="password" required fullWidth
-          autoComplete="new-password"
-          helperText={`At least ${MIN_PASSWORD} characters.`}
-          value={next} onChange={(e) => setNext(e.target.value)}
-        />
-        <TextField
-          label="Confirm new password" type="password" required fullWidth
-          autoComplete="new-password"
-          value={confirm} onChange={(e) => setConfirm(e.target.value)}
-        />
-        <Box>
-          <Button type="submit" variant="contained" disabled={busy}>
-            {busy ? 'Saving…' : 'Change password'}
-          </Button>
-        </Box>
-      </Stack>
     </Paper>
   )
 }

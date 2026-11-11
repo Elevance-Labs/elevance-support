@@ -7,7 +7,6 @@ import {
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
-import KeyIcon from '@mui/icons-material/Key'
 import MailOutlinedIcon from '@mui/icons-material/MailOutlined'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -40,7 +39,20 @@ async function adminCall(body) {
 // ticket — so a new account starts on the same default the database uses
 // rather than on an empty field somebody can skip past.
 const blank = {
-  full_name: '', email: '', password: '', role: 'member', department: 'Support', can_email: false,
+  full_name: '', email: '', role: 'member', department: 'Support', can_email: false,
+}
+
+// The email is the login — the address a Google sign-in finds the account by —
+// so it is compared the way it is stored.
+const sameEmail = (a, b) => (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase()
+
+/** What the email field says about itself: it is how the person signs in. */
+function emailHelp(dialog, profile) {
+  if (dialog?.mode !== 'edit') return 'They sign in with the Google account for this address'
+  if (!can.changeEmail(profile)) return 'Only admins can change a login email'
+  return sameEmail(dialog.values.email, dialog.email)
+    ? 'The Google account they sign in with'
+    : 'They will sign in with this Google account from now on, and keep their tickets and access'
 }
 
 export default function Users() {
@@ -48,8 +60,7 @@ export default function Users() {
   const { refresh } = useConfig()
   const [rows, setRows] = useState([])
   const [error, setError] = useState('')
-  const [dialog, setDialog] = useState(null)      // { mode, values, id }
-  const [pwDialog, setPwDialog] = useState(null)  // { user, password }
+  const [dialog, setDialog] = useState(null)      // { mode, values, id, email }
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
@@ -74,23 +85,25 @@ export default function Users() {
     const { values, mode, id } = dialog
     if (mode === 'create') {
       const { can_email, ...rest } = values
-      await adminCall({ action: 'create', ...rest, ...(can.grantEmail(profile) ? { can_email } : {}) })
+      await adminCall({
+        action: 'create', ...rest, email: rest.email.trim(),
+        ...(can.grantEmail(profile) ? { can_email } : {}),
+      })
     } else {
       await adminCall({
         action: 'update', id,
         full_name: values.full_name,
         department: values.department,
+        // Only when it actually changed: correcting it moves the login to
+        // another Google address, and keeps the account and all that is on it.
+        ...(can.changeEmail(profile) && !sameEmail(values.email, dialog.email)
+          ? { email: values.email.trim() } : {}),
         ...(can.changeRole(profile) ? { role: values.role } : {}),
         ...(can.grantEmail(profile) ? { can_email: values.can_email } : {}),
       })
     }
     setDialog(null)
   }, { self: dialog?.id === profile?.id })
-
-  const savePassword = () => run(async () => {
-    await adminCall({ action: 'set_password', id: pwDialog.user.id, password: pwDialog.password })
-    setPwDialog(null)
-  })
 
   const toggleActive = (row) => run(async () => {
     await adminCall({ action: 'set_active', id: row.id, is_active: !row.is_active })
@@ -111,8 +124,8 @@ export default function Users() {
           <Typography variant="h5">Users</Typography>
           <Typography variant="body2" color="text.secondary">
             {can.createUser(profile)
-              ? 'Add people, set roles, reset passwords and disable accounts.'
-              : 'You can reset passwords and disable managers and members.'}
+              ? 'Add people, set roles and disable accounts. Everyone signs in with the Google account for their email.'
+              : 'You can edit and disable managers and members.'}
           </Typography>
         </Box>
         {can.createUser(profile) && (
@@ -194,22 +207,13 @@ export default function Users() {
                   </TableCell>
                   <TableCell>{formatDateTime(r.created_at)}</TableCell>
                   <TableCell align="right">
-                    <Tooltip title={can.setPassword(profile, r)
-                      ? 'Reset password' : "You cannot change an admin's password"}>
-                      <span>
-                        <IconButton size="small" disabled={!can.setPassword(profile, r)}
-                          onClick={() => setPwDialog({ user: r, password: '' })}>
-                          <KeyIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
                     <Tooltip title={can.editUser(profile, r) ? 'Edit' : 'You cannot edit an admin'}>
                       <span>
                         <IconButton size="small" disabled={!can.editUser(profile, r)}
                           onClick={() => setDialog({
-                            mode: 'edit', id: r.id,
+                            mode: 'edit', id: r.id, email: r.email,
                             values: {
-                              full_name: r.full_name, email: r.email, password: '',
+                              full_name: r.full_name, email: r.email,
                               role: r.role, department: r.department ?? 'Support',
                               can_email: r.can_email === true,
                             },
@@ -251,15 +255,10 @@ export default function Users() {
             <TextField label="Full name" fullWidth autoFocus required
               value={dialog?.values.full_name ?? ''} onChange={patch('full_name')}
               helperText="Shown everywhere in the app instead of the email address" />
-            <TextField label="Email" type="email" fullWidth
+            <TextField label="Email" type="email" fullWidth required
               value={dialog?.values.email ?? ''} onChange={patch('email')}
-              disabled={dialog?.mode === 'edit'}
-              helperText={dialog?.mode === 'edit' ? 'Email changes are not supported yet' : ''} />
-            {dialog?.mode === 'create' && (
-              <TextField label="Password" type="password" fullWidth
-                value={dialog?.values.password ?? ''} onChange={patch('password')}
-                helperText="Minimum 6 characters" />
-            )}
+              disabled={dialog?.mode === 'edit' && !can.changeEmail(profile)}
+              helperText={emailHelp(dialog, profile)} />
             <TextField select label="Department" fullWidth required
               value={dialog?.values.department ?? 'Support'} onChange={patch('department')}
               helperText="A ticket's two assignees must come from two different departments, so this decides who they can be paired with.">
@@ -297,30 +296,9 @@ export default function Users() {
           <Button onClick={() => setDialog(null)}>Cancel</Button>
           <Button variant="contained" onClick={save}
             disabled={busy || !(dialog?.values.full_name ?? '').trim()
+              || !/^\S+@\S+\.\S+$/.test((dialog?.values.email ?? '').trim())
               || !DEPARTMENTS.includes(dialog?.values.department)}>
             {busy ? 'Saving…' : 'Save'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* reset password */}
-      <Dialog open={Boolean(pwDialog)} onClose={() => setPwDialog(null)} fullWidth maxWidth="xs">
-        <DialogTitle>Reset password</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Set a new password for {displayName(pwDialog?.user)}.
-            They are not notified — pass it on yourself.
-          </Typography>
-          <TextField label="New password" type="password" fullWidth autoFocus
-            value={pwDialog?.password ?? ''}
-            onChange={(e) => setPwDialog((d) => ({ ...d, password: e.target.value }))}
-            helperText="Minimum 6 characters" />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPwDialog(null)}>Cancel</Button>
-          <Button variant="contained" onClick={savePassword}
-            disabled={busy || (pwDialog?.password ?? '').length < 6}>
-            {busy ? 'Saving…' : 'Set password'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -49,12 +49,10 @@ check('manager cannot create users',   !can.createUser(manager))
 check('manager cannot delete users',   !can.deleteUser(manager))
 check('manager cannot change roles',   !can.changeRole(manager))
 
-// ---- passwords: manager may reset managers and members, never admins ----
-check('admin resets admin password',      can.setPassword(admin, tAdmin))
-check('manager resets member password',   can.setPassword(manager, tMember))
-check('manager resets manager password',  can.setPassword(manager, tManager))
-check('manager cannot reset admin password', !can.setPassword(manager, tAdmin))
-check('member cannot reset passwords',    !can.setPassword(member, tMember))
+// ---- the login email: an admin's to correct ----
+check('admin changes a login email',        can.changeEmail(admin))
+check('manager cannot change a login email', !can.changeEmail(manager))
+check('member cannot change a login email',  !can.changeEmail(member))
 
 // ---- disabling ----
 check('admin disables manager',            can.setActive(admin, tManager))

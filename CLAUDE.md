@@ -54,7 +54,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 
 ## 4. Routes and pages
 
-- `/login` — email/password sign-in.
+- `/login` — Google sign-in, the only way in. Shows why a sign-in came back refused.
 - `/dashboard` — the selected project's open work: your queue, what is close to
   breaching, and status/assignee/severity breakdowns. No role guard.
 - `/issues` — filterable DataGrid of tickets, grouped (status by default;
@@ -70,8 +70,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `/config` — CRUD over the dropdown lists and the comment templates. Admins get
   every tab; managers only Labels and Templates (`can.manageList` /
   `can.manageTemplates`).
-- `/profile` — your own account: shows name/email/role, changes photo and
-  password, and — with the email grant — your email signature. Reached from the header avatar menu. No role guard — everyone has one.
+- `/profile` — your own account: shows name/email/role, changes photo, and —
+  with the email grant — your email signature. No password: Google signs in. Reached from the header avatar menu. No role guard — everyone has one.
 - `/embed/:key/form` — public, no auth, no chrome; one form per project.
 - `/i/:key/:number` — share link, addressed by ticket reference: staff get
   redirected to the editable view, everyone else gets a read-only page.
@@ -85,7 +85,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 
 | Provider | Supplies | Scope |
 |---|---|---|
-| `AuthContext` | `session`, `profile`, `loading`, sign in/out, `refreshProfile` | Whole app |
+| `AuthContext` | `session`, `profile`, `loading`, `authError` (a refused sign-in, read from the address before the router replaces it), Google sign in / out, `refreshProfile` | Whole app |
 | `ConfigContext` | Dropdown lists grouped by type, company list, user roster, comment templates, active statuses | Authed pages + embed form (no roster or templates there) |
 | `ProjectContext` | Project list, the one selected project, persistence | Authed pages only |
 | `RefreshContext` | Bump counter so the header can tell a page to reload | Inside `AppLayout` |
@@ -165,7 +165,10 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   it offers (never the ticket itself or one already linked; same company first).
 - `chat.js` — the Google Chat thread link built from a ticket's recorded thread
   name; the web address is Google's, so it is built in this one place.
-- `jira.js`, `supabase.js` — Jira link building; the shared client.
+- `signin.js` — what Google is asked for (`VITE_GOOGLE_DOMAIN` narrows the
+  chooser, nothing more), reading a refused sign-in out of the address, and
+  putting it into words.
+- `jira.js`, `supabase.js` — Jira link building; the shared client (PKCE).
 
 ## 7. Data model (conceptual)
 
@@ -264,9 +267,14 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   target and the sentence a severity commits the team to, which the pickers show
   beside the name. Status rows only may carry a `description` — customer-facing,
   shown on the company page (anon-readable, so written for the public).
-- `profiles` — mirrors auth users; carries the role, `avatar_url` and
-  `department` (`not null`, default `Support`, one of the five in `users.js`).
-  First account becomes admin. Self-writes are allowed, but a trigger freezes
+- `profiles` — mirrors auth users (`id` is the auth user's); carries the role,
+  `avatar_url` and `department` (`not null`, default `Support`, one of the five
+  in `users.js`). **The email is the login**: a Google sign-in is attached by
+  Supabase to the auth user with that address, so the id — and everything
+  pointing at it — never changes. `handle_new_user` refuses any new auth user
+  without a row in `account_invites` (service role only, written by
+  `admin-users`, taken by the trigger), so an unmatched address is turned away
+  rather than given an empty account. First account becomes admin. Self-writes are allowed, but a trigger freezes
   `role`, `is_active`, `email` and `department` for non-admins — only
   `admin-users` writes a role, and it writes departments too. `can_email` (may
   write to customers) is frozen for every non-admin writer, managers included.
@@ -276,8 +284,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 
 ## 8. Edge Functions
 
-- `admin-users` — create/delete accounts, change roles and departments, reset
-  passwords, ban and unban. Needed because `service_role` must never reach a browser.
+- `admin-users` — create accounts (an invite row, then a confirmed auth user
+  with no password) and delete them, change roles and departments, correct a
+  login email (admin only; keeps the account), ban and unban. Needed because `service_role` must never reach a browser.
 - `public-issue` — resolves `(project key, ticket number)` to a **field allow-list** for
   the sign-in-free page. Returns attachments as signed URLs — the request's, and
   each comment's with its comment. A comment carries its rich text document
@@ -345,7 +354,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - Tests are **behavioural**: permissions, SLA maths, report aggregation,
   project scoping, form rendering. Add to them when changing a rule.
 - Env: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, optional
-  `VITE_JIRA_BASE_URL`. See `.env.example`. Build-time `VITE_BASE` sets the URL
+  `VITE_JIRA_BASE_URL` and `VITE_GOOGLE_DOMAIN`. See `.env.example`. Build-time `VITE_BASE` sets the URL
   prefix when the app is not served from the root (GitHub Pages project site);
   it feeds Vite's `base`, the router `basename` and `appOrigin()`.
 - Deploys: Vercel/Netlify from `dist/` (rewrites in `vercel.json` /

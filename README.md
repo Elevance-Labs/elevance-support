@@ -15,9 +15,9 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | **Report** | Volume, breakdowns and SLA performance for the selected range. |
 | **Schedule** | The selected project's support rota — who is on, and when. Managers and admins. |
 | **Projects** | Admin-only CRUD over projects, their keys, their members and their **support schedule**. |
-| **Users** | Admin-only CRUD over who can sign in and be assigned work, and which department they are in. |
+| **Users** | Admin-only CRUD over who can sign in and be assigned work, and which department they are in. Everyone signs in with Google — see [Signing in](#signing-in). |
 | **Configuration** | CRUD over the lists that drive every dropdown — types, products, areas, priorities, severities, statuses, labels and sources — and over the comment **templates**. Admins manage all of it; managers see only **Labels** and **Templates**. |
-| **Profile** | Your own account — reached from the avatar in the header. Shows your name, email and role; lets you change your photo and your password. |
+| **Profile** | Your own account — reached from the avatar in the header. Shows your name, email and role; lets you change your photo. |
 
 ## Roles
 
@@ -33,10 +33,9 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | Load saved views | ✅ | ✅ | ✅ |
 | Create / rename / delete views | — | ✅ | ✅ |
 | See Reports | — | ✅ | ✅ |
-| Reset passwords (managers & members) | — | ✅ | ✅ |
 | Disable accounts (managers & members) | — | ✅ | ✅ |
-| Reset password / disable an **admin** | — | — | ✅ |
-| Create or delete accounts, change roles | — | — | ✅ |
+| Disable an **admin** | — | — | ✅ |
+| Create or delete accounts, change roles, correct a login email | — | — | ✅ |
 | Create projects, set members, close them | — | — | ✅ |
 | Create schedules; edit or delete current and upcoming ones | — | ✅ | ✅ |
 | Edit or delete a **past** schedule | — | — | ✅ |
@@ -51,6 +50,70 @@ Nobody can disable their own account.
 The rules live in [`src/lib/permissions.js`](src/lib/permissions.js) and are
 mirrored by row-level security and the `admin-users` function, so the UI is a
 convenience rather than the only guard.
+
+## Signing in
+
+Staff sign in with **Google**. There are no passwords, and nothing to type on
+the login page.
+
+**An account is found by its email.** When someone signs in, Supabase attaches
+their Google identity to the account that already has that address — the same
+account, with the same id, that their tickets, comments, project memberships
+and rota entries point at. Nobody is given a new account for signing in a new
+way, so nothing has to be moved.
+
+**An address nobody added is refused, not given an empty account.** A database
+trigger (`handle_new_user`) lets a new login exist only when an admin asked for
+it on the Users page, so a colleague whose address is spelled differently from
+their Google one — and a stranger with any Google account — is turned away with
+*"There is no account for that Google address"*. The fix for the colleague is
+on the Users page: an admin **edits their email**, which keeps the account and
+everything on it and changes only which Google address opens it.
+
+Adding someone is therefore just their name and email (Users → Add user). They
+can be put on projects and rotas straight away; the first time they sign in
+with that Google account, they land in it.
+
+Set `VITE_GOOGLE_DOMAIN` (e.g. `yourcompany.com`) to narrow Google's account
+chooser to your Workspace domain. It is a convenience only — who gets in is
+decided by who has an account.
+
+### Moving an existing team from passwords
+
+Everyone keeps their account. Do it in this order:
+
+1. **Apply migration 0022** and **redeploy `admin-users`**.
+2. **Find the accounts Google will not match** (SQL editor), and fix each one
+   before anyone tries to sign in:
+
+   ```sql
+   select u.email as login_email, p.email as profile_email, p.full_name,
+          u.email_confirmed_at is null as unconfirmed
+     from auth.users u
+     left join public.profiles p on p.id = u.id
+    where u.email !~* '@yourcompany\.com$'
+       or lower(u.email) is distinct from lower(p.email)
+       or u.email_confirmed_at is null;
+   ```
+
+   A wrong or non-company address: correct it on the Users page (edit the user,
+   change the email). An unconfirmed one: saving the right email there confirms
+   it, or run `update auth.users set email_confirmed_at = now() where id = '…'`.
+3. **Turn Google on** (see [Setup](#2b-turn-on-google-sign-in)) and deploy the app.
+4. **Try one account first**: sign in with Google and check you see the same
+   name, role, projects and tickets as before.
+5. Once everyone has been in, see who has not yet:
+
+   ```sql
+   select u.email, u.last_sign_in_at
+     from auth.users u
+    where not exists (select 1 from auth.identities i
+                       where i.user_id = u.id and i.provider = 'google');
+   ```
+
+   When that list is empty (or only people who have left), turn the **Email**
+   provider off in Supabase → Authentication → Providers, so the old passwords
+   stop working altogether.
 
 ## Projects
 
@@ -628,8 +691,8 @@ Set a proper name on the Users page whenever the derived one isn't right.
 
 The avatar in the top-right corner opens a menu with **Profile** and **Sign out**.
 
-The Profile page shows your name, email and role, and lets you change the two
-things that are actually yours:
+The Profile page shows your name, email and role, and lets you change the one
+thing that is actually yours:
 
 - **Your photo.** PNG, JPEG, GIF or WebP up to 2 MB. It replaces your initials
   everywhere you appear: the header, board cards, the Assignee column and both
@@ -639,9 +702,8 @@ things that are actually yours:
   — one object per person, overwritten in place, so changing your photo never
   leaves an orphan behind. **Remove** clears the photo and you fall back to your
   initials.
-- **Your password.** You must type your current password first: the app proves it
-  before changing anything, so an unattended signed-in browser isn't enough to
-  take the account over. Minimum eight characters.
+
+There is no password to change: you [sign in with Google](#signing-in).
 
 Your **name, email and role are read-only here** — they identify you to everyone
 else, and an admin owns them on the Users page.
@@ -686,16 +748,32 @@ cp .env.example .env
 ```
 
 Fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from
-**Project Settings → API**. Optionally set `VITE_JIRA_BASE_URL`
+**Project Settings → API**. Optionally set `VITE_GOOGLE_DOMAIN` to your Google
+Workspace domain. Optionally set `VITE_JIRA_BASE_URL`
 (e.g. `https://acme.atlassian.net`) to turn Jira ticket IDs into links.
+
+### 2b. Turn on Google sign-in
+
+1. In Google Cloud Console, create an OAuth client (type *Web application*; for
+   a Workspace organisation choose user type *Internal*) with the authorised
+   redirect URI `https://<project-ref>.supabase.co/auth/v1/callback`. If you
+   already have one for a sibling app, add this URI to it instead.
+2. Supabase → **Authentication → Sign In / Providers → Google**: enable it with
+   that client ID and secret.
+3. **Authentication → URL Configuration**: set the *Site URL* to where the app
+   is deployed, sub-path and trailing slash included
+   (`https://<org>.github.io/<repo>/`), and add `http://localhost:5173/` to the
+   *Redirect URLs*. Exact URLs only, no wildcards.
 
 ### 3. Create your first admin
 
-Supabase dashboard → **Authentication → Users → Add user** (tick *Auto Confirm*).
+Supabase dashboard → **Authentication → Users → Add user**, with your own
+company email (tick *Auto Confirm*; the password it asks for is never used).
 
 A trigger creates the matching profile automatically, and **the first account to
-exist becomes an admin** — so there's nothing to run by hand. From then on you can
-add everyone else from the **Users** page.
+exist becomes an admin**. Sign in with Google and you are in it. From then on
+add everyone else from the **Users** page — the dashboard can no longer create
+accounts, because the same trigger refuses any login an admin did not add there.
 
 > **Admin pages missing from the side nav?** Users and Configuration need an admin (or, for a
 > narrower view of each, a manager).
@@ -707,7 +785,7 @@ add everyone else from the **Users** page.
 
 ### 4. Deploy the user-management function
 
-Creating and deleting login accounts needs the `service_role` key, which must never
+Creating and deleting login accounts, and correcting a login email, need the `service_role` key, which must never
 ship to a browser — so it runs in an Edge Function:
 
 ```bash

@@ -1,6 +1,11 @@
-// User management. Creating, deleting, banning, password-resetting and granting
-// the right to email customers all need the service_role key, which must never
-// ship to a browser — so it lives here.
+// User management. Creating, deleting, banning, correcting a login email and
+// granting the right to email customers all need the service_role key, which
+// must never ship to a browser — so it lives here.
+//
+// Nobody has a password: people sign in with Google, and Supabase finds their
+// account by its email. So an account here is an auth user with a confirmed
+// address and nothing else, and its email is the one thing that decides who
+// can get into it.
 // Deploy with:  supabase functions deploy admin-users
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -56,7 +61,12 @@ Deno.serve(async (req) => {
   if (!isAdmin && !isManager) return json({ error: "Not permitted" }, 403);
 
   const body = await req.json();
-  const { action, id, email, password, full_name, role, is_active, department, can_email } = body;
+  const { action, id, full_name, role, is_active, department, can_email } = body;
+  // Stored the way Google will present it, so the two can only ever match.
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : undefined;
+  if (email !== undefined && !/^\S+@\S+\.\S+$/.test(email)) {
+    return json({ error: "That is not an email address" }, 400);
+  }
 
   if (department !== undefined && !DEPARTMENTS.includes(department)) {
     return json({ error: `Department must be one of: ${DEPARTMENTS.join(", ")}` }, 400);
@@ -83,6 +93,7 @@ Deno.serve(async (req) => {
     switch (action) {
       case "create": {
         if (!isAdmin) return json({ error: "Only admins can create users" }, 403);
+        if (!email) return json({ error: "An email is required: it is how they sign in" }, 400);
         // The UI shows a name everywhere instead of the email, so never store a
         // blank one — fall back to a name derived from the address.
         const derived = (full_name ?? "").trim() ||
@@ -90,10 +101,22 @@ Deno.serve(async (req) => {
             .replace(/\d+$/, "").split(/[._+-]+/).filter(Boolean)
             .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") ||
           email;
+        // `handle_new_user` refuses any auth user nobody asked for, so the
+        // address is put on the list it checks first. It takes the row as it
+        // lets the account in; one left behind by a failure is removed here,
+        // so a stale invite can never admit a later Google sign-up.
+        const { error: invErr } = await admin.from("account_invites")
+          .upsert({ email, invited_by: user.id }, { onConflict: "email" });
+        if (invErr) throw invErr;
+        // Confirmed, and no password: the first Google sign-in with this
+        // address is attached to this account.
         const { data, error } = await admin.auth.admin.createUser({
-          email, password, email_confirm: true,
+          email, email_confirm: true,
         });
-        if (error) throw error;
+        if (error) {
+          await admin.from("account_invites").delete().eq("email", email);
+          throw error;
+        }
         // The `on_auth_user_created` trigger has already written a profiles row
         // (as a plain member) by the time createUser returns — so upsert over it
         // rather than insert, which would collide on the primary key.
@@ -116,17 +139,6 @@ Deno.serve(async (req) => {
         if (!isAdmin) return json({ error: "Only admins can delete users" }, 403);
         if (id === user.id) return json({ error: "You cannot delete yourself" }, 400);
         const { error } = await admin.auth.admin.deleteUser(id); // cascades to profiles
-        if (error) throw error;
-        return json({ ok: true });
-      }
-
-      case "set_password": {
-        const target = await loadTarget(id);
-        if (!target) return json({ error: "User not found" }, 404);
-        if (!isAdmin && !managerMayTouch(target.role)) {
-          return json({ error: "Managers cannot change an admin's password" }, 403);
-        }
-        const { error } = await admin.auth.admin.updateUserById(id, { password });
         if (error) throw error;
         return json({ ok: true });
       }
@@ -159,11 +171,19 @@ Deno.serve(async (req) => {
         if (role !== undefined && role !== target.role && !isAdmin) {
           return json({ error: "Only admins can change roles" }, 403);
         }
-        if (password) {
-          const { error } = await admin.auth.admin.updateUserById(id, { password });
-          if (error) throw error;
-        }
         const patch: Record<string, unknown> = {};
+        // Correcting the login email. The account keeps its id, so every
+        // ticket, comment and project membership stays on it; only the Google
+        // address that opens it changes. Confirmed at once — an unconfirmed
+        // address is one Google sign-in will not be attached to.
+        if (email !== undefined && email !== (target.email ?? "").toLowerCase()) {
+          if (!isAdmin) return json({ error: "Only admins can change a login email" }, 403);
+          const { error } = await admin.auth.admin.updateUserById(id, {
+            email, email_confirm: true,
+          });
+          if (error) throw error;
+          patch.email = email;
+        }
         if (full_name !== undefined) patch.full_name = full_name;
         if (role !== undefined && isAdmin) patch.role = role;
         // Same boundary as editing anything else about the account: an admin

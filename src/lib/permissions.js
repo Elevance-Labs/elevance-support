@@ -3,7 +3,7 @@
  *
  * admin   — everything
  * manager — everything a member can do, plus: manage saved views, see reports,
- *           reset passwords for managers/members, disable managers/members,
+ *           disable managers/members,
  *           manage labels and comment templates under Configuration.
  *           Cannot create or delete accounts, cannot touch admins.
  * member  — work issues on the Issues and Board pages, load (not manage) views,
@@ -31,7 +31,7 @@ export const ROLE_LABELS = {
 
 export const ROLE_DESCRIPTIONS = {
   admin: 'Full access, including deleting tickets and managing users and configuration.',
-  manager: 'Manages views, reports, labels and comment templates; resets passwords and disables managers and members.',
+  manager: 'Manages views, reports, labels and comment templates; disables managers and members.',
   member: 'Works tickets on Issues and Board, uses saved views, comments.',
 }
 
@@ -166,11 +166,16 @@ export const can = {
   deleteUser: isAdmin,
   changeRole: isAdmin,
 
-  /** Admins may reset anyone's password; managers only managers and members. */
-  setPassword: (p, target) =>
-    isAdmin(p) || (isManager(p) && target?.role !== 'admin'),
+  /**
+   * The email is the login: it is what a Google sign-in finds the account by.
+   * Correcting one moves who can get into that account, so it is an admin's.
+   */
+  changeEmail: isAdmin,
 
-  /** Same rule for disabling, and nobody may disable themselves. */
+  /**
+   * Admins may disable anyone; managers only managers and members. Nobody may
+   * disable themselves.
+   */
   setActive: (p, target) =>
     target && p?.id !== target.id &&
     (isAdmin(p) || (isManager(p) && target.role !== 'admin')),

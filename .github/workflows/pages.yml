@@ -34,6 +34,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
           VITE_JIRA_BASE_URL: ${{ vars.VITE_JIRA_BASE_URL }}
+          VITE_GOOGLE_DOMAIN: ${{ vars.VITE_GOOGLE_DOMAIN }}
       # Pages has no rewrite rules: a hard load of /i/ACME/42 is a 404, and the
       # 404 page is the only hook we get to hand back the SPA.
       - run: cp dist/index.html dist/404.html

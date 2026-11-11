@@ -188,17 +188,10 @@ export const supabase = {
   auth: {
     getSession: async () => ({ data: { session: null } }),
     onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
-    // The Profile page proves the current password before changing it, so both
-    // calls are recorded: a test can assert the order they happened in.
-    signInWithPassword: async ({ email, password }) => {
-      captured.auth.push({ call: 'signInWithPassword', email, password })
-      return password === CURRENT_PASSWORD
-        ? { data: { user: FIXTURES.profiles[0] }, error: null }
-        : { data: null, error: { message: 'Invalid login credentials' } }
-    },
-    updateUser: async (attrs) => {
-      captured.auth.push({ call: 'updateUser', ...attrs })
-      return { data: { user: FIXTURES.profiles[0] }, error: null }
+    // Signing in leaves for Google, so all a test can see is what was asked.
+    signInWithOAuth: async (args) => {
+      captured.auth.push({ call: 'signInWithOAuth', ...args })
+      return { data: { provider: args.provider, url: 'https://accounts.google.test/' }, error: null }
     },
   },
   storage: {
@@ -255,8 +248,6 @@ export const supabase = {
 }
 export const isConfigured = true
 
-/** The only password `signInWithPassword` accepts, so a test can get it wrong. */
-export const CURRENT_PASSWORD = 'correct-horse'
 
 // ---- extra fixtures for the ticket detail view ----
 export const NOW = Date.now()

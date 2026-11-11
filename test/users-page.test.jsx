@@ -92,6 +92,14 @@ check('it offers exactly the five departments, in order',
 check('the list is hardcoded, not read from the configuration lists',
   !options.includes('Bug') && !options.includes('Critical'), options.join(','))
 
+// An account is an email and nothing else: the Google sign-in with that address
+// is what opens it.
+check('it asks for no password', !fieldFor('Password') && !D.querySelector('input[type="password"]'))
+check('it says the email is how they sign in',
+  fieldFor('Email')?.textContent.includes('Google account'))
+check('nobody is offered a password reset',
+  !D.querySelector('[data-testid="KeyIcon"]') && !body().includes('Reset password'))
+
 // ---------------- who may email customers ----------------
 const grantSwitch = () => [...D.querySelectorAll('label')]
   .find((l) => l.textContent.includes('Can email customers'))?.querySelector('input')
@@ -103,6 +111,9 @@ const graceEdit = [...D.querySelectorAll('tbody tr')]
   .find((r) => r.textContent.includes('grace.hopper@co.com'))
   ?.querySelector('[data-testid="EditIcon"]')?.closest('button')
 await click(graceEdit)
+check('a manager cannot change a login email',
+  fieldFor('Email')?.querySelector('input')?.disabled === true
+    && body().includes('Only admins can change a login email'))
 check('a manager sees the grant but cannot change it',
   grantSwitch()?.disabled === true && body().includes('Only admins can change who may email customers'))
 
@@ -129,6 +140,8 @@ check('the grant goes to admin-users for their own account',
   sent.at(-1)?.action === 'update' && sent.at(-1)?.id === 'user-1' && sent.at(-1)?.can_email === true,
   JSON.stringify(sent.at(-1)))
 check('and their own profile is reloaded, so it takes effect at once', reloaded === 1, `reloaded ${reloaded}x`)
+check('an email that was not touched is not sent', !('email' in sent.at(-1)), JSON.stringify(sent.at(-1)))
+check('no password is ever sent', sent.every((b) => !('password' in b)), JSON.stringify(sent))
 
 // Editing somebody else leaves your own profile alone.
 const kayRow = [...D.querySelectorAll('tbody tr')]
@@ -137,5 +150,28 @@ await click(kayRow?.querySelector('[data-testid="EditIcon"]')?.closest('button')
 await click([...D.querySelectorAll('button')].find((b) => b.textContent === 'Save'))
 check("editing someone else does not reload your profile",
   sent.at(-1)?.id === 'user-3' && reloaded === 1, `last save ${sent.at(-1)?.id}, reloaded ${reloaded}x`)
+
+
+// ---------------- correcting a login email ----------------
+// The email is what a Google sign-in finds the account by. Changing it keeps
+// the account — same id, same tickets — and moves which address opens it.
+const setValue = (input, value) => {
+  Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input, value)
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+}
+await click([...D.querySelectorAll('tbody tr')]
+  .find((r) => r.textContent.includes('kay@co.com'))
+  ?.querySelector('[data-testid="EditIcon"]')?.closest('button'))
+const emailInput = fieldFor('Email')?.querySelector('input')
+check('an admin may edit a login email', emailInput && !emailInput.disabled)
+await act(async () => { setValue(emailInput, '  Kay.McNulty@co.com ') })
+check('it says the account and its tickets are kept',
+  fieldFor('Email')?.textContent.includes('keep their tickets and access'),
+  fieldFor('Email')?.textContent)
+await click([...D.querySelectorAll('button')].find((b) => b.textContent === 'Save'))
+check('the new address goes to admin-users for that same account',
+  sent.at(-1)?.action === 'update' && sent.at(-1)?.id === 'user-3'
+    && sent.at(-1)?.email === 'Kay.McNulty@co.com',
+  JSON.stringify(sent.at(-1)))
 
 done()

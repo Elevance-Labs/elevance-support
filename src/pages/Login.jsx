@@ -1,52 +1,44 @@
 import { useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
-import {
-  Alert, Box, Button, Paper, Stack, TextField, Typography,
-} from '@mui/material'
+import { Navigate } from 'react-router-dom'
+import { Alert, Box, Button, Paper, Stack, Typography } from '@mui/material'
 import SupportAgentIcon from '@mui/icons-material/SupportAgent'
+import GoogleIcon from '@mui/icons-material/Google'
 import { useAuth } from '../context/AuthContext'
 
+/**
+ * One way in: Google. There is nothing to type here, because the account is
+ * found by the email of the Google account chosen — and an address nobody has
+ * added comes back as `authError` rather than as a new, empty account.
+ */
 export default function Login() {
-  const { session, signIn, loading } = useAuth()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const { session, signIn, loading, authError } = useAuth()
   const [busy, setBusy] = useState(false)
-  const navigate = useNavigate()
 
   if (!loading && session) return <Navigate to="/issues" replace />
 
-  const submit = async (e) => {
-    e.preventDefault()
-    setBusy(true); setError('')
-    const { error } = await signIn(email.trim(), password)
-    setBusy(false)
-    if (error) setError(error.message)
-    else navigate('/issues')
+  // A sign-in that starts leaves the page for Google, so `busy` only ever has
+  // to be cleared when it could not start at all.
+  const start = async () => {
+    setBusy(true)
+    const { error } = await signIn()
+    if (error) setBusy(false)
   }
 
   return (
-    <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', bgcolor: 'background.default' }}>
-      <Paper sx={{ p: 4, width: 380 }} component="form" onSubmit={submit}>
+    <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', bgcolor: 'background.default', p: 2 }}>
+      <Paper sx={{ p: 4, width: '100%', maxWidth: 380 }}>
         <Stack spacing={2.5}>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             <SupportAgentIcon color="primary" />
             <Typography variant="h6">Support Tool</Typography>
           </Stack>
           <Typography variant="body2" color="text.secondary">
-            Sign in with your team account.
+            Sign in with your company Google account.
           </Typography>
-          {error && <Alert severity="error">{error}</Alert>}
-          <TextField
-            label="Email" type="email" value={email} required autoFocus
-            onChange={(e) => setEmail(e.target.value)} fullWidth
-          />
-          <TextField
-            label="Password" type="password" value={password} required
-            onChange={(e) => setPassword(e.target.value)} fullWidth
-          />
-          <Button type="submit" variant="contained" size="large" disabled={busy}>
-            {busy ? 'Signing in…' : 'Sign in'}
+          {authError && <Alert severity="error">{authError}</Alert>}
+          <Button variant="contained" size="large" startIcon={<GoogleIcon />}
+            onClick={start} disabled={busy || loading}>
+            {busy ? 'Opening Google…' : 'Sign in with Google'}
           </Button>
         </Stack>
       </Paper>

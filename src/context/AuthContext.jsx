@@ -1,5 +1,12 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { appOrigin } from '../lib/projects'
+import { googleSignIn, returnedError, signInErrorMessage } from '../lib/signin'
+
+// A sign-in Google or Supabase refused comes back as an error in the address.
+// Read once, as the module loads: the router replaces the address on its first
+// redirect, and the login page still has to say what went wrong.
+const refused = typeof window === 'undefined' ? '' : returnedError(window.location)
 
 // Exported so tests can inject a role without a real session.
 export const AuthContext = createContext(null)
@@ -9,6 +16,7 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [authError, setAuthError] = useState(() => signInErrorMessage(refused))
 
   const loadProfile = useCallback(async (userId) => {
     if (!userId) return setProfile(null)
@@ -38,17 +46,16 @@ export function AuthProvider({ children }) {
     return () => sub.subscription.unsubscribe()
   }, [loadProfile])
 
-  const signIn = async (email, password) => {
-    const result = await supabase.auth.signInWithPassword({ email, password })
-    if (result.error) return result
-
-    const { data: p } = await supabase
-      .from('profiles').select('is_active').eq('id', result.data.user.id).single()
-    if (p && p.is_active === false) {
-      await supabase.auth.signOut()
-      return { error: { message: 'This account has been disabled. Contact an administrator.' } }
-    }
-    return result
+  // Off to Google and back. The account is found by its email: Supabase puts
+  // the Google identity on the auth user that already has that address, so the
+  // person returns to the profile — and the tickets — they always had. Someone
+  // disabled is banned at the auth layer and comes back with an error instead;
+  // `loadProfile` covers a session that was already open.
+  const signIn = async () => {
+    setAuthError('')
+    const { error } = await supabase.auth.signInWithOAuth(googleSignIn(`${appOrigin()}/`))
+    if (error) setAuthError(signInErrorMessage(error.message))
+    return { error }
   }
   const signOut = () => supabase.auth.signOut()
 
@@ -63,7 +70,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider
       value={{
-        session, profile, loading, signIn, signOut, refreshProfile,
+        session, profile, loading, authError, signIn, signOut, refreshProfile,
         isAdmin: profile?.role === 'admin',
       }}
     >
