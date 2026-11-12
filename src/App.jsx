@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
-import { Box, CircularProgress, CssBaseline, ThemeProvider } from '@mui/material'
+import { CssBaseline, ThemeProvider } from '@mui/material'
 import { theme } from './theme'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { can } from './lib/permissions'
@@ -22,15 +22,8 @@ import EmbedForm from './pages/EmbedForm'
 import PublicIssue from './pages/PublicIssue'
 import CompanyTickets from './pages/CompanyTickets'
 import UpdatePrompt from './components/UpdatePrompt'
+import Splash from './components/Splash'
 import { onWorkerMessage, routerPath } from './pwa'
-
-function Splash() {
-  return (
-    <Box sx={{ display: 'grid', placeItems: 'center', minHeight: '100vh' }}>
-      <CircularProgress />
-    </Box>
-  )
-}
 
 /**
  * A tapped notification, when the app is already open: the service worker

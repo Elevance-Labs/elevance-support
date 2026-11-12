@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
 import {
-  Alert, Box, Chip, CircularProgress, Container, Divider, Link,
+  Alert, Box, Chip, Container, Divider, Link,
   Paper, Stack, Typography,
 } from '@mui/material'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
@@ -12,16 +12,9 @@ import { parseIssueRef } from '../lib/projects'
 import { formatDateTime } from '../lib/format'
 import { jiraUrl } from '../lib/jira'
 import UserAvatar from '../components/UserAvatar'
+import Splash from '../components/Splash'
 import AttachmentGallery from '../components/AttachmentGallery'
 import { StoredRichText } from '../components/RichTextEditor'
-
-function Splash() {
-  return (
-    <Box sx={{ display: 'grid', placeItems: 'center', minHeight: '100vh' }}>
-      <CircularProgress />
-    </Box>
-  )
-}
 
 /**
  * A ticket seen through its share link.

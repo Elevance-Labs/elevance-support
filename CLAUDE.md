@@ -97,7 +97,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   the layout (header: switcher, logo, notifications bell, account button with name and role;
   tinted current page; navigation that folds to a rail from **Collapse** at its
   foot, via `components/useNavCollapsed`, one localStorage key shared by the
-  apps) match Work, Support and People. A change to either belongs in all three.
+  apps; the first load is the app's icon over a running bar, `components/Splash`)
+  match Work, Support and People. A change to either belongs in all three.
 - Staff pages are phone-ready: `AppLayout` swaps the side nav for a drawer
   below `md`; dialogs go full screen below `sm`; tables go through
   `components/ScrollTable`. Ask "is it narrow?" (`breakpoints.down`), so the

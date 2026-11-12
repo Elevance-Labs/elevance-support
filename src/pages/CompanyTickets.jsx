@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
-  Accordion, AccordionDetails, AccordionSummary, Alert, Box, CircularProgress,
+  Accordion, AccordionDetails, AccordionSummary, Alert, Box,
   Container, Divider, InputAdornment, Link, Stack, Tab, Tabs, TextField, ToggleButton,
   ToggleButtonGroup, Typography,
 } from '@mui/material'
@@ -12,6 +12,7 @@ import { TICKET_GROUPS, groupTickets, searchTickets, sortByStatus } from '../lib
 import { statusColor } from '../lib/sla'
 import { formatDateTime } from '../lib/format'
 import AttachmentGallery from '../components/AttachmentGallery'
+import Splash from '../components/Splash'
 import Tag from '../components/Tag'
 
 // The same spellings the embed form accepts for a company, so a link written
@@ -100,13 +101,7 @@ export default function CompanyTickets() {
     setParams(p, { replace: true })
   }
 
-  if (loading) {
-    return (
-      <Box sx={{ display: 'grid', placeItems: 'center', minHeight: '100vh' }}>
-        <CircularProgress />
-      </Box>
-    )
-  }
+  if (loading) return <Splash />
 
   if (!data || error) {
     return (
