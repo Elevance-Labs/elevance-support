@@ -31,7 +31,7 @@ export default function Login() {
       <Card variant="outlined" sx={{ width: '100%', maxWidth: 400 }}>
         <CardContent sx={{ p: { xs: 3, sm: 5 } }}>
           <Stack spacing={3} sx={{ alignItems: 'center', textAlign: 'center' }}>
-            <Avatar variant="rounded" sx={{ width: 56, height: 56, bgcolor: 'primary.main' }}>
+            <Avatar variant="rounded" sx={{ width: 56, height: 56, bgcolor: '#2563eb' }}>
               <SupportIcon sx={{ fontSize: 35 }} />
             </Avatar>
             <Box>

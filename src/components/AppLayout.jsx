@@ -154,7 +154,7 @@ function AppLayoutInner() {
             </IconButton>
           )}
           <AppSwitcher current="support" email={profile?.email} />
-          <Avatar variant="rounded" sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>
+          <Avatar variant="rounded" sx={{ width: 32, height: 32, bgcolor: '#2563eb' }}>
             <SupportIcon sx={{ fontSize: 20 }} />
           </Avatar>
           <Typography variant="h6" component="div" noWrap sx={{ display: { xs: 'none', lg: 'block' } }}>
