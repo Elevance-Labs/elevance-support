@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Alert, AppBar, Avatar, Box, Button, ButtonBase, Divider, Drawer, IconButton, List, ListItemButton,
@@ -20,14 +20,17 @@ import LogoutIcon from '@mui/icons-material/Logout'
 import PersonIcon from '@mui/icons-material/PersonOutlined'
 import SupportAgentIcon from '@mui/icons-material/SupportAgent'
 import AddIcon from '@mui/icons-material/Add'
+import SearchIcon from '@mui/icons-material/Search'
 import { useAuth } from '../context/AuthContext'
 import { can, ROLE_LABELS } from '../lib/permissions'
 import { RefreshProvider, useRefreshSignal } from '../context/RefreshContext'
 import { NotificationsProvider } from '../context/NotificationsContext'
 import NotificationsBell from './NotificationsBell'
 import CreateIssueDialog from './CreateIssueDialog'
+import SearchDialog from './SearchDialog'
 import ProjectFilter from './ProjectFilter'
 import { displayName } from '../lib/users'
+import { isShortcut, shortcutLabel } from '../lib/search'
 import UserAvatar from './UserAvatar'
 import AppSwitcher from './AppSwitcher'
 import { useNavCollapsed } from './useNavCollapsed'
@@ -47,6 +50,23 @@ const SUBBAR = 56
 // `scoped` marks a page that shows one project's data: the header carries the
 // project picker there, and nowhere else — on Users or Configuration it would
 // be a control that changes nothing on screen.
+/** Looks like a search box; opens search (as Cmd/Ctrl+S does). */
+function SearchButton({ onOpen }) {
+  return (
+    <ButtonBase onClick={onOpen} aria-label="Search" aria-keyshortcuts="Meta+S Control+S"
+      sx={{
+        width: 260, height: 40, px: 1.5, gap: 1, justifyContent: 'flex-start', borderRadius: 1, border: 1, borderColor: 'divider',
+        bgcolor: 'background.default', color: 'text.secondary', flexShrink: 1, minWidth: 0, '&:hover': { borderColor: 'text.primary' },
+      }}>
+      <SearchIcon fontSize="small" />
+      <Typography variant="body2" noWrap sx={{ flexGrow: 1, textAlign: 'left' }}>Search</Typography>
+      <Typography component="kbd" variant="caption" sx={{ px: 0.75, border: 1, borderColor: 'divider', borderRadius: 0.5, fontFamily: 'inherit' }}>
+        {shortcutLabel('s')}
+      </Typography>
+    </ButtonBase>
+  )
+}
+
 const NAV = [
   { to: '/dashboard', label: 'Dashboard',  icon: <DashboardIcon />, scoped: true },
   { to: '/issues', label: 'Issues',        icon: <ListAltIcon />,   scoped: true },
@@ -73,6 +93,7 @@ function AppLayoutInner() {
   const { refresh } = useRefreshSignal()
   const [anchor, setAnchor] = useState(null)
   const [creating, setCreating] = useState(false)
+  const [searching, setSearching] = useState(false)
   // Below a tablet's width the navigation is a drawer opened from the header,
   // so the page gets the whole screen. Asked as "is it narrow?" so that where
   // the answer is unknown (no media queries) the full layout is what shows.
@@ -99,6 +120,27 @@ function AppLayoutInner() {
 
   const navLabel = rail ? 'Expand navigation' : 'Collapse navigation'
 
+  // Cmd/Ctrl+S searches (instead of saving the page); Cmd/Ctrl+K creates —
+  // the keys the other Elevance apps use. Create here is always a ticket, so
+  // K opens the Create issue form itself. A key something focused already
+  // handled (the editor's Cmd+K adds a link) is left alone.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.defaultPrevented) return
+      if (isShortcut(e, 's')) {
+        e.preventDefault()
+        setCreating(false)
+        setSearching(true)
+      } else if (isShortcut(e, 'k')) {
+        e.preventDefault()
+        setSearching(false)
+        setCreating(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <AppBar position="fixed"
@@ -119,16 +161,26 @@ function AppLayoutInner() {
           {scoped && !narrow && <ProjectFilter />}
           <Box sx={{ flexGrow: 1 }} />
           {narrow ? (
-            <Tooltip title="Create issue">
-              <IconButton color="primary" aria-label="Create issue" onClick={() => setCreating(true)}>
-                <AddIcon />
+            <Tooltip title={`Search (${shortcutLabel('s')})`}>
+              <IconButton aria-label="Search" aria-keyshortcuts="Meta+S Control+S" onClick={() => setSearching(true)}>
+                <SearchIcon />
               </IconButton>
             </Tooltip>
           ) : (
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>
-              Create Issue
-            </Button>
+            <SearchButton onOpen={() => setSearching(true)} />
           )}
+          <Tooltip title={`Create issue (${shortcutLabel('k')})`}>
+            {narrow ? (
+              <IconButton color="primary" aria-label="Create issue" aria-keyshortcuts="Meta+K Control+K" onClick={() => setCreating(true)}>
+                <AddIcon />
+              </IconButton>
+            ) : (
+              <Button variant="contained" startIcon={<AddIcon />} aria-keyshortcuts="Meta+K Control+K" onClick={() => setCreating(true)}
+                sx={{ flexShrink: 0 }}>
+                Create Issue
+              </Button>
+            )}
+          </Tooltip>
           <NotificationsBell />
           <ButtonBase
             onClick={(e) => setAnchor(e.currentTarget)}
@@ -257,6 +309,7 @@ function AppLayoutInner() {
           onClose={() => setCreating(false)}
           onCreated={refresh}
         />
+        {searching && <SearchDialog onClose={() => setSearching(false)} />}
       </Box>
     </Box>
   )

@@ -81,6 +81,10 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `&email=` it splits into My tickets / All tickets. Staff see the same page;
   no redirect.
 - Guarding happens in `src/App.jsx` via `<Protected require={can.x}>`.
+- `AppLayout` owns the shortcuts, the same keys as Work: Cmd/Ctrl+S opens
+  `SearchDialog` (tickets across visible projects, by ref, number or title;
+  opens on `/issues?issue=…&project=…`), Cmd/Ctrl+K opens Create issue
+  directly. A key already handled below (the editor's Cmd+K link) is left alone.
 - **One shell, three apps.** The theme (indigo, Roboto, bold `h5` titles) and
   the layout (header: switcher, logo, notifications bell, account button with name and role;
   tinted current page; navigation that folds to a rail from **Collapse** at its
@@ -200,6 +204,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `signin.js` — what Google is asked for (`VITE_GOOGLE_DOMAIN` narrows the
   chooser, nothing more), reading a refused sign-in out of the address, and
   putting it into words.
+- `search.js` — the Cmd/Ctrl shortcut test and label, and a ticket's
+  signed-in address; search reads queries through `links.js`'s
+  `parseTicketQuery`.
 - `jira.js`, `supabase.js` — Jira link building; the shared client (PKCE).
 
 ## 7. Data model (conceptual)
