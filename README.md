@@ -933,13 +933,16 @@ you want them on. **Send a test** checks the whole path end to end.
 
 [Migration 0023](supabase/migrations/0023_watch_mentions_notifications.sql)
 adds `issue_watchers`, `notifications` and `push_subscriptions`. Triggers on
-`issues` (assignees), `comments`, `status_events` and `email_messages` write the
+`issues` (assignees and status), `comments` and `email_messages` write the
 notifications — the browser cannot write one, only read, mark read and delete
 its own. Each event writes all its notifications in one statement, and a
 statement trigger on `notifications` hands their ids to the `push-send` function
 through `pg_net`: **one call per event**, however many people it reaches, and
 never able to fail the write it hangs off — the same arrangement as the Chat
-card.
+card. A save that changes the status and adds an assignee is one event
+([migration 0025](supabase/migrations/0025_one_notification_per_save.sql)):
+each person hears once, the new assignee as *"assigned you and moved it to
+In Progress"*.
 
 `push-send` reads everything else with `service_role`, encrypts one message per
 device and signs it for the push service (VAPID). It has no dependencies:

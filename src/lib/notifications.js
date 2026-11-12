@@ -14,11 +14,15 @@ export const NOTIFICATION_KINDS = [
 /**
  * One line for a notification. `actor` is the display name of whoever caused
  * it, or null when nobody did (the public form, an inbound email, the rota).
+ * One save tells a person one thing (migration 0025): an assignment made in
+ * the same save as a status change carries that status in `detail`, and says
+ * both.
  */
 export function notificationSentence(n, actor) {
   const who = actor || 'Someone'
   switch (n?.kind) {
     case 'assigned':
+      if (n.detail) return actor ? `${actor} assigned you and moved it to ${n.detail}` : `Assigned to you and moved to ${n.detail}`
       return actor ? `${actor} assigned you` : 'Assigned to you'
     case 'mentioned':
       return `${who} mentioned you`

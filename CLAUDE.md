@@ -355,10 +355,12 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   mentioned, logging it). Read by whoever sees the ticket; each person writes
   only their own row; no delete.
 - `notifications` — one row per person per event, written **only by triggers**
-  (on `issues` assignees, `comments` incl. mentions read from `body_doc`,
-  `status_events`, inbound `email_messages`) plus `send_test_notification()`.
-  Never to the actor, an inactive account or someone who can't see the ticket;
-  one per person per event (mention beats comment). The recipient reads, marks
+  (on `issues` assignees and status, together, migration 0025; `comments` incl.
+  mentions read from `body_doc`; inbound `email_messages`) plus
+  `send_test_notification()`. Never to the actor, an inactive account or
+  someone who can't see the ticket; one per person per event, each event one
+  statement (assigned beats status changed, carrying the new status in
+  `detail`; mention beats comment). The recipient reads, marks
   read (`read_at` is the only writable column) and deletes. In the
   `supabase_realtime` publication.
 - `push_subscriptions` — the devices someone turned notifications on for

@@ -58,7 +58,9 @@ function displayName(p: { full_name: string | null; email: string | null } | nul
 function sentence(kind: string, detail: string | null, actor: string | null) {
   const who = actor || "Someone";
   switch (kind) {
-    case "assigned": return actor ? `${actor} assigned you` : "Assigned to you";
+    case "assigned":
+      if (detail) return actor ? `${actor} assigned you and moved it to ${detail}` : `Assigned to you and moved to ${detail}`;
+      return actor ? `${actor} assigned you` : "Assigned to you";
     case "mentioned": return `${who} mentioned you`;
     case "commented": return `${who} commented`;
     case "status_changed": return detail ? `${who} moved it to ${detail}` : `${who} changed its status`;

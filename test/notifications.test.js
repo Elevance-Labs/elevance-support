@@ -22,6 +22,9 @@ const { check, done } = reporter()
 // ---------- what a notification says ----------
 check('assigned, by someone', notificationSentence({ kind: 'assigned' }, 'Ada') === 'Ada assigned you')
 check('assigned by nobody (the rota, the form)', notificationSentence({ kind: 'assigned' }, null) === 'Assigned to you')
+check('assigned in the same save as a status change says both',
+  notificationSentence({ kind: 'assigned', detail: 'In Progress' }, 'Ada') === 'Ada assigned you and moved it to In Progress' &&
+  notificationSentence({ kind: 'assigned', detail: 'Done' }, null) === 'Assigned to you and moved to Done')
 check('mentioned', notificationSentence({ kind: 'mentioned' }, 'Grace') === 'Grace mentioned you')
 check('commented', notificationSentence({ kind: 'commented' }, 'Grace') === 'Grace commented')
 check('a status change names the new status',
