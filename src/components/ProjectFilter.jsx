@@ -6,19 +6,19 @@ import { useAuth } from '../context/AuthContext'
 import { can } from '../lib/permissions'
 
 /**
- * The project a page is looking at. Rendered once, in the header, by
- * `AppLayout` — pages read the selection from `useProject` and never draw
- * their own.
+ * The project a page is looking at. Rendered once by `AppLayout` — in the
+ * header, or on a phone or tablet across its own bar under it (`fullWidth`) —
+ * and pages read the selection from `useProject` and never draw their own.
  *
  * Deliberately single-select with no "All" option: a ticket belongs to one
  * project, its number is only unique within that project, and its members are
  * the people entitled to see it. A combined view would be a view of data the
  * viewer may not be allowed to hold in one place.
  */
-export default function ProjectFilter() {
+export default function ProjectFilter({ fullWidth = false }) {
   const { projects, projectId, setProjectId, loading } = useProject()
 
-  if (loading) return <Skeleton variant="rounded" width={260} height={40} />
+  if (loading) return <Skeleton variant="rounded" width={fullWidth ? '100%' : 260} height={40} />
 
   if (!projects.length) return null
 
@@ -26,8 +26,8 @@ export default function ProjectFilter() {
     <TextField
       select size="small" label="Project" value={projectId ?? ''}
       onChange={(e) => setProjectId(e.target.value)}
-      // Shrinks beside the header's buttons on a phone rather than pushing them off.
-      sx={{ minWidth: { xs: 0, sm: 260 }, flex: { xs: '1 1 0', sm: '0 0 auto' } }}
+      fullWidth={fullWidth}
+      sx={fullWidth ? undefined : { minWidth: 260, flex: '0 0 auto' }}
       slotProps={{
         input: {
           startAdornment: (

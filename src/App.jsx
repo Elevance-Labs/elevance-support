@@ -1,4 +1,5 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { useEffect } from 'react'
+import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { Box, CircularProgress, CssBaseline, ThemeProvider } from '@mui/material'
 import { theme } from './theme'
 import { AuthProvider, useAuth } from './context/AuthContext'
@@ -20,6 +21,7 @@ import EmbedForm from './pages/EmbedForm'
 import PublicIssue from './pages/PublicIssue'
 import CompanyTickets from './pages/CompanyTickets'
 import UpdatePrompt from './components/UpdatePrompt'
+import { onWorkerMessage, routerPath } from './pwa'
 
 function Splash() {
   return (
@@ -27,6 +29,21 @@ function Splash() {
       <CircularProgress />
     </Box>
   )
+}
+
+/**
+ * A tapped notification, when the app is already open: the service worker
+ * focuses this window and names the page, and the router goes there — no
+ * reload, nothing typed into a form lost elsewhere in the app.
+ */
+function NotificationLinks() {
+  const navigate = useNavigate()
+  useEffect(() => onWorkerMessage((m) => {
+    if (m.type !== 'open') return
+    const path = routerPath(m.url)
+    if (path) navigate(path)
+  }), [navigate])
+  return null
 }
 
 /**
@@ -51,6 +68,7 @@ export default function App() {
           from /<repo>/ routes the same as a root deployment. */}
       <BrowserRouter basename={import.meta.env.BASE_URL}>
         <AuthProvider>
+          <NotificationLinks />
           <Routes>
             {/* Public, embeddable intake form — no auth, no chrome. One per
                 project: the key in the path decides which project the request

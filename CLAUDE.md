@@ -70,8 +70,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `/config` — CRUD over the dropdown lists and the comment templates. Admins get
   every tab; managers only Labels and Templates (`can.manageList` /
   `can.manageTemplates`).
-- `/profile` — your own account: shows name/email/role, changes photo, and —
-  with the email grant — your email signature. No password: Google signs in. Reached from the header avatar menu. No role guard — everyone has one.
+- `/profile` — your own account: shows name/email/role, changes photo, turns
+  device notifications on/off and lists your devices, and — with the email
+  grant — your email signature. No password: Google signs in. Reached from the header avatar menu. No role guard — everyone has one.
 - `/embed/:key/form` — public, no auth, no chrome; one form per project.
 - `/i/:key/:number` — share link, addressed by ticket reference: staff get
   redirected to the editable view, everyone else gets a read-only page.
@@ -81,7 +82,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   no redirect.
 - Guarding happens in `src/App.jsx` via `<Protected require={can.x}>`.
 - **One shell, three apps.** The theme (indigo, Roboto, bold `h5` titles) and
-  the layout (header: switcher, logo, account button with name and role;
+  the layout (header: switcher, logo, notifications bell, account button with name and role;
   tinted current page; navigation that folds to a rail from **Collapse** at its
   foot, via `components/useNavCollapsed`, one localStorage key shared by the
   apps) match Work, Support and People. A change to either belongs in all three.
@@ -98,11 +99,13 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 | `ConfigContext` | Dropdown lists grouped by type, company list, user roster, comment templates, active statuses | Authed pages + embed form (no roster or templates there) |
 | `ProjectContext` | Project list, the one selected project, persistence | Authed pages only |
 | `RefreshContext` | Bump counter so the header can tell a page to reload | Inside `AppLayout` |
+| `NotificationsContext` | Your latest notifications (live via Realtime, a push, or coming back to the front), unread count + app-icon badge, mark read (one, a ticket's, all). No-ops outside a provider | Inside `AppLayout` |
 
 - Exactly **one project is always selected** — there is no "all projects" view.
   Selection persists in `localStorage` and falls back to the first visible one.
 - The picker lives in the **header** (`AppLayout`), shown only on the routes
-  marked `scoped` in its nav list. Pages read the selection; none draws its own.
+  marked `scoped` in its nav list — below `md`, in a full-width bar of its own
+  under the header row. Pages read the selection; none draws its own.
 
 ## 6. Domain modules (`src/lib/`)
 
@@ -166,7 +169,19 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `email-send` re-checks the document and builds the email's HTML from it; the
   UI draws it with React. Also how a comment or template is stored — the
   document plus its plain text — and read back, plain-text rows included.
-  Mirrored in `email-send`.
+  Mirrored in `email-send`. A run may be an **@mention** (`mention`: a profile
+  id) — comments only; any other box strips them (`stripMentions`).
+- `mentions.js` — the `@` picker: noticing one being typed, who matches, who a
+  ticket's comment may mention (project members + admins, active, not you).
+- `notifications.js` — what each notification kind says, where it leads (the
+  Issues deep link), unread counting, watchers from `issue_watchers` rows.
+  Wording mirrored in `push-send`.
+- `push.js` — whether this browser can have device notifications
+  (`pushStatus`: on / off / blocked / install-first on iOS tabs / unsupported /
+  unconfigured — "on" needs the server's confirmation) and what to say,
+  including the bell's prompt (`pushPrompt`: off, blocked, install first, or
+  *stopped* on a device that had them); VAPID key and subscription shapes. The browser
+  calls live in `src/pwa.js`; the database calls in `components/usePushDevice`.
 - `publicLink.js` — calls the `public-issue` and `public-company` functions;
   clipboard helper.
 - `links.js` — links between tickets: the ordered pair a link is stored as,
@@ -298,6 +313,24 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `email_signature` (optional, rich text document) is the person's own, written
   from `/profile`; `email-send` appends it from the row, never from the browser.
 - `views` — saved Issues filter sets.
+- `issue_watchers` — who follows a ticket; `watching = false` is a deliberate
+  unwatch, never overwritten by the automatic watches (assigned, commenting,
+  mentioned, logging it). Read by whoever sees the ticket; each person writes
+  only their own row; no delete.
+- `notifications` — one row per person per event, written **only by triggers**
+  (on `issues` assignees, `comments` incl. mentions read from `body_doc`,
+  `status_events`, inbound `email_messages`) plus `send_test_notification()`.
+  Never to the actor, an inactive account or someone who can't see the ticket;
+  one per person per event (mention beats comment). The recipient reads, marks
+  read (`read_at` is the only writable column) and deletes. In the
+  `supabase_realtime` publication.
+- `push_subscriptions` — the devices someone turned notifications on for
+  (Web Push endpoint + keys). Browser reads/deletes its own; writes only via
+  `save_push_subscription()`: turning on hands a shared device to whoever did
+  it last; a check (`p_refresh_only`) never registers, only confirms/refreshes
+  the caller's own and ends someone else's. Its answer is what "on" means in
+  the app (`usePushDevice`, re-checked on focus, permission change and the bell
+  opening). Only `push-send` reads the keys.
 
 ## 8. Edge Functions
 
@@ -307,7 +340,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `public-issue` — resolves `(project key, ticket number)` to a **field allow-list** for
   the sign-in-free page. Returns attachments as signed URLs — the request's, and
   each comment's with its comment. A comment carries its rich text document
-  beside its text.
+  beside its text, with mentions' profile ids removed.
 - `public-company` — resolves a company code (or name) to its tickets, each cut
   to its own **field allow-list**: the request, its attachments (signed URLs),
   submission details including the **requester email** (deliberately — unlike
@@ -335,7 +368,15 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   in its To, never from a Cc or Bcc; machine mail never makes one) and delivery
   events. Deploys with `--no-verify-jwt`; Mailgun's HMAC
   signature authenticates it. Mailgun keys live in function env only.
-- All six are Deno, and deploy with `supabase functions deploy <name>`; the four
+- `push-send` — delivers notifications to devices (Web Push). Called by a
+  statement trigger on `notifications` via `pg_net` with the new rows' ids —
+  one call per event — authenticated by the same shared secret as
+  `notify-issue` (its Vault URL with the name swapped, or `push_send_url`), so
+  `--no-verify-jwt`. Encrypts per device and signs VAPID itself
+  (`webpush.ts`, WebCrypto only, no dependency); deletes devices the push
+  service reports gone. VAPID keys in function env; public half also
+  `VITE_VAPID_PUBLIC_KEY`.
+- All seven are Deno, and deploy with `supabase functions deploy <name>`; the four
   browser-facing ones handle CORS preflight. None can import from `src/` — small,
   deliberate duplication (e.g. display names, the share-link path) is expected
   there.
@@ -362,16 +403,25 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `reports.js`, so a tile, chart and table can never disagree.
 - Anything the header does (creating an issue) reaches the mounted page through
   `RefreshContext`, so neither knows about the other.
+- Notifications: a write (assignment, comment, status, inbound email) →
+  trigger → `notifications` rows → Realtime → the bell; and → statement trigger
+  → `pg_net` → `push-send` → push service → the service worker shows it → a tap
+  focuses an open window and routes it (`onWorkerMessage` in `App.jsx`), or
+  opens one. Opening a ticket (`IssueDetail`) marks its notifications read.
 
 ## 10. Working in the repo
 
 - `npm run dev` (5173) · `npm run build` · `npm run lint` (oxlint) · `npm test`.
 - Tests run under `vite-node` with `test/vite.config.js` aliasing the Supabase
   client to `test/mockSupabase.js`; `TZ` is pinned so date behaviour is stable.
+  `webpush.test.js` and `service-worker.test.js` import from
+  `supabase/functions/push-send` and `vite.pwa.js` (pure; the other direction
+  is still forbidden).
 - Tests are **behavioural**: permissions, SLA maths, report aggregation,
   project scoping, form rendering. Add to them when changing a rule.
 - Env: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, optional
-  `VITE_JIRA_BASE_URL` and `VITE_GOOGLE_DOMAIN`. See `.env.example`. Build-time `VITE_BASE` sets the URL
+  `VITE_JIRA_BASE_URL`, `VITE_GOOGLE_DOMAIN` and `VITE_VAPID_PUBLIC_KEY`
+  (device notifications; `npm run vapid-keys` makes the pair). See `.env.example`. Build-time `VITE_BASE` sets the URL
   prefix when the app is not served from the root (GitHub Pages project site);
   it feeds Vite's `base`, the router `basename` and `appOrigin()`.
 - **PWA**: `vite.pwa.js` (build plugin, no dependency) emits
@@ -379,7 +429,10 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   browser's install offer, and `components/UpdatePrompt` offers a waiting build.
   `components/InstallApp` is the Install button (nav foot beside Collapse; a
   dismissible banner atop the phone navigation): the browser's dialog where it
-  has one, else steps from `lib/install.js`; hidden when running installed. The worker caches the app's
+  has one, else steps from `lib/install.js`; hidden when running installed.
+  The worker also shows pushes (always a notification — Safari revokes silent
+  ones), sets the icon badge, and only ever opens a page of this app, never a
+  public route or another origin. The worker caches the app's
   own files only — **never a Supabase response** — stays inside its own folder
   (sibling apps share the origin), and leaves the public routes (`embed/`,
   `i/`, `tickets`) to the network; they are listed twice, in `vite.config.js`

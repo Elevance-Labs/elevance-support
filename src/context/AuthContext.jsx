@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { appOrigin } from '../lib/projects'
 import { googleDomain, googleSignIn, returnedError, signInErrorMessage } from '../lib/signin'
 import { SSO_PARAM, ssoHint } from '../lib/suite'
+import { forgetPushDevice } from '../components/usePushDevice'
 
 // A sign-in Google or Supabase refused comes back as an error in the address.
 // Read once, as the module loads: the router replaces the address on its first
@@ -82,7 +83,12 @@ export function AuthProvider({ children }) {
     if (error) setAuthError(signInErrorMessage(error.message))
     return { error }
   }
-  const signOut = () => supabase.auth.signOut()
+  // This device stops getting the person's notifications first — while the
+  // session that may delete its row still exists.
+  const signOut = async () => {
+    await forgetPushDevice()
+    return supabase.auth.signOut()
+  }
 
   // The Profile page writes the signed-in user's own row; the header reads it.
   // Re-reading here is what keeps the two in step without either knowing about

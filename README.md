@@ -30,6 +30,7 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | Change who is on an **already-assigned** ticket | — | ✅ | ✅ |
 | Re-file a ticket (product, area) | ✅ | ✅ | ✅ |
 | Comment (edit/delete own for 5 min) | ✅ | ✅ | ✅ |
+| Watch a ticket, @mention someone, get notified | ✅ | ✅ | ✅ |
 | Load saved views | ✅ | ✅ | ✅ |
 | Create / rename / delete views | — | ✅ | ✅ |
 | See Reports | — | ✅ | ✅ |
@@ -75,7 +76,8 @@ The grid icon at the top left opens the **app switcher**: Work, Support and Peop
 ## On a phone, and as an installed app
 
 Every staff page works at phone width. The navigation becomes a drawer opened
-from the header; the Issues filters fold away behind a **Filters** button so
+from the header, and the project picker moves to a full-width bar of its own
+just under it (on the pages that show one project); the Issues filters fold away behind a **Filters** button so
 the list gets the screen; a ticket, the Create Issue form and the rota open
 full screen; the board and every table scroll sideways inside themselves
 rather than widening the page.
@@ -114,14 +116,15 @@ The app can also be **installed** (a PWA). It then opens in its own window
   company pages are always loaded fresh from the network, are never answered
   from the installed app's copy, and never install anything in a customer's
   browser.
-- There is no working offline and there are no push notifications; Google
-  Chat stays the channel for those.
+- There is no working offline. **Notifications do reach the device**, app
+  closed or not — see [Notifications](#notifications).
 
 It is built by [`vite.pwa.js`](vite.pwa.js) — a small build plugin, no
 dependency — which writes `manifest.webmanifest` and `sw.js` at build time.
-The icons are in `public/icons/`; replace those three files to change the
+The icons are in `public/icons/`; replace those files to change the
 artwork (keep it inside the middle 80% of the square, since phones crop it to
-a circle). Several of our apps are served from one origin, so the service
+a circle). `badge-96.png` is the small bell Android shows in its status bar
+beside a notification: white on transparent, since only its shape is drawn. Several of our apps are served from one origin, so the service
 worker only ever answers for, and only ever clears caches belonging to, its
 own folder.
 
@@ -410,7 +413,13 @@ Opening a ticket gives a three-column view:
   sits at the top.
 
 The **link button** in the header copies a public share link for the ticket —
-see [Share links](#share-links) below.
+see [Share links](#share-links) below. The **eye** beside it says whether you
+hear about the ticket — filled while you watch, outlined while you don't — and
+how many people do; click it to watch or stop. See
+[Notifications](#notifications).
+
+In the comment box, **@** offers the people who can see the ticket; picking one
+**mentions** them, and they are notified.
 
 New tickets automatically start at the first status in sort order, and every
 status change is recorded by a database trigger — so tickets submitted through
@@ -779,6 +788,10 @@ thing that is actually yours:
 
 There is no password to change: you [sign in with Google](#signing-in).
 
+Under it, **Notifications**: what you are told about, a **Turn on** for this
+device (with **Send a test** and **Turn off** once it is on), and the list of
+**your devices** that get them, each removable — see [Notifications](#notifications).
+
 Your **name, email and role are read-only here** — they identify you to everyone
 else, and an admin owns them on the Users page.
 
@@ -805,6 +818,168 @@ values on any self-write by a non-admin, so that policy cannot be used from the
 browser to promote yourself, or to move yourself into a department you would
 rather be paired from — the `admin-users` function stays the only writer of
 `role`.
+
+## Notifications
+
+Everybody has their own feed — the **bell** in the header — about the tickets
+they are on, and can have it on their phone and computer too, app open or not.
+[Google Chat](#new-ticket-notifications) stays the team's shared channel; this
+is the personal one.
+
+| What happened | Who is notified |
+|---|---|
+| Someone is put on a ticket — by hand, by the [rota](#the-support-schedule), or by whoever logged it | the person added |
+| A comment @mentions you | you |
+| A comment on a ticket | its watchers |
+| A ticket changes status | its watchers |
+| The customer replies by email | its watchers |
+
+- **Never about what you did yourself**, and never to a disabled account or to
+  someone who cannot see the ticket (not a member of its project; admins see
+  every project).
+- **One event, one notification each.** A comment that mentions a watcher is a
+  mention, not also a comment.
+- The email that **opens** a ticket is not also a "replied by email": whoever
+  it landed on has just been told they were assigned. An email the team sends
+  notifies nobody.
+- Editing a comment within its 5 minutes notifies only the people the edit
+  newly mentions.
+
+### Watching
+
+The **eye** in a ticket's header — the same indicator as Elevance Work's:
+filled while you watch the ticket, outlined while you don't, beside how many
+people watch it. Click it to watch, or to stop watching.
+
+- You start watching a ticket when you are **assigned** to it, **comment** on
+  it, are **mentioned** in it, or **log** it from Create Issue.
+- **Unwatching sticks.** None of those puts you back — only the eye does.
+  (Unwatching is stored as a row that says so, which the automatic watches
+  never overwrite.)
+- Anyone who can see a ticket can see who watches it; each person changes only
+  their own watch. Row-level security enforces both.
+
+### @mentions
+
+Type **@** in the comment box (or while editing one). It offers the active
+members of the ticket's project and the admins — everyone who can see it —
+except you. Keep typing to narrow it; **↑ ↓** and **Enter** or **Tab** pick,
+**Esc** closes the list, and a click works too. The person goes in as one
+**@Name** piece, deleted whole.
+
+- A mention is part of the comment's stored document (`body_doc`), not its
+  text, and the database reads it from there: typing "@Ada" by hand mentions
+  nobody, and mentioning someone who cannot see the ticket notifies nobody.
+- Only comments mention. The email box, templates and signatures do not, and a
+  mention pasted into one becomes plain text.
+- On the public [share page](#share-links) a mention reads as "@Name"; whose
+  account it is (the profile id) is not sent.
+
+### The bell
+
+The latest 50, newest first, unread ones highlighted, arriving **live**
+(Supabase Realtime) — each says who, what, and which ticket, and quotes the
+comment for a mention or a comment. Clicking one opens its ticket on the Issues
+page with its project selected. **Opening a ticket any other way marks its
+notifications read too** — looking at it is what reading them means. **Mark all
+read** clears the rest.
+
+Installed, the app's icon wears the unread count where the system supports it
+(Chrome and Edge on a computer, Safari on a Mac, iPhone and iPad home-screen
+apps).
+
+### On your devices
+
+**Profile → Notifications → Turn on** (or **Turn on** in the bell), then allow
+it when the browser asks. It is per device: turn it on on each phone or computer
+you want them on. **Send a test** checks the whole path end to end.
+
+- **Where it works:** Chrome, Edge, Firefox and Samsung Internet on a computer
+  or Android, in a tab or installed; Safari on a Mac; **iPhone and iPad only once
+  the app is on the Home Screen** (iOS 16.4 or later) — Safari in a tab cannot,
+  and the app says so with the way to install it.
+- A notification shows whether the app is open or not. **Tapping it opens the
+  ticket** — inside the app window if one is already open, without reloading it.
+- **One per ticket** on the device: a newer one about the same ticket replaces
+  the older, and still alerts. A phone that was off gets the latest word on a
+  ticket, not every word.
+- **What it carries:** the ticket (`ACME-42 · title`), who did what, and for a
+  mention or a comment the first line of it. It is **encrypted to the device**
+  (RFC 8291) — Google, Apple and Mozilla's push services carry it but cannot
+  read it. A customer's email is never in it; only who replied.
+- **Signing out takes the device off.** On a shared computer the next person
+  starts with nothing, and a device always belongs to whoever turned it on last.
+- A device the push service reports gone — app uninstalled, permission
+  withdrawn — is removed on the next send. **Your devices** on Profile lists
+  the rest, each removable (a lost phone, say), with this one marked.
+- **The app notices when they stop.** "On" means this browser is subscribed,
+  allows notifications, *and* the server still has the device as yours —
+  checked when the app opens, whenever it comes back to the front, when the
+  browser's permission changes, and each time the bell's list opens. While a
+  device does not get them, the top of that list says so: **off** (Turn on, or
+  *Not now* for a week), **blocked** (and where to allow them), or **install
+  first** on an iPhone in Safari. A device that *had* them and stopped —
+  permission withdrawn, removed from another device, dropped by the push
+  service — says **stopped** instead, with *Turn back on*; no *Not now* hides
+  that, and the bell wears a small dot until it is dealt with. Turning them off
+  yourself is just off.
+- Checking never registers a device: a phone removed from your list stays
+  removed. If someone else signs in on a browser that was yours, the check ends
+  your registration there.
+
+### How it works
+
+[Migration 0023](supabase/migrations/0023_watch_mentions_notifications.sql)
+adds `issue_watchers`, `notifications` and `push_subscriptions`. Triggers on
+`issues` (assignees), `comments`, `status_events` and `email_messages` write the
+notifications — the browser cannot write one, only read, mark read and delete
+its own. Each event writes all its notifications in one statement, and a
+statement trigger on `notifications` hands their ids to the `push-send` function
+through `pg_net`: **one call per event**, however many people it reaches, and
+never able to fail the write it hangs off — the same arrangement as the Chat
+card.
+
+`push-send` reads everything else with `service_role`, encrypts one message per
+device and signs it for the push service (VAPID). It has no dependencies:
+[`webpush.ts`](supabase/functions/push-send/webpush.ts) is WebCrypto alone, and
+`test/webpush.test.js` checks it byte for byte against the RFC's worked example.
+The service worker ([`vite.pwa.js`](vite.pwa.js)) shows each push and only ever
+opens a page of this app — never a public page, never another site.
+
+### Setting up device notifications
+
+1. Apply migration 0023.
+2. Make a key pair: `npm run vapid-keys`. It prints both keys and the commands
+   below with them filled in.
+3. Give the app the **public** key — `VITE_VAPID_PUBLIC_KEY` in `.env` or the
+   host's build settings — and rebuild.
+4. Give the function both, and who push services should contact:
+
+   ```bash
+   supabase secrets set \
+     VAPID_PUBLIC_KEY='<public key>' \
+     VAPID_PRIVATE_KEY='<private key>' \
+     VAPID_SUBJECT='mailto:support@yourcompany.com'
+   supabase functions deploy push-send --no-verify-jwt
+   ```
+
+5. The database calls `push-send` with the **same Vault secrets as the Chat
+   card**: the URL is `notify_issue_url` with the function's name swapped, and
+   the shared secret is `notify_issue_secret`, which must equal
+   `NOTIFY_SHARED_SECRET` — already set if Chat is, since function secrets are
+   project-wide. Without Chat set up, create both secrets as in
+   [Setting it up](#setting-it-up) and point the database straight at the
+   function:
+
+   ```sql
+   select vault.create_secret(
+     'https://<project-ref>.supabase.co/functions/v1/push-send', 'push_send_url');
+   ```
+
+Push needs HTTPS (or `localhost`), and the service worker is only registered by
+a production build — under `npm run dev` the Profile page says device
+notifications are not set up. Changing the key pair later is allowed, but every
+device stops getting notifications until its owner turns them on again.
 
 ## Setup
 
@@ -916,6 +1091,20 @@ Until they are deployed and configured, the tab shows the (empty) thread and a
 send fails with "Email is not set up yet". Migrations 0013 and 0014 must be
 applied first — 0014 adds rich text and signatures, and `email-send` reads
 both columns.
+
+### 4e. Turn on device notifications
+
+The bell works as soon as migration 0023 is applied. Getting notifications onto
+phones and computers takes a key pair and one more function — see
+[Notifications → Setting it up](#setting-up-device-notifications):
+
+```bash
+npm run vapid-keys
+supabase functions deploy push-send --no-verify-jwt
+```
+
+Until then, Profile says device notifications are not set up, and nothing else
+changes.
 
 ### 5. Schema changes from here on
 

@@ -108,3 +108,104 @@ export async function promptInstall() {
     return null
   }
 }
+
+// ---------------------------------------------------------------------------
+// Notifications (Web Push)
+//
+// The browser's half: permission, the push subscription, the worker's
+// messages and the icon's badge. Which of these to use, and what to say about
+// them, is `lib/push.js`; saving a subscription is `components/usePushDevice`.
+
+const appBase = () => new URL(import.meta.env.BASE_URL, window.location.href).pathname
+
+/** This app's service worker registration, or null (development, no support). */
+export async function workerRegistration() {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return null
+  try {
+    return (await navigator.serviceWorker.getRegistration(appBase())) ?? null
+  } catch {
+    return null
+  }
+}
+
+/** What the browser offers here, for `pushStatus` in lib/push.js. */
+export async function pushEnvironment() {
+  const registration = await workerRegistration()
+  const subscription = registration?.pushManager
+    ? await registration.pushManager.getSubscription().catch(() => null)
+    : null
+  return {
+    registration,
+    subscription,
+    hasWorker: Boolean(registration),
+    hasPush: typeof window !== 'undefined' && 'PushManager' in window,
+    hasNotification: typeof Notification !== 'undefined',
+    permission: typeof Notification !== 'undefined' ? Notification.permission : 'default',
+  }
+}
+
+/**
+ * Asks for permission (it must come from a click) and subscribes this browser
+ * with the app's VAPID key. A subscription made with another key — the key was
+ * changed — is replaced. Resolves to the subscription, or throws with a reason
+ * a person can read.
+ */
+export async function subscribePush(applicationServerKey) {
+  const registration = await workerRegistration()
+  if (!registration?.pushManager) throw new Error('This browser cannot receive notifications here.')
+  const permission = await Notification.requestPermission()
+  if (permission !== 'granted') {
+    throw new Error(permission === 'denied'
+      ? 'Notifications are blocked for this site.'
+      : 'Notifications were not allowed.')
+  }
+  const options = { userVisibleOnly: true, applicationServerKey }
+  try {
+    return await registration.pushManager.subscribe(options)
+  } catch (err) {
+    const old = await registration.pushManager.getSubscription().catch(() => null)
+    if (!old) throw err
+    await old.unsubscribe().catch(() => {})
+    return registration.pushManager.subscribe(options)
+  }
+}
+
+/** Unsubscribes this browser. Resolves to the endpoint it had, or null. */
+export async function unsubscribePush() {
+  const registration = await workerRegistration()
+  const subscription = await registration?.pushManager?.getSubscription().catch(() => null)
+  if (!subscription) return null
+  const { endpoint } = subscription
+  await subscription.unsubscribe().catch(() => {})
+  return endpoint
+}
+
+/** Messages from the service worker (`{ type: 'push' | 'open', … }`). */
+export function onWorkerMessage(handler) {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return () => {}
+  const listener = (event) => { if (event.data && typeof event.data === 'object') handler(event.data) }
+  navigator.serviceWorker.addEventListener('message', listener)
+  return () => navigator.serviceWorker.removeEventListener('message', listener)
+}
+
+/**
+ * The app's address for a full URL inside it, as the router names pages
+ * ("/issues?issue=…"), or null for anywhere else.
+ */
+export function routerPath(url) {
+  try {
+    const target = new URL(url, window.location.href)
+    const base = appBase()
+    if (target.origin !== window.location.origin || !target.pathname.startsWith(base)) return null
+    return `/${target.pathname.slice(base.length)}${target.search}`
+  } catch {
+    return null
+  }
+}
+
+/** The number on an installed app's icon; nothing at zero. */
+export function setAppBadge(count) {
+  if (typeof navigator === 'undefined' || !('setAppBadge' in navigator)) return
+  const p = count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge()
+  p?.catch?.(() => {})
+}

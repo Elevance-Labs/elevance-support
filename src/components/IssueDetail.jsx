@@ -39,6 +39,10 @@ import { SeverityOption, SeverityValue } from './SeverityOption'
 import Tag from './Tag'
 import GoogleChatIcon from './GoogleChatIcon'
 import LinkedTickets from './LinkedTickets'
+import WatchButton from './WatchButton'
+import { useNotifications } from '../context/NotificationsContext'
+import { unreadForIssue } from '../lib/notifications'
+import { mentionablePeople } from '../lib/mentions'
 
 /**
  * Three-column ticket view:
@@ -96,6 +100,29 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
   }, [issueId])
 
   useEffect(() => { if (open) load() }, [open, load])
+
+  // Who can see this ticket — its project's members, and the admins — is who
+  // a comment may @mention.
+  const projectId = saved?.project_id
+  const [memberIds, setMemberIds] = useState([])
+  useEffect(() => {
+    if (!projectId) return
+    let live = true
+    supabase.from('project_members').select('user_id').eq('project_id', projectId)
+      .then(({ data }) => { if (live) setMemberIds((data ?? []).map((m) => m.user_id)) })
+    return () => { live = false }
+  }, [projectId])
+  const mentionables = useMemo(
+    () => mentionablePeople(users, memberIds, profile?.id), [users, memberIds, profile?.id])
+
+  // Looking at a ticket is reading what you were told about it — including
+  // whatever arrives while it is open, and a feed that loads after it opened
+  // (a tapped notification starts the app on this ticket).
+  const { items: notifications, markIssueRead } = useNotifications()
+  const unreadHere = open && issueId ? unreadForIssue(notifications, issueId).length : 0
+  useEffect(() => {
+    if (unreadHere) markIssueRead(issueId)
+  }, [unreadHere, issueId, markIssueRead])
 
   const patch = (field, value) => setIssue((i) => ({ ...i, [field]: value }))
 
@@ -315,6 +342,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
               </Stack>
               <Typography variant="h6">{issue.title}</Typography>
             </Box>
+            <WatchButton issueId={issue.id} me={profile?.id} onError={setError} />
             {/* Only once the announcement has recorded its thread: older
                 tickets, and any whose post failed, have nowhere to go. */}
             {chatUrl && (
@@ -569,7 +597,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
                 </Tabs>
                 <Box hidden={thread !== 'comments'}>
                   <CommentsThread issueId={issue.id} hideHeading onCount={setCommentCount}
-                    hasChatThread={Boolean(saved?.chat_thread)} />
+                    hasChatThread={Boolean(saved?.chat_thread)} mentionables={mentionables} />
                 </Box>
                 <Box hidden={thread !== 'conversation'}>
                   <ConversationThread issue={saved} ticketRef={issueRef(project, issue)}

@@ -11,9 +11,15 @@
  * the reading.
  *
  *   { blocks: [
- *       { type: 'p',  runs: [{ text, b?, i?, u?, href? }, …] },
+ *       { type: 'p',  runs: [{ text, b?, i?, u?, href?, mention? }, …] },
  *       { type: 'ul' | 'ol', items: [[run, …], …] },
  *   ] }
+ *
+ * A run with `mention` is an @mention: its text is the name as written
+ * ("@Ada Lovelace") and `mention` the profile id. Only comments carry them;
+ * the database reads them from the stored document to notify whoever is
+ * mentioned (migration 0023, `mentioned_ids`), so typing "@Ada" by hand
+ * mentions nobody. In the editor a mention is one uneditable span.
  *
  * A paragraph is one line as typed: Enter starts a new one, and an empty one
  * is a blank line. A run's text may carry '\n' for a soft line break.
@@ -39,6 +45,11 @@ export const safeHref = (href) => {
 const MARKS = ['b', 'i', 'u']
 const sameMarks = (a, b) =>
   MARKS.every((m) => Boolean(a[m]) === Boolean(b[m])) && (a.href ?? null) === (b.href ?? null)
+  && (a.mention ?? null) === (b.mention ?? null)
+
+/** What a mention may name: a profile id, nothing that could be markup. */
+const MENTION_ID = /^[\w-]{1,64}$/
+export const safeMention = (id) => (typeof id === 'string' && MENTION_ID.test(id) ? id : null)
 
 /** Joins neighbouring runs that look the same, and drops empty ones. */
 function mergeRuns(runs) {
@@ -46,7 +57,8 @@ function mergeRuns(runs) {
   for (const r of runs) {
     if (!r.text) continue
     const last = out[out.length - 1]
-    if (last && sameMarks(last, r)) last.text += r.text
+    // Two mentions side by side are two people (or one, twice), never one run.
+    if (last && !r.mention && sameMarks(last, r)) last.text += r.text
     else out.push({ ...r })
   }
   return out
@@ -77,8 +89,11 @@ export function normalizeDoc(input) {
     budget -= text.length
     const run = { text }
     for (const m of MARKS) if (r?.[m] === true) run[m] = true
-    const href = safeHref(r?.href)
+    // A mention is a person, not a link: it never carries an address too.
+    const mention = safeMention(r?.mention)
+    const href = mention ? null : safeHref(r?.href)
     if (href) run.href = href
+    if (mention) run.mention = mention
     return run
   }))
   for (const b of Array.isArray(input?.blocks) ? input.blocks : []) {
@@ -93,6 +108,34 @@ export function normalizeDoc(input) {
   while (blocks.length && blocks[0].type === 'p' && isBlankRuns(blocks[0].runs)) blocks.shift()
   while (blocks.length && blocks.at(-1).type === 'p' && isBlankRuns(blocks.at(-1).runs)) blocks.pop()
   return { blocks }
+}
+
+/**
+ * The profile ids a document mentions, each once, in the order first written.
+ * Mirrors `mentioned_ids()` in migration 0023.
+ */
+export function mentionedIds(doc) {
+  const ids = []
+  const take = (runs) => runs.forEach((r) => { if (r.mention && !ids.includes(r.mention)) ids.push(r.mention) })
+  for (const b of normalizeDoc(doc).blocks) {
+    if (b.type === 'p') take(b.runs)
+    else b.items.forEach(take)
+  }
+  return ids
+}
+
+/** The same document with every mention turned back into plain text. */
+export function stripMentions(doc) {
+  const plain = (runs) => runs.map((r) => {
+    const run = { ...r }
+    delete run.mention
+    return run
+  })
+  return normalizeDoc({
+    blocks: (doc?.blocks ?? []).map((b) => (b?.type === 'p'
+      ? { ...b, runs: plain(b.runs ?? []) }
+      : { ...b, items: (b?.items ?? []).map((it) => plain(it ?? [])) })),
+  })
 }
 
 /** Nothing but blank lines. */
@@ -148,9 +191,15 @@ export function docToText(doc) {
 const escapeHtml = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
+/** The editor's form of a mention: one span, edited as a whole or not at all. */
+export const mentionHtml = (id, text) =>
+  `<span data-mention="${escapeHtml(id)}" contenteditable="false">${escapeHtml(text)}</span>`
+
 function runsToHtml(runs) {
   return runs.map((r) => {
-    let html = escapeHtml(r.text).replace(/\n/g, '<br>')
+    let html = r.mention
+      ? mentionHtml(r.mention, r.text)
+      : escapeHtml(r.text).replace(/\n/g, '<br>')
     if (r.b) html = `<strong>${html}</strong>`
     if (r.i) html = `<em>${html}</em>`
     if (r.u) html = `<u>${html}</u>`
@@ -234,7 +283,9 @@ export function docFromDom(root) {
         for (const child of node.childNodes) {
           if (child.nodeType === 3) runs.push({ ...m, text: collapse(child.nodeValue) })
           else if (child.nodeType === 1 && !SKIP_TAGS.has(child.tagName)) {
-            if (child.tagName === 'UL' || child.tagName === 'OL') {
+            const mention = mentionOf(child)
+            if (mention) runs.push(mentionRun(child, m, mention))
+            else if (child.tagName === 'UL' || child.tagName === 'OL') {
               for (const sub of child.children) if (sub.tagName === 'LI') readItem(sub)
             } else if (child.tagName === 'BR') runs.push({ ...m, text: '\n' })
             else {
@@ -266,7 +317,11 @@ export function docFromDom(root) {
       }
       if (child.nodeType !== 1 || SKIP_TAGS.has(child.tagName)) continue
       const tag = child.tagName
-      if (tag === 'UL' || tag === 'OL') readList(child, marks)
+      const mention = mentionOf(child)
+      if (mention) {
+        line ??= []
+        line.push(mentionRun(child, marks, mention))
+      } else if (tag === 'UL' || tag === 'OL') readList(child, marks)
       else if (tag === 'BR') {
         // A <br> ends the line it is on; on an empty line it *is* the line.
         line ??= []
@@ -282,6 +337,16 @@ export function docFromDom(root) {
   walk(root, {})
   flush()
   return normalizeDoc({ blocks })
+}
+
+/** The profile id of a mention span, or null for any other element. */
+const mentionOf = (el) => (el.tagName === 'SPAN' ? safeMention(el.getAttribute('data-mention')) : null)
+
+/** A mention span as one run: its text as it reads, never split or linked. */
+function mentionRun(el, marks, mention) {
+  const run = { ...marks, text: collapse(el.textContent).trim(), mention }
+  delete run.href
+  return run
 }
 
 /** As a browser draws text: runs of whitespace are one space, &nbsp; included. */

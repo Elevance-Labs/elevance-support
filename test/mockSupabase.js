@@ -97,6 +97,8 @@ export const PROJECT_SCHEDULES = [
 
 export const captured = {
   inserts: [], updates: [], deletes: [], uploads: [], removals: [], auth: [], functionCalls: [],
+  // Upserts (with their options), RPC calls and realtime subscriptions.
+  upserts: [], rpcs: [], channels: [],
   // Which tables were read, so a test can tell a page never asked for one.
   reads: [],
 }
@@ -153,6 +155,34 @@ const writeChain = (row) => {
   return p
 }
 
+/**
+ * An update's chain, noting each filter it was narrowed by (`filters`), so a
+ * test can tell "mark these read" from "mark everything read".
+ */
+const filteredWrite = (entry, row) => {
+  const p = writeChain(row)
+  for (const op of ['eq', 'in', 'is']) {
+    p[op] = (col, value) => { entry.filters.push([op, col, value]); return filteredWrite(entry, row) }
+  }
+  return p
+}
+
+/** A delete's chain: the rows it matched, and the filters it was given. */
+const recordingChain = (entry, rows) => {
+  const p = chain(rows)
+  const narrow = (op, col, value, keep) => {
+    entry.filters.push([op, col, value])
+    return recordingChain(entry, rows.filter(keep))
+  }
+  p.eq = (col, value) => narrow('eq', col, value, (r) => r[col] === value)
+  p.in = (col, values) => narrow('in', col, values, (r) => (values ?? []).includes(r[col]))
+  p.is = (col, value) => narrow('is', col, value, (r) => (r[col] ?? null) === value)
+  return p
+}
+
+/** Answers for `supabase.rpc`, by function name; a test sets what it needs. */
+export const rpcResults = {}
+
 /** Flip on to make every write come back having changed nothing, as RLS does. */
 export const refuseWrites = { on: false }
 
@@ -171,6 +201,9 @@ const tableData = (table) => {
   if (table === 'email_messages') return FIXTURES.email_messages
   if (table === 'project_contacts') return FIXTURES.project_contacts
   if (table === 'issue_links') return FIXTURES.issue_links
+  if (table === 'notifications') return FIXTURES.notifications
+  if (table === 'issue_watchers') return FIXTURES.issue_watchers
+  if (table === 'push_subscriptions') return FIXTURES.push_subscriptions
   return []
 }
 
@@ -179,12 +212,39 @@ export const supabase = {
     return {
       select: () => { captured.reads.push(table); return chain(tableData(table)) },
       insert: (row) => { captured.inserts.push({ table, row }); return writeChain({ id: 'new-issue' }) },
-      update: (row) => { captured.updates.push({ table, row }); return writeChain({ id: 'updated' }) },
+      update: (row) => {
+        const entry = { table, row, filters: [] }
+        captured.updates.push(entry)
+        return filteredWrite(entry, { id: 'updated' })
+      },
+      upsert: (row, options) => { captured.upserts.push({ table, row, options }); return writeChain(row) },
       // Hands back the rows it matched, as `.delete().eq(…).select()` does, and
       // records which table it was asked of.
-      delete: () => { captured.deletes.push({ table }); return chain(tableData(table)) },
+      delete: () => {
+        const entry = { table, filters: [] }
+        captured.deletes.push(entry)
+        return recordingChain(entry, tableData(table))
+      },
     }
   },
+  // What a database function answers: `rpcResults[name]` (a value, or a
+  // function of the arguments), else null.
+  rpc: async (name, args) => {
+    captured.rpcs.push({ name, args })
+    const answer = rpcResults[name]
+    return { data: typeof answer === 'function' ? answer(args) : (answer ?? null), error: null }
+  },
+  // Realtime: records what was subscribed to; nothing is ever pushed.
+  channel(name) {
+    const sub = { name, listeners: [] }
+    captured.channels.push(sub)
+    const ch = {
+      on: (type, filter, cb) => { sub.listeners.push({ type, filter, cb }); return ch },
+      subscribe: () => ch,
+    }
+    return ch
+  },
+  removeChannel: async () => 'ok',
   auth: {
     getSession: async () => ({ data: { session: null } }),
     onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
@@ -354,6 +414,33 @@ export const FIXTURES = {
   // id first, as the table keeps it — each ticket must find it from its end.
   issue_links: [
     { issue_a: 'issue-1', issue_b: 'issue-2', created_by: 'user-1', created_at: iso(1 * HR) },
+  ],
+  // Ada's feed, newest first: Grace mentioned her on ACME-42 (unread), the
+  // customer replied there (unread), and an old assignment from the rota
+  // (read) on the other project's ticket.
+  notifications: [
+    { id: 'n1', recipient_id: 'user-1', actor_id: 'user-2', kind: 'mentioned', issue_id: 'issue-1',
+      comment_id: 'c2', detail: null, read_at: null, created_at: iso(2 * MIN),
+      issue: { id: 'issue-1', number: 42, title: 'Cannot export invoice', project_id: 'proj-1' },
+      comment: { body: '@Ada Lovelace can you check the export on staging?' } },
+    { id: 'n2', recipient_id: 'user-1', actor_id: null, kind: 'email_received', issue_id: 'issue-1',
+      comment_id: null, detail: 'Jane', read_at: null, created_at: iso(1 * HR),
+      issue: { id: 'issue-1', number: 42, title: 'Cannot export invoice', project_id: 'proj-1' },
+      comment: null },
+    { id: 'n3', recipient_id: 'user-1', actor_id: null, kind: 'assigned', issue_id: 'issue-2',
+      comment_id: null, detail: null, read_at: iso(20 * HR), created_at: iso(1 * DAY),
+      issue: { id: 'issue-2', number: 1, title: 'Invoice PDF is blank', project_id: 'proj-2' },
+      comment: null },
+  ],
+  // On ACME-42: Ada watches, Grace watches, Kay unwatched.
+  issue_watchers: [
+    { issue_id: 'issue-1', user_id: 'user-1', watching: true },
+    { issue_id: 'issue-1', user_id: 'user-2', watching: true },
+    { issue_id: 'issue-1', user_id: 'user-3', watching: false },
+  ],
+  push_subscriptions: [
+    { id: 'ps-1', user_id: 'user-1', device: 'Chrome on Android', created_at: iso(3 * DAY),
+      last_used_at: iso(2 * MIN) },
   ],
   profiles: [
     // Ada has uploaded a photo; Grace has not — so every avatar site is exercised

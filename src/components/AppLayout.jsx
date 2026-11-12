@@ -23,6 +23,8 @@ import AddIcon from '@mui/icons-material/Add'
 import { useAuth } from '../context/AuthContext'
 import { can, ROLE_LABELS } from '../lib/permissions'
 import { RefreshProvider, useRefreshSignal } from '../context/RefreshContext'
+import { NotificationsProvider } from '../context/NotificationsContext'
+import NotificationsBell from './NotificationsBell'
 import CreateIssueDialog from './CreateIssueDialog'
 import ProjectFilter from './ProjectFilter'
 import { displayName } from '../lib/users'
@@ -37,6 +39,9 @@ import { InstallBanner, InstallNavButton } from './InstallApp'
 const WIDTH = 248
 // Collapsed, the navigation is a rail just wide enough for its icons.
 const RAIL = 68
+// Below `md` the project picker leaves the header for a bar of its own under
+// it, this tall; the page and the drawer start below both.
+const SUBBAR = 56
 
 // `show` decides visibility per role; see src/lib/permissions.js.
 // `scoped` marks a page that shows one project's data: the header carries the
@@ -56,7 +61,9 @@ const NAV = [
 export default function AppLayout() {
   return (
     <RefreshProvider>
-      <AppLayoutInner />
+      <NotificationsProvider>
+        <AppLayoutInner />
+      </NotificationsProvider>
     </RefreshProvider>
   )
 }
@@ -79,6 +86,7 @@ function AppLayoutInner() {
   const { pathname } = useLocation()
   const on = (n) => pathname === n.to || pathname.startsWith(`${n.to}/`)
   const scoped = NAV.some((n) => n.scoped && on(n))
+  const subbar = narrow && scoped
   const name = displayName(profile, '')
   const email = profile?.email ?? session?.user?.email ?? ''
   const role = profile?.role ? (ROLE_LABELS[profile.role] ?? profile.role) : ''
@@ -108,7 +116,7 @@ function AppLayoutInner() {
           <Typography variant="h6" component="div" noWrap sx={{ display: { xs: 'none', lg: 'block' } }}>
             Elevance Support
           </Typography>
-          {scoped && <ProjectFilter />}
+          {scoped && !narrow && <ProjectFilter />}
           <Box sx={{ flexGrow: 1 }} />
           {narrow ? (
             <Tooltip title="Create issue">
@@ -121,6 +129,7 @@ function AppLayoutInner() {
               Create Issue
             </Button>
           )}
+          <NotificationsBell />
           <ButtonBase
             onClick={(e) => setAnchor(e.currentTarget)}
             aria-label="Account menu"
@@ -155,6 +164,14 @@ function AppLayoutInner() {
             </MenuItem>
           </Menu>
         </Toolbar>
+        {/* On a phone or tablet the header has no room for the picker beside
+            its buttons, so it gets the full width of a bar of its own. */}
+        {subbar && (
+          <Toolbar data-project-bar disableGutters
+            sx={{ minHeight: `${SUBBAR}px !important`, px: 2, borderTop: 1, borderColor: 'divider' }}>
+            <ProjectFilter fullWidth />
+          </Toolbar>
+        )}
       </AppBar>
 
       <Drawer
@@ -165,6 +182,7 @@ function AppLayoutInner() {
         slotProps={{ paper: { sx: { width: narrow ? WIDTH : width, boxSizing: 'border-box', overflowX: 'hidden', border: 0, borderRight: '1px solid #e5e7eb', borderRadius: 0 } } }}
       >
         <Toolbar />
+        {subbar && <Box sx={{ height: SUBBAR, flexShrink: 0 }} />}
         {/* On a phone the offer to install leads the navigation, until dismissed. */}
         {narrow && <InstallBanner />}
         <List sx={{ px: rail ? 1 : 1.5, py: 1.5 }}>
@@ -222,6 +240,7 @@ function AppLayoutInner() {
 
       <Box component="main" sx={{ flexGrow: 1, minWidth: 0, p: { xs: 2, md: 3 } }}>
         <Toolbar />
+        {subbar && <Box sx={{ height: SUBBAR }} />}
         {/* A signed-in user with no profiles row isn't an admin and isn't a member —
             they're in a broken state. Say so instead of quietly hiding pages. */}
         {!profile && (

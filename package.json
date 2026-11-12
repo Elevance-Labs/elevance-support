@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "for f in test/*.test.*; do echo \"--- $f\"; TZ=Asia/Karachi vite-node --config test/vite.config.js \"$f\" || exit 1; done"
+    "test": "for f in test/*.test.*; do echo \"--- $f\"; TZ=Asia/Karachi vite-node --config test/vite.config.js \"$f\" || exit 1; done",
+    "vapid-keys": "node scripts/vapid-keys.mjs"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

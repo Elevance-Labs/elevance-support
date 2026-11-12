@@ -51,8 +51,12 @@ function useEditWindowTick(comments) {
  * dialog's Comments tab — and `onCount` tells it how many there are.
  * `hasChatThread` offers "Notify in thread", which posts the comment into the
  * ticket's Google Chat thread (a trigger and `notify-issue` do the posting).
+ * `mentionables` — the people who can see the ticket — turns on @mentions in
+ * the box; whoever a posted comment mentions is notified by the database.
  */
-export default function CommentsThread({ issueId, hideHeading = false, onCount, hasChatThread = false }) {
+export default function CommentsThread({
+  issueId, hideHeading = false, onCount, hasChatThread = false, mentionables,
+}) {
   const { profile } = useAuth()
   const { users, templates } = useConfig()
   const [comments, setComments] = useState([])
@@ -167,7 +171,9 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount, 
 
       {/* composer — above the thread, next to where its comment will land */}
       <Paper sx={{ p: 1.5 }}>
-        <RichTextEditor ref={composer} placeholder="Add a comment…" minHeight={64}
+        <RichTextEditor ref={composer} minHeight={64} mentionables={mentionables}
+          placeholder={mentionables?.length ? 'Add a comment… type @ to mention someone' : 'Add a comment…'}
+          ariaLabel="Add a comment…"
           onChange={setDraft}
           onPasteFiles={attach.onPaste}
           onKeyDown={(e) => {
@@ -265,7 +271,7 @@ export default function CommentsThread({ issueId, hideHeading = false, onCount, 
                   {isEditing ? (
                     <Stack spacing={1} sx={{ mt: 1 }}>
                       <RichTextEditor ref={editBox} key={c.id} initialDoc={editing.doc}
-                        ariaLabel="Edit comment" minHeight={48}
+                        ariaLabel="Edit comment" minHeight={48} mentionables={mentionables}
                         onChange={(doc) => setEditing((s) => ({ ...s, doc }))}
                         onKeyDown={(e) => {
                           // Same box, same chord — and Escape backs out, which is

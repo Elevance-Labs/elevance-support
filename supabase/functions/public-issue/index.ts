@@ -135,6 +135,26 @@ Deno.serve(async (req) => {
   // deno-lint-ignore no-explicit-any
   const project = (issue as any).projects as { name: string; key: string };
 
+  // A rich text document with each mention's profile id removed, text kept.
+  // deno-lint-ignore no-explicit-any
+  const withoutMentionIds = (doc: any) => {
+    if (!doc || !Array.isArray(doc.blocks)) return doc ?? null;
+    // deno-lint-ignore no-explicit-any
+    const plain = (runs: any) => (Array.isArray(runs) ? runs.map((r) => {
+      if (!r || typeof r !== "object") return r;
+      const run = { ...r };
+      delete run.mention;
+      return run;
+    }) : runs);
+    return {
+      ...doc,
+      // deno-lint-ignore no-explicit-any
+      blocks: doc.blocks.map((b: any) => (b?.type === "p"
+        ? { ...b, runs: plain(b.runs) }
+        : { ...b, items: Array.isArray(b?.items) ? b.items.map(plain) : b?.items })),
+    };
+  };
+
   return json({
     // Only the project's public face: the name a customer may read on the page
     // and the key that is already in the URL they clicked.
@@ -165,7 +185,9 @@ Deno.serve(async (req) => {
         // The same comment with its formatting (0018) — nothing `body` does
         // not already say, since a link's address is in the text too. Null on
         // comments written before rich text; the page then draws `body`.
-        body_doc: c.body_doc ?? null,
+        // An @mention keeps its "@Name" but not whose profile id it is (0023):
+        // ids, like the author's, stay off this page.
+        body_doc: withoutMentionIds(c.body_doc),
         created_at: c.created_at,
         author_name: displayName(author),
         author_avatar_url: author?.avatar_url ?? null,

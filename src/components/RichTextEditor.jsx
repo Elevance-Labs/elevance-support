@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { Box, Divider, IconButton, Stack, Tooltip, Typography } from '@mui/material'
+import {
+  Box, Divider, IconButton, List, ListItemButton, Paper, Popper, Stack, Tooltip, Typography,
+} from '@mui/material'
 import FormatBoldIcon from '@mui/icons-material/FormatBold'
 import FormatItalicIcon from '@mui/icons-material/FormatItalic'
 import FormatUnderlinedIcon from '@mui/icons-material/FormatUnderlined'
@@ -8,8 +10,10 @@ import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered'
 import InsertLinkIcon from '@mui/icons-material/InsertLink'
 import FormatClearIcon from '@mui/icons-material/FormatClear'
 import {
-  docFromDom, docFromHtml, docToHtml, isEmptyDoc, normalizeDoc, safeHref,
+  docFromDom, docFromHtml, docToHtml, isEmptyDoc, mentionHtml, normalizeDoc, safeHref, stripMentions,
 } from '../lib/richText'
+import { matchPeople, mentionQuery, mentionText } from '../lib/mentions'
+import { UserOption } from './UserAvatar'
 import { MOD_KEY_LABEL } from './composer'
 
 /** Runs a formatting command; false where the browser (or jsdom) has none. */
@@ -41,24 +45,70 @@ const TOOLS = [
  * `footer` is drawn inside the same border, under the text, and cannot be
  * edited — the sender's signature, so the box shows the email as it will go.
  *
+ * `mentionables` turns on @mentions: typing "@" offers these people, and a
+ * pick becomes one uneditable "@Name" that the document carries as a mention
+ * (`lib/richText.js`). Without it — the email box, templates, signatures — a
+ * mention pasted in from elsewhere arrives as plain text.
+ *
  * Imperative handle (`ref`): `clear()`, `focus()`, `insertText(text)` and
  * `insertDoc(doc)` at the caret, and `getDoc()`.
  */
 export default function RichTextEditor({
   ref, initialDoc, onChange, placeholder, disabled = false, onKeyDown, onPasteFiles,
-  footer, minHeight = 96, ariaLabel,
+  footer, minHeight = 96, ariaLabel, mentionables,
 }) {
   const box = useRef(null)
   const saved = useRef(null) // the caret, kept while focus is elsewhere (a template menu)
   const initial = useRef(initialDoc) // only ever read once, on mount
   const [empty, setEmpty] = useState(() => isEmptyDoc(normalizeDoc(initialDoc)))
   const [active, setActive] = useState({})
+  // The mention being typed: where its "@" is, what follows it, who matches.
+  // `pick` is the highlighted name; it survives typing more of the same one.
+  const [typing, setTyping] = useState(null) // { node, at, end, people, anchor, pick }
+  const mentions = Boolean(mentionables)
+
+  /** The document as this box may hand it out. */
+  const read = useCallback(() => {
+    const doc = docFromDom(box.current)
+    return mentions ? doc : stripMentions(doc)
+  }, [mentions])
+
+  /**
+   * Whether the caret is just after "@something" — and if so, who it could
+   * be. Only inside one text node, so a mention never reaches across a line
+   * or into formatting.
+   */
+  const lookForMention = useCallback(() => {
+    if (!mentions) return
+    const sel = document.getSelection?.()
+    const node = sel?.rangeCount ? sel.anchorNode : null
+    if (!sel?.isCollapsed || node?.nodeType !== 3 || !box.current?.contains(node)) {
+      setTyping(null)
+      return
+    }
+    const found = mentionQuery(node.nodeValue.slice(0, sel.anchorOffset))
+    const people = found ? matchPeople(mentionables, found.query) : []
+    if (!found || !people.length) {
+      setTyping(null)
+      return
+    }
+    let rect = null
+    try { rect = sel.getRangeAt(0).getBoundingClientRect?.() ?? null } catch { rect = null }
+    setTyping((prev) => {
+      const same = prev?.node === node && prev?.at === found.at
+      return {
+        node, at: found.at, end: sel.anchorOffset, people, anchor: caretAnchor(rect, box),
+        pick: same ? Math.min(prev.pick, people.length - 1) : 0,
+      }
+    })
+  }, [mentions, mentionables])
 
   const emit = useCallback(() => {
-    const doc = docFromDom(box.current)
+    const doc = read()
     setEmpty(isEmptyDoc(doc))
     onChange?.(doc)
-  }, [onChange])
+    lookForMention()
+  }, [onChange, read, lookForMention])
 
   // The starting content is written once; after that the box is the browser's.
   useEffect(() => {
@@ -73,10 +123,42 @@ export default function RichTextEditor({
       if (!sel?.rangeCount || !box.current?.contains(sel.anchorNode)) return
       saved.current = sel.getRangeAt(0).cloneRange()
       setActive(Object.fromEntries(TOOLS.map((t) => [t.command, isOn(t.command)])))
+      lookForMention()
     }
     document.addEventListener('selectionchange', onSelection)
     return () => document.removeEventListener('selectionchange', onSelection)
-  }, [])
+  }, [lookForMention])
+
+  /**
+   * Swaps the typed "@query" for the person: one span that reads and deletes
+   * as a whole, then a space, with the caret after it.
+   */
+  const choose = (person) => {
+    const t = typing
+    setTyping(null)
+    if (!t || !person || !box.current?.contains(t.node)) return
+    const range = document.createRange()
+    range.setStart(t.node, t.at)
+    range.setEnd(t.node, Math.min(t.end, t.node.nodeValue.length))
+    range.deleteContents()
+    const holder = document.createElement('template')
+    holder.innerHTML = mentionHtml(person.id, mentionText(person))
+    const span = holder.content.firstChild
+    const space = document.createTextNode('\u00a0')
+    range.insertNode(space)
+    range.insertNode(span)
+    const sel = document.getSelection?.()
+    if (sel) {
+      const after = document.createRange()
+      after.setStart(space, 1)
+      after.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(after)
+      saved.current = after.cloneRange()
+    }
+    box.current.focus()
+    emit()
+  }
 
   /** Focus the box with the caret back where it was, or at the end. */
   const restore = () => {
@@ -151,7 +233,7 @@ export default function RichTextEditor({
     focus: () => restore(),
     insertText,
     insertDoc,
-    getDoc: () => docFromDom(box.current),
+    getDoc: () => read(),
   }))
 
   const run = (command) => {
@@ -197,6 +279,27 @@ export default function RichTextEditor({
   }
 
   const keyDown = (e) => {
+    // While names are offered, the arrows, Enter and Tab are the picker's.
+    if (typing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const count = typing.people.length
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setTyping((t) => ({ ...t, pick: (t.pick + (e.key === 'ArrowDown' ? 1 : count - 1)) % count }))
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        choose(typing.people[Math.min(typing.pick, count - 1)])
+        return
+      }
+      if (e.key === 'Escape') {
+        // Closes the list, not whatever the box sits in.
+        e.preventDefault()
+        e.stopPropagation()
+        setTyping(null)
+        return
+      }
+    }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
       e.preventDefault()
       link()
@@ -256,6 +359,7 @@ export default function RichTextEditor({
           data-rich-text-editor
           contentEditable={!disabled} suppressContentEditableWarning
           onInput={emit} onPaste={onPaste} onKeyDown={keyDown}
+          onBlur={() => setTyping(null)}
           onDrop={(e) => e.preventDefault()}
           onFocus={() => exec('defaultParagraphSeparator', 'div')}
           sx={{
@@ -264,6 +368,25 @@ export default function RichTextEditor({
             typography: 'body2', overflowWrap: 'anywhere',
           }} />
       </Box>
+
+      {typing && (
+        <Popper open anchorEl={typing.anchor} placement="bottom-start"
+          sx={{ zIndex: (t) => t.zIndex.modal + 1 }}>
+          <Paper elevation={6} sx={{ mt: 0.5, minWidth: 240, maxWidth: 320 }}>
+            <List dense role="listbox" aria-label="People to mention">
+              {typing.people.map((p, n) => (
+                <ListItemButton key={p.id} role="option" aria-selected={n === typing.pick} selected={n === typing.pick}
+                  // Keep the caret in the box: a click would otherwise blur it first.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onMouseEnter={() => setTyping((t) => (t ? { ...t, pick: n } : t))}
+                  onClick={() => choose(p)}>
+                  <UserOption user={p} size={22} />
+                </ListItemButton>
+              ))}
+            </List>
+          </Paper>
+        </Popper>
+      )}
 
       {footer && (
         // Inside the border, under the text: part of the email as it will be
@@ -278,11 +401,28 @@ export default function RichTextEditor({
   )
 }
 
+/**
+ * Where the mention list hangs: under the caret when the browser can say where
+ * that is, otherwise under the box.
+ */
+const caretAnchor = (rect, box) => ({
+  getBoundingClientRect: () => (rect && (rect.width || rect.height || rect.left || rect.top)
+    ? rect : box.current?.getBoundingClientRect?.() ?? new DOMRect()),
+  nodeType: 1,
+})
+
+/** How a mention looks, wherever rich text is drawn. */
+const mentionSx = {
+  color: 'primary.main', bgcolor: 'rgba(37, 99, 235, 0.08)', borderRadius: 1, px: 0.5,
+  fontWeight: 500, whiteSpace: 'nowrap',
+}
+
 /** The spacing both the editor and a sent email draw rich text with. */
 const richTextSx = {
   '& div, & p': { m: 0 },
   '& ul, & ol': { my: 0.5, pl: 3 },
   '& a': { color: 'primary.main' },
+  '& [data-mention]': mentionSx,
 }
 
 function Runs({ runs }) {
@@ -291,6 +431,7 @@ function Runs({ runs }) {
     if (r.b) node = <strong>{node}</strong>
     if (r.i) node = <em>{node}</em>
     if (r.u) node = <u>{node}</u>
+    if (r.mention) return <span key={n} data-mention={r.mention}>{node}</span>
     // Re-checked here as well as when it was written: the row is data.
     const href = r.href ? safeHref(r.href) : null
     if (href) node = <a href={href} target="_blank" rel="noopener noreferrer">{node}</a>
