@@ -198,6 +198,16 @@ export const can = {
   /** Turning that grant on or off for somebody. */
   grantEmail: isAdmin,
 
+  /**
+   * Keeping a project's contacts in order from the Inbox: renaming one,
+   * writing its notes, adding an address to it or moving one to another.
+   * Housekeeping about the people a project deals with, not speaking to them,
+   * so anyone signed in — the database adds that they must belong to the
+   * project (`contacts` RLS, `move_contact_email`). Never removing an address:
+   * there is no way to, for anyone.
+   */
+  editContacts: (p) => Boolean(p),
+
   // ---- comments ----
   /**
    * Authors may edit or delete their own comment for five minutes.

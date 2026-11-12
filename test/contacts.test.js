@@ -2,7 +2,7 @@
 // a pick completes the Cc line.
 import { reporter } from './setup.js'
 import {
-  completeRecipient, contactLabel, MAX_SUGGESTIONS, suggestContacts, typedRecipient,
+  completeRecipient, contactLabel, MAX_SUGGESTIONS, suggestContacts, typedRecipient, withContactNames,
 } from '../src/lib/contacts.js'
 
 const { check, done } = reporter()
@@ -32,6 +32,23 @@ check('nothing matching is an empty list', suggestContacts(CONTACTS, 'zzz').leng
 check('no contacts is an empty list', suggestContacts(undefined, 'a').length === 0)
 const many = Array.from({ length: 20 }, (_, i) => ({ email: `p${i}@x.com` }))
 check('capped', suggestContacts(many, 'x').length === MAX_SUGGESTIONS)
+
+// A contact is a name with addresses: its name is every address's, so typing
+// it finds them all. An address has no name of its own.
+const PEOPLE = withContactNames([
+  { email: 'jane@acme.com', contact_id: 'c-jane' },
+  { email: 'jane.doe@gmail.com', contact_id: 'c-jane' },
+  { email: 'boss@acme.com', contact_id: 'c-boss' },
+  { email: 'loose@acme.com', contact_id: null },
+], [{ id: 'c-jane', name: 'Jane Doe' }, { id: 'c-boss', name: 'The Boss' }])
+check("typing a contact's name finds every one of their addresses",
+  emails(suggestContacts(PEOPLE, 'jane doe')) === 'jane@acme.com,jane.doe@gmail.com')
+check('each is offered under the contact\'s name', contactLabel(PEOPLE[1]) === 'Jane Doe <jane.doe@gmail.com>')
+check('a name finds a contact whose addresses look nothing like it',
+  emails(suggestContacts(PEOPLE, 'the boss')) === 'boss@acme.com')
+check('an address not yet under a contact goes by the address alone',
+  PEOPLE[3].name === null && contactLabel(PEOPLE[3]) === 'loose@acme.com')
+check('picking still means the address', PEOPLE.every((p) => p.email.includes('@')))
 
 check('a known name is shown with the address', contactLabel(CONTACTS[1]) === 'Jane Doe <jane@acme.com>')
 check('no name is just the address', contactLabel(CONTACTS[0]) === 'boss@acme.com')

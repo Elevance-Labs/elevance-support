@@ -79,6 +79,11 @@ check('picking one completes the address being typed', ccInput().value === 'boss
 check('and, with nothing new typed after it, nothing more is suggested', options().length === 0,
   optionText())
 
+await setValue(ccInput(), 'Doe')
+check("the Cc finds a contact's other address by their name — never the requester's own",
+  optionText().includes('Jane Doe <jane.doe@gmail.com>') && !optionText().includes('<jane@acme.com>'),
+  optionText())
+
 await setValue(ccInput(), 'boss@acme.com, o')
 check('the next suggestion leaves out who is already copied',
   optionText().includes('ops@acme.com') && !optionText().includes('boss@acme.com'), optionText())
@@ -120,14 +125,26 @@ check('an empty requester email suggests nothing', options().length === 0, optio
 await setValue(inputFor('Requester email'), 'J')
 check('one character is enough to suggest', optionText().includes('jane@acme.com'), optionText())
 await setValue(inputFor('Requester email'), 'Jane')
-check('the requester email suggests the project\'s addresses',
-  optionText().includes('Jane <jane@acme.com>'), optionText())
+check('the requester email suggests the project\'s addresses, under their contact\'s name',
+  optionText().includes('Jane Doe <jane@acme.com>'), optionText())
+check("and every other address of that contact's", optionText().includes('Jane Doe <jane.doe@gmail.com>'),
+  optionText())
 check("not another project's", !optionText().includes('sam@globex.com'), optionText())
 await pick('jane@acme.com')
 check('picking one fills the address', inputFor('Requester email').value === 'jane@acme.com',
   inputFor('Requester email').value)
-check('and the name it is known by, when none was typed',
-  inputFor('Requester name').value === 'Jane', inputFor('Requester name').value)
+check("and the contact's name, when none was typed",
+  inputFor('Requester name').value === 'Jane Doe', inputFor('Requester name').value)
+
+// A contact is a name with emails: the name finds an address that never
+// came with one, and picking it still means that one address.
+await mount(<IssueForm staff projectId="proj-1" />)
+await setValue(inputFor('Requester email'), 'doe')
+check("searching by a contact's name finds all their addresses",
+  optionText().includes('jane@acme.com') && optionText().includes('jane.doe@gmail.com'), optionText())
+await pick('jane.doe@gmail.com')
+check('and picking one fills that address', inputFor('Requester email').value === 'jane.doe@gmail.com',
+  inputFor('Requester email').value)
 
 await mount(<IssueForm staff projectId="proj-1" />)
 await setValue(inputFor('Requester name'), 'Mr Boss')

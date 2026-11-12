@@ -60,6 +60,14 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `/issues` — filterable DataGrid of tickets, grouped (status by default;
   remembered per browser, not in a view); admins/managers save **views**.
 - `/board` — kanban by status; drag between lanes to change status.
+- `/inbox` — the selected project's email **by person**, three columns: people
+  (recent or by company, last email's direction and age), the conversation
+  across all their tickets, and the contact (name, addresses, notes, tickets
+  — theirs / copied on). Loads **open tickets only**; a person's closed ones
+  are fetched on request. A ticket opens in `IssueDetail` over the page
+  (`?issue=`), not on Issues.
+  Where contacts are kept — they have no page of their own. Writing needs
+  `can_email` and a ticket. No role guard.
 - `/report` — manager/admin analytics over the selected range.
 - `/schedule` — the selected project's **support rota**; manager/admin. Exists
   because Projects is admin-only and running the rota is not the same power as
@@ -118,7 +126,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   tickets you see. Also owns the 5-minute comment edit window, and `setSeverity`
   / `refile` — internal vs. the public form, not a role distinction — and
   `emailCustomer`, a per-person grant (`profiles.can_email`) rather than a role,
-  which only an admin hands out (`grantEmail`). Configuration is split by list:
+  which only an admin hands out (`grantEmail`), and `editContacts` (any
+  signed-in user; RLS adds project membership). Configuration is split by list:
   admins every one, managers `labels` and the comment templates.
 - `sla.js` — status types (`new` → `in_progress` → `closed`, with `paused`
   outside the ladder), legal transitions — forward only, except that an **admin**
@@ -164,8 +173,16 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `[REF] title`, mirrored in `email-send`), thread order, delivery labels, Cc
   parsing, the signature an email goes out with. Sending and receiving are Edge
   Functions, never the browser.
+- `inbox.js` — the Inbox's grouping: contacts with their addresses, whose
+  emails are whose (an email belongs to everyone on it but us), the last one,
+  a person's company (from their newest ticket), their tickets split into own
+  (requester) and copied on (on the emails only), the tickets offered for a new
+  email (their open ones first), where an address may move. Unsaved senders
+  (wrote in, never remembered) get an entry of their own.
 - `contacts.js` — picking from a project's remembered email addresses: what a
-  box suggests (case-insensitive, newest first) and how a pick completes the
+  box suggests (case-insensitive, newest first, by address or by its
+  **contact's** name — a contact is a name with emails; a pick is always one
+  address) and how a pick completes the
   Cc line. Read through the `useProjectContacts` hook; staff only.
 - `richText.js` — the rich text **document** (paragraphs and lists of marked
   runs) that the email box, signatures, comments and comment templates are read
@@ -273,11 +290,23 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   ticket reference — or by its threading headers; anything else is a new ticket.
 - `project_contacts` — the email addresses a project has met, stored lower-case,
   one row per address: ticket requesters (on insert) and the Cc of outbound
-  emails (once sent — the `email_messages` row is the proof). Names come from
-  the requester name; an inbound email's display name only fills an empty one,
-  and never adds an address. Written only by triggers, read only by project
+  emails (once sent — the `email_messages` row is the proof). **No name** —
+  an address is not a person; names live on `contacts` (0024 dropped the
+  column). An inbound email never adds an address. Written only by triggers, read only by project
   members, never anon. Suggested — once something is typed — in the email Cc
-  and the staff form's requester email.
+  and the staff form's requester email. Each row belongs to one `contacts`
+  row (`contact_id`); a newly met address gets a contact of its own
+  (trigger). Never deleted. Since 0024 also written by `move_contact_email()`,
+  which is how staff add a typed address or move one.
+- `contacts` — the person behind one or more `project_contacts` addresses:
+  name (never empty) and notes. Project members read it and update those two
+  columns only; created by the trigger and the function, deleted only when its
+  last address moves away (merged into the target, notes appended). Never anon.
+  The name is ranked by where it came from (`name_source`: made from the
+  address < an email's display name < a ticket's requester name < typed) and
+  only a better one replaces it; one that came with an address (`name_email`)
+  moves with that address. Emails and tickets link to addresses, never to a
+  contact, so a move carries their history with it.
 - `comment_templates` — canned comment text (title + rich text, stored like a
   comment: `body_doc` + `body`, plain-only on old rows) managed under
   Configuration; picking one under the comment or email box only writes into
@@ -366,7 +395,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `issues` insert trigger via `pg_net`, not by the browser; authenticated by a
   shared secret, so it deploys with `--no-verify-jwt`. Webhook URL and secret
   live in function env + Vault, never in the repo.
-- `email-send` — sends a staff member's draft to the requester through Mailgun:
+- `email-send` — sends a staff member's draft to the requester (or, from the
+  Inbox, a named `to` that must be one of the project's `project_contacts`)
+  through Mailgun:
   checks the `can_email` grant and project membership by hand (service_role
   skips RLS), decides from/subject/Reply-To/threading headers/layout itself, and
   records the message.
@@ -401,7 +432,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   the ones that aren't closed — so a tile and a breakdown on it always add up.
 - Staff work it on **Issues** or **Board** → both open the same `IssueDetail`
   dialog → which composes `CommentsThread` and `ConversationThread` (two tabs,
-  both mounted), `LinkedTickets` (saves on its own, outside the draft; a linked
+  both mounted; the latter's `EmailComposer` and `EmailMessage` are shared
+  with the Inbox), `LinkedTickets` (saves on its own, outside the draft; a linked
   ticket opens via its share link in a new tab) and `StatusTimeline`.
 - Customer email: Conversation tab → `email-send` → Mailgun → customer; their
   reply → the ticket's `t-<token>@` address (or the support inbox, forwarded) →

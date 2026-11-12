@@ -1,4 +1,5 @@
-// Sends an email to a ticket's requester, from the ticket's Conversation tab.
+// Sends an email about a ticket, from the ticket's Conversation tab (to its
+// requester) or from the Inbox (to one of a contact's addresses).
 //
 // The browser never talks to Mailgun: the API key can send as the support
 // address, so it lives in this function's environment. The browser sends what
@@ -272,6 +273,7 @@ Deno.serve(async (req) => {
 
   let payload: {
     issue_id?: unknown;
+    to?: unknown;
     body?: unknown;
     doc?: unknown;
     cc?: unknown;
@@ -313,9 +315,23 @@ Deno.serve(async (req) => {
     if (!membership) return json({ error: "not_found" }, 404);
   }
 
-  const to = String(issue.requester_email ?? "").trim();
+  // Who it goes to. The ticket's requester unless the request names someone
+  // else — the Inbox writes to a contact about a ticket that may be someone
+  // else's — and then only an address this project already knows
+  // (`project_contacts`): the function sends as the support address, so it
+  // must not become a way to write to anyone at all.
+  const requester = String(issue.requester_email ?? "").trim().toLowerCase();
+  const asked = typeof payload.to === "string" ? payload.to.trim().toLowerCase() : "";
+  const to = asked || requester;
   if (!EMAIL.test(to)) {
-    return json({ error: "This ticket has no requester email to write to" }, 400);
+    return json({
+      error: asked ? `"${payload.to}" is not an email address` : "This ticket has no requester email to write to",
+    }, 400);
+  }
+  if (asked && asked !== requester) {
+    const { data: known } = await admin.from("project_contacts")
+      .select("email").eq("project_id", issue.project_id).eq("email", asked).maybeSingle();
+    if (!known) return json({ error: `${asked} is not one of this project's contacts` }, 400);
   }
 
   // deno-lint-ignore no-explicit-any

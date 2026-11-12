@@ -9,6 +9,17 @@
  * customer the project dealt with last week comes before last year's.
  */
 
+/**
+ * The addresses as people: an address has no name of its own, so each takes
+ * its contact's (`contacts`, a name over one or more addresses). What a box
+ * offers is still an address — picking one fills in that email — but typing a
+ * person's name finds every address they have.
+ */
+export function withContactNames(addresses = [], contacts = []) {
+  const nameOf = new Map(contacts.map((c) => [c.id, String(c.name ?? '').trim()]))
+  return addresses.map((a) => ({ ...a, name: (a.contact_id && nameOf.get(a.contact_id)) || null }))
+}
+
 /** How many suggestions a box shows at once. */
 export const MAX_SUGGESTIONS = 8
 
@@ -19,8 +30,8 @@ export const contactLabel = (contact) =>
   contact?.name ? `${contact.name} <${contact.email}>` : (contact?.email ?? '')
 
 /**
- * The contacts matching what has been typed — anywhere in the address or the
- * name, ignoring case — leaving out the addresses in `exclude` (already
+ * The addresses matching what has been typed — anywhere in the address or
+ * the person's name, ignoring case — leaving out the addresses in `exclude` (already
  * chosen, or the requester a Cc would only duplicate). Nothing typed suggests
  * nothing: these complete what someone has started, they are not a list to
  * pick from.

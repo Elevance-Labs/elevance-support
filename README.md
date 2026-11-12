@@ -12,6 +12,7 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | **Dashboard** | The selected project's open work at a glance: your own queue, the tickets closest to breaching, and where the rest of it is sitting. |
 | **Issues** | Every request in a filterable table. Admins save filter sets as **views** everyone can load. |
 | **Board** | Jira-style kanban by status. Drag a card between lanes to change its status. Each card leads with its ticket reference and type. |
+| **Inbox** | The selected project's customer email, by person: who you deal with (searchable, or grouped by company), every email with the one you pick across all their tickets, and their contact details. Write to someone from here — about one of their tickets. See [Inbox and contacts](#inbox-and-contacts). |
 | **Report** | Volume, breakdowns and SLA performance for the selected range. |
 | **Schedule** | The selected project's support rota — who is on, and when. Managers and admins. |
 | **Projects** | Admin-only CRUD over projects, their keys, their members and their **support schedule**. |
@@ -1295,16 +1296,88 @@ complete what you have started, not a list to browse.
   The newest suggestions come first.
 - **Per project.** A project's members see its addresses; nobody else does,
   and the public form never suggests anything.
-- **Names** come from tickets: each new ticket's requester name replaces the
-  one on file. An address with no name yet — usually one that was only ever
-  Cc'd — takes the display name it next writes in under (`Jane Doe
-  <jane@acme.com>`); that never replaces a name a ticket gave, and an incoming
-  email never adds an address on its own.
-- Picking a requester whose name is known also fills **Requester name**, if
-  you haven't typed one. A new address can always just be typed.
+- **Names belong to contacts, not addresses** (see
+  [Inbox and contacts](#inbox-and-contacts)). An incoming email never adds an
+  address on its own.
+- **Search by name or address.** An address is offered under its contact's
+  name, so typing `Jane Doe` finds every address Jane has. Picking one always
+  fills in that one address.
+- Picking a requester whose name is known also fills **Requester name** (the
+  contact's name), if you haven't typed one. A new address can always just be typed.
 - The list is kept by the database (`project_contacts`, migration 0017), which
-  also filled it once from every ticket and sent Cc that existed beforehand,
-  with names from the emails already received.
+  also filled it once from every ticket and sent Cc that existed beforehand.
+
+### Inbox and contacts
+
+The **Inbox** page is the same email, read by person instead of by ticket. It
+works on the project picked in the header, in three columns:
+
+- **People** — everyone the project has an address for, the one who emailed or
+  was emailed last at the top, with which way that last email went and how
+  long ago (`↗ 2h`: we wrote, two hours ago; `↙ 1d 3h`: they did). Search by
+  name, address or company, or switch to **By company**. A person's company is
+  the one on the newest ticket they asked for; someone who only ever was
+  Cc'd sits under *No company*.
+- **Conversation** — every email with that person, newest first, whichever of
+  their tickets it was on; each names its ticket and links to it. An email is
+  theirs if they sent it or were on its To or Cc, so a reply Jane sent with her
+  boss copied shows for both.
+- **Contact** — their name, their email addresses, notes the team keeps on
+  them, and their tickets, with a toggle between **Their tickets** (the ones
+  they asked for, from any of their addresses) and **Copied on** (other
+  people's tickets they are on the emails of — usually as Cc). Only open
+  tickets are shown — the Inbox loads no closed ones; **Show closed tickets**
+  fetches that person's. Below a wide screen this opens from the ⓘ button; on
+  a phone the page shows one column at a time.
+
+**Contacts.** A contact is a person: a name, one or more addresses and notes.
+An address is not a person and has no name of its own. Every remembered
+address (see above) belongs to exactly one contact, and a newly met address
+starts as a contact of its own, **always named**. The name is the best one
+known so far:
+
+1. made from the address — `jane.doe@acme.com` is *Jane Doe*;
+2. replaced by the display name they write in under (`Jane D <jane@…>`);
+3. replaced by the requester name on a ticket they ask for;
+4. and a name **you type** is never replaced.
+
+A name only ever replaces a weaker one, so a second ticket under another name
+doesn't rename anybody. Anyone in the project can:
+
+- **rename** a contact and edit its **notes**;
+- **add** an address to it — typed, or one another contact has, which then
+  moves here;
+- **move** an address to another contact, or out to a new one of its own.
+
+An address is **never removed** — there is no way to. Moving a contact's last
+address away merges that contact into the one it went to, notes appended and
+the better of the two names kept, so nothing written about them is lost.
+
+**Everything follows the address.** Emails and tickets are filed by address
+(From, To, Cc, the requester email), never by contact, so moving an address
+moves its whole history — its emails, the tickets it asked for and the ones
+it was copied on — to the contact it joins, and moving it again moves it all
+again. A name that came with that address goes with it too: the contact it
+left is renamed from an address it still has. A name you typed stays with the
+contact.
+
+Someone who **wrote in** without ever being remembered — a customer's colleague
+replying, say — still shows in the list, marked *Not saved*, so their email
+isn't lost from view. **Save as contact** (or **Add to a contact…**) keeps
+them, and then you can write back.
+
+**Writing from the Inbox** takes the same `can_email` grant as the
+Conversation tab. **Write email** asks for the **ticket** first — every email is
+filed on one: it carries that ticket's `[REF] title` subject and reply address,
+so the answer lands back on it. The person's open tickets are offered first,
+newest first, then the project's other open tickets — closed ones are not
+offered. It goes to the
+address that asked for that ticket when it is theirs, otherwise the one they
+last emailed from — or pick another of their addresses. `email-send` only sends
+to the ticket's requester or to an address the project already has.
+
+The data is `contacts` plus `project_contacts.contact_id` (migration 0024);
+addresses move through the `move_contact_email()` database function.
 
 ### Setting it up
 

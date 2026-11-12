@@ -110,6 +110,7 @@ export const captured = {
  * the same rows however the page was filtered — so a test could never catch
  * scoping being dropped.
  */
+const pick = (row, col) => col.split('.').reduce((v, k) => v?.[k], row)
 const chain = (data) => {
   const rows = data ?? []
   const p = Promise.resolve({ data: rows, error: null })
@@ -119,9 +120,14 @@ const chain = (data) => {
   p.order = (col, { ascending = true } = {}) => chain(
     ascending || !rows.every((r) => r[col] != null)
       ? rows : [...rows].sort((a, b) => (a[col] < b[col] ? 1 : a[col] > b[col] ? -1 : 0)))
-  p.eq = (col, value) => chain(rows.filter((r) => r[col] === value))
+  // A dotted column filters on an embedded row (`issues.project_id`), as
+  // PostgREST does for `issues!inner(project_id)`.
+  p.eq = (col, value) => chain(rows.filter((r) => pick(r, col) === value))
   p.in = (col, values) => chain(rows.filter((r) => (values ?? []).includes(r[col])))
   p.limit = (n) => chain(rows.slice(0, n))
+  // `or` filters are not interpreted: every row comes back, and the app is
+  // expected to check what it needs of them itself.
+  p.or = () => chain(rows)
   // `%text%` only — a substring, ignoring case, as the link picker asks.
   p.ilike = (col, pattern) => {
     const needle = String(pattern).replace(/^%|%$/g, '').replace(/\\(.)/g, '$1').toLowerCase()
@@ -198,7 +204,11 @@ const tableData = (table) => {
   if (table === 'companies') return COMPANIES
   if (table === 'comment_templates') return COMMENT_TEMPLATES
   if (table === 'attachments') return FIXTURES.attachments
-  if (table === 'email_messages') return FIXTURES.email_messages
+  // With the ticket each belongs to embedded, for a read that filters on it.
+  if (table === 'email_messages') return FIXTURES.email_messages.map((m) => ({
+    ...m, issues: FIXTURES.issues.find((i) => i.id === m.issue_id) ?? null,
+  }))
+  if (table === 'contacts') return FIXTURES.contacts
   if (table === 'project_contacts') return FIXTURES.project_contacts
   if (table === 'issue_links') return FIXTURES.issue_links
   if (table === 'notifications') return FIXTURES.notifications
@@ -404,11 +414,23 @@ export const FIXTURES = {
   // The addresses each project has met. Jane is issue-1's requester, so the Cc
   // must not offer her; Sam belongs to the other project and must never show
   // in this one's boxes.
+  //
+  // Grouped into contacts: Jane has two addresses (her work one and a
+  // personal one), and notes; the boss and the ops desk are one each.
   project_contacts: [
-    { project_id: 'proj-1', email: 'jane@acme.com', name: 'Jane', last_seen_at: iso(3 * DAY) },
-    { project_id: 'proj-1', email: 'boss@acme.com', name: null, last_seen_at: iso(2 * HR) },
-    { project_id: 'proj-1', email: 'ops@acme.com', name: 'Ops Desk', last_seen_at: iso(5 * DAY) },
-    { project_id: 'proj-2', email: 'sam@globex.com', name: 'Sam', last_seen_at: iso(1 * DAY) },
+    { project_id: 'proj-1', email: 'jane@acme.com', last_seen_at: iso(3 * DAY), contact_id: 'ct-jane' },
+    { project_id: 'proj-1', email: 'boss@acme.com', last_seen_at: iso(2 * HR), contact_id: 'ct-boss' },
+    { project_id: 'proj-1', email: 'ops@acme.com', last_seen_at: iso(5 * DAY), contact_id: 'ct-ops' },
+    { project_id: 'proj-1', email: 'jane.doe@gmail.com', last_seen_at: iso(6 * DAY), contact_id: 'ct-jane' },
+    { project_id: 'proj-2', email: 'sam@globex.com', last_seen_at: iso(1 * DAY), contact_id: 'ct-sam' },
+  ],
+  // Every contact has a name: Jane's from her ticket, the ops desk's typed,
+  // the boss's and Sam's made from their addresses.
+  contacts: [
+    { id: 'ct-jane', project_id: 'proj-1', name: 'Jane Doe', name_source: 'ticket', notes: 'Prefers email to calls.' },
+    { id: 'ct-boss', project_id: 'proj-1', name: 'Boss', name_source: 'email', notes: null },
+    { id: 'ct-ops', project_id: 'proj-1', name: 'Ops Desk', name_source: 'staff', notes: null },
+    { id: 'ct-sam', project_id: 'proj-2', name: 'Sam', name_source: 'email', notes: null },
   ],
   // ACME-42 and BILL-1, linked across projects. One row for the pair, smaller
   // id first, as the table keeps it — each ticket must find it from its end.

@@ -12,13 +12,14 @@ import DashboardIcon from '@mui/icons-material/DashboardOutlined'
 import ListAltIcon from '@mui/icons-material/ListAltOutlined'
 import BarChartIcon from '@mui/icons-material/BarChartOutlined'
 import ViewKanbanIcon from '@mui/icons-material/ViewKanbanOutlined'
+import InboxIcon from '@mui/icons-material/InboxOutlined'
 import PeopleIcon from '@mui/icons-material/PeopleOutlined'
 import FolderIcon from '@mui/icons-material/FolderOutlined'
 import EventNoteIcon from '@mui/icons-material/EventNoteOutlined'
 import SettingsIcon from '@mui/icons-material/SettingsOutlined'
 import LogoutIcon from '@mui/icons-material/Logout'
 import PersonIcon from '@mui/icons-material/PersonOutlined'
-import SupportAgentIcon from '@mui/icons-material/SupportAgent'
+import { SupportIcon } from './ElevanceIcons'
 import AddIcon from '@mui/icons-material/Add'
 import SearchIcon from '@mui/icons-material/Search'
 import { useAuth } from '../context/AuthContext'
@@ -71,6 +72,7 @@ const NAV = [
   { to: '/dashboard', label: 'Dashboard',  icon: <DashboardIcon />, scoped: true },
   { to: '/issues', label: 'Issues',        icon: <ListAltIcon />,   scoped: true },
   { to: '/board',  label: 'Board',         icon: <ViewKanbanIcon />, scoped: true },
+  { to: '/inbox',  label: 'Inbox',         icon: <InboxIcon />,     scoped: true },
   { to: '/report', label: 'Report',        icon: <BarChartIcon />,  show: can.seeReports, scoped: true },
   { to: '/schedule', label: 'Schedule',    icon: <EventNoteIcon />, show: can.seeSchedules, scoped: true },
   { to: '/projects', label: 'Projects',    icon: <FolderIcon />,    show: can.seeProjects },
@@ -153,7 +155,7 @@ function AppLayoutInner() {
           )}
           <AppSwitcher current="support" email={profile?.email} />
           <Avatar variant="rounded" sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>
-            <SupportAgentIcon sx={{ fontSize: 20 }} />
+            <SupportIcon sx={{ fontSize: 20 }} />
           </Avatar>
           <Typography variant="h6" component="div" noWrap sx={{ display: { xs: 'none', lg: 'block' } }}>
             Elevance Support

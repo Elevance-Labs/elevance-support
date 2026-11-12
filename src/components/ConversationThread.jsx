@@ -1,46 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Alert, Autocomplete, Box, Button, Chip, IconButton, Paper, Stack, TextField, Tooltip, Typography,
-} from '@mui/material'
-import AttachFileIcon from '@mui/icons-material/AttachFile'
-import LockIcon from '@mui/icons-material/Lock'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Alert, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
-import CallMadeIcon from '@mui/icons-material/CallMade'
-import CallReceivedIcon from '@mui/icons-material/CallReceived'
 import { supabase } from '../lib/supabase'
-import { removeAttachmentFiles, signAttachments, uploadFile } from '../lib/storage'
-import { ACCEPT, ATTACH_HINT, MAX_FILES } from '../lib/attachments'
+import { signAttachments } from '../lib/storage'
 import { useAuth } from '../context/AuthContext'
 import { useConfig } from '../context/ConfigContext'
-import { ago, formatDateTime } from '../lib/format'
 import { can } from '../lib/permissions'
-import { displayName } from '../lib/users'
-import { isEmptyDoc, normalizeDoc } from '../lib/richText'
-import {
-  deliveryOf, isEmail, latestMessage, MAX_CC, messageText, newestFirst, parseRecipients, signatureDoc,
-  ticketSubject,
-} from '../lib/email'
-import { completeRecipient, contactLabel, suggestContacts, typedRecipient } from '../lib/contacts'
-import UserAvatar from './UserAvatar'
-import AttachmentGallery from './AttachmentGallery'
-import useAttachmentDraft from './useAttachmentDraft'
-import useProjectContacts from './useProjectContacts'
-import TemplatePicker from './TemplatePicker'
-import RichTextEditor, { RichTextView } from './RichTextEditor'
-import { isSubmitChord, MOD_KEY_LABEL } from './composer'
+import { isEmail, latestMessage, newestFirst, ticketSubject } from '../lib/email'
+import EmailComposer, { ComposerLine } from './EmailComposer'
+import EmailMessage, { LastEmail } from './EmailMessage'
 
-/**
- * Reads the error an Edge Function answered with. invoke() reports any non-2xx
- * as a FunctionsHttpError whose `context` is the response; the sentence worth
- * showing is in its body.
- */
-async function functionError(error) {
-  try {
-    const body = await error.context?.json?.()
-    if (body?.error) return body.error
-  } catch { /* not JSON — fall through */ }
-  return error.message
-}
+// Where it has always been imported from.
+export { LastEmail }
 
 /**
  * The email thread with the requester — the ticket's Conversation tab.
@@ -54,24 +25,18 @@ async function functionError(error) {
  * Every message is sent and received server-side (`email-send`,
  * `email-webhook`); this only reads the thread and hands a draft over. The
  * thread shows what a person wrote — the quoted history underneath is already
- * in the message above it.
+ * in the message above it. The composer and the message cards are the Inbox's
+ * too (`EmailComposer`, `EmailMessage`).
  */
 export default function ConversationThread({ issue, ticketRef, onCount, onLast }) {
   const { profile } = useAuth()
-  const { users, templates } = useConfig()
+  const { users } = useConfig()
   const [messages, setMessages] = useState([])
   const [filesOf, setFilesOf] = useState({}) // message id → gallery items
-  const [draft, setDraft] = useState(() => normalizeDoc(null))
-  const [ccText, setCcText] = useState('')
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
-  const attach = useAttachmentDraft(setError)
-  const fileInput = useRef(null)
-  const editor = useRef(null)
   const issueId = issue?.id
   const mayWrite = can.emailCustomer(profile)
-  const contacts = useProjectContacts(issue?.project_id, { enabled: mayWrite })
 
   const load = useCallback(async () => {
     if (!issueId) return
@@ -105,50 +70,6 @@ export default function ConversationThread({ issue, ticketRef, onCount, onLast }
   const to = (issue?.requester_email ?? '').trim()
   const reachable = isEmail(to)
   const subject = ticketSubject(ticketRef, issue?.title)
-  const cc = parseRecipients(ccText)
-  const ccProblem = cc.invalid.length
-    ? `Not an email address: ${cc.invalid.join(', ')}`
-    : cc.valid.length > MAX_CC ? `At most ${MAX_CC} people can be copied` : ''
-
-  // Addresses the project has met that would complete the one being typed —
-  // never the requester (already on the To line) or anyone already copied.
-  const ccSuggestions = suggestContacts(contacts.contacts, typedRecipient(ccText),
-    { exclude: [to, ...cc.valid] })
-
-  const canSend = mayWrite && reachable && !busy && !ccProblem && !isEmptyDoc(draft)
-
-  // A template is written in at the caret like a paste, formatting and all.
-  const insertTemplate = (doc) => editor.current?.insertDoc(doc)
-
-  const send = async () => {
-    if (!canSend) return
-    setBusy(true); setError('')
-    // The files go up first: `email-send` reads them from the bucket and
-    // records them against the email once it has actually gone. Whatever was
-    // uploaded for a send that then fails is tidied away again.
-    const uploaded = []
-    try {
-      for (const file of attach.files) uploaded.push(await uploadFile(file, issueId))
-    } catch (err) {
-      await removeAttachmentFiles(uploaded.map((u) => u.path))
-      setBusy(false)
-      return setError(`A file did not upload, so nothing was sent: ${err.message}`)
-    }
-    const { error } = await supabase.functions.invoke('email-send', {
-      // The document, not HTML: `email-send` checks it and builds the email.
-      // No signature either — that is read from your profile there.
-      body: { issue_id: issueId, doc: draft, cc: cc.valid, attachments: uploaded },
-    })
-    if (error) {
-      await removeAttachmentFiles(uploaded.map((u) => u.path))
-      setBusy(false)
-      return setError(await functionError(error))
-    }
-    setBusy(false)
-    editor.current?.clear(); setCcText(''); attach.clear(); load()
-    // Whoever was just copied is now one of the project's addresses.
-    if (cc.valid.length) contacts.reload()
-  }
 
   return (
     <Stack spacing={1.5}>
@@ -157,84 +78,18 @@ export default function ConversationThread({ issue, ticketRef, onCount, onLast }
       {mayWrite && (
         <Paper sx={{ p: 1.5 }}>
           {reachable ? (
-            <Stack spacing={1}>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ minWidth: 52 }}>To</Typography>
-                <Typography variant="body2">
-                  {issue.requester_name ? `${issue.requester_name} <${to}>` : to}
-                </Typography>
-              </Stack>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ minWidth: 52 }}>Subject</Typography>
-                <Typography variant="body2">{subject}</Typography>
-              </Stack>
-              {/* Still one line of addresses; the suggestions complete the one
-                  being typed, from the addresses this project has met. */}
-              <Autocomplete freeSolo size="small" disableClearable
-                options={ccSuggestions}
-                filterOptions={(o) => o}
-                getOptionLabel={(o) => (typeof o === 'string' ? o : o.email)}
-                renderOption={({ key, ...props }, o) => (
-                  <li key={key} {...props}>{contactLabel(o)}</li>
-                )}
-                value={null}
-                inputValue={ccText}
-                onInputChange={(_e, v, reason) => { if (reason === 'input') setCcText(v) }}
-                onChange={(_e, picked) => {
-                  if (picked && typeof picked === 'object') setCcText(completeRecipient(ccText, picked.email))
-                }}
-                renderInput={(params) => (
-                  <TextField {...params} label="Cc" placeholder="Optional — separate addresses with commas"
-                    error={Boolean(ccProblem)} helperText={ccProblem || undefined} />
-                )} />
-              <RichTextEditor ref={editor}
-                placeholder="Write to the customer…"
-                ariaLabel="Email to the customer"
-                onChange={setDraft}
-                onPasteFiles={attach.onPaste}
-                disabled={busy}
-                onKeyDown={(e) => {
-                  if (!isSubmitChord(e)) return
-                  e.preventDefault()
-                  send()
-                }}
-                footer={
-                  <Tooltip placement="top-start"
-                    title="Added to every email you send. Change it on your Profile page.">
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}
-                      data-email-signature>
-                      <RichTextView doc={signatureDoc(profile)} sx={{ flexGrow: 1, color: 'text.secondary' }} />
-                      <LockIcon sx={{ fontSize: 14, color: 'text.disabled', mt: 0.25 }} />
-                    </Stack>
-                  </Tooltip>
-                }
-              />
-              {attach.previews.length > 0 && (
-                <AttachmentGallery items={attach.previews} size="small" onRemove={attach.remove} />
-              )}
-              <input ref={fileInput} type="file" hidden multiple
-                accept={ACCEPT.join(',')} onChange={attach.onPick} />
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                <Tooltip title={`Attach files — or paste a screenshot. ${ATTACH_HINT}`}>
-                  <span>
-                    <IconButton size="small" aria-label="Attach files"
-                      onClick={() => fileInput.current?.click()}
-                      disabled={busy || attach.files.length >= MAX_FILES}>
-                      <AttachFileIcon sx={{ fontSize: 18 }} />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-                <TemplatePicker templates={templates} disabled={busy}
-                  onPick={insertTemplate} onError={setError} />
-                <Box sx={{ flexGrow: 1 }} />
-                <Typography variant="caption" color="text.disabled">
-                  {MOD_KEY_LABEL}+Enter to send
-                </Typography>
-                <Button size="small" variant="contained" onClick={send} disabled={!canSend}>
-                  {busy ? 'Sending…' : 'Send email'}
-                </Button>
-              </Stack>
-            </Stack>
+            <EmailComposer issueId={issueId} projectId={issue?.project_id} to={to}
+              onSent={load} onError={setError}
+              header={<>
+                <ComposerLine label="To">
+                  <Typography variant="body2">
+                    {issue.requester_name ? `${issue.requester_name} <${to}>` : to}
+                  </Typography>
+                </ComposerLine>
+                <ComposerLine label="Subject">
+                  <Typography variant="body2">{subject}</Typography>
+                </ComposerLine>
+              </>} />
           ) : (
             <Alert severity="info">
               This ticket has no requester email, so there is nobody to write to.
@@ -265,106 +120,12 @@ export default function ConversationThread({ issue, ticketRef, onCount, onLast }
       )}
 
       <Stack spacing={1}>
-        {messages.map((m) => {
-          const outbound = m.direction === 'outbound'
-          const sender = outbound ? senderOf(m.sent_by) : null
-          const name = outbound
-            ? displayName(sender, m.from_name || 'Support')
-            : (m.from_name || m.from_email || 'Customer')
-          const delivery = deliveryOf(m)
-          const text = messageText(m)
-          return (
-            <Paper key={m.id} data-email-message={m.direction}
-              sx={{ p: 1.5, borderLeft: 3, borderLeftColor: outbound ? 'primary.main' : 'info.main' }}>
-              <Stack direction="row" spacing={1.5}>
-                <UserAvatar user={sender} name={name} size={30} />
-                <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                    {outbound
-                      ? <CallMadeIcon sx={{ fontSize: 14, color: 'primary.main' }} titleAccess="Sent" />
-                      : <CallReceivedIcon sx={{ fontSize: 14, color: 'info.main' }} titleAccess="Received" />}
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{name}</Typography>
-                    {!outbound && m.from_email && m.from_name && (
-                      <Typography variant="caption" color="text.secondary">{m.from_email}</Typography>
-                    )}
-                    <Typography variant="caption" color="text.secondary">
-                      {formatDateTime(m.created_at)}
-                    </Typography>
-                    <Box sx={{ flexGrow: 1 }} />
-                    <Tooltip title={m.status === 'failed' && m.error ? m.error : delivery.hint}>
-                      <Chip size="small" variant="outlined" label={delivery.label} color={delivery.color} />
-                    </Tooltip>
-                  </Stack>
-                  {/* Who else saw it: everyone on a sent one, the copied on a
-                      received one (it was to us). */}
-                  {(outbound || m.cc_emails?.length > 0) && (
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                      {outbound
-                        ? `To ${[...(m.to_emails ?? []), ...(m.cc_emails ?? [])].join(', ')}`
-                        : `Cc ${m.cc_emails.join(', ')}`}
-                    </Typography>
-                  )}
-                  {/* A sent email is drawn from its document, with its
-                      formatting; a received one as what its sender typed —
-                      signature included, earlier messages left out, since each
-                      of those is a card of its own. */}
-                  {outbound && m.body_doc && !isEmptyDoc(normalizeDoc(m.body_doc))
-                    ? <RichTextView doc={m.body_doc} sx={{ mt: 0.75 }} />
-                    : text
-                    ? (
-                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 0.75, wordBreak: 'break-word' }}>
-                        {text}
-                      </Typography>
-                    )
-                    : (
-                      <Typography variant="body2" color="text.disabled" sx={{ mt: 0.75 }}>
-                        <em>No text in this email.</em>
-                      </Typography>
-                    )}
-                  {/* On a received email this is a note, not a failure: what
-                      the customer sent that could not be kept. */}
-                  {m.status === 'received' && m.error && (
-                    <Alert severity="warning" sx={{ mt: 1, py: 0 }}>{m.error}</Alert>
-                  )}
-                  {filesOf[m.id]?.length > 0 && (
-                    <Box sx={{ mt: 1 }}>
-                      <AttachmentGallery items={filesOf[m.id]} size="small" />
-                    </Box>
-                  )}
-                </Box>
-              </Stack>
-            </Paper>
-          )
-        })}
+        {messages.map((m) => (
+          <EmailMessage key={m.id} message={m}
+            sender={m.direction === 'outbound' ? senderOf(m.sent_by) : null}
+            files={filesOf[m.id]} />
+        ))}
       </Stack>
     </Stack>
-  )
-}
-
-/**
- * Who spoke last and how long ago — whether the ball is in our court or the
- * customer's: an in/out arrow and "1d 2h". Small enough for the tab's label,
- * so it reads without opening the thread. Re-reads the clock each minute, as
- * the dialog may stay open.
- */
-export function LastEmail({ message }) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 60_000)
-    return () => clearInterval(t)
-  }, [])
-  if (!message) return null
-  const outbound = message.direction === 'outbound'
-  const Arrow = outbound ? CallMadeIcon : CallReceivedIcon
-  return (
-    <Tooltip title={`Last email ${outbound ? 'sent' : 'received'} ${formatDateTime(message.created_at)}`}>
-      <Stack component="span" direction="row" spacing={0.25} data-last-email={message.direction}
-        sx={{ alignItems: 'center', color: outbound ? 'primary.main' : 'info.main' }}>
-        <Arrow sx={{ fontSize: 14 }} />
-        <Typography component="span" variant="caption" sx={{ fontWeight: 600 }}>
-          {ago(message.created_at, now)}
-        </Typography>
-      </Stack>
-    </Tooltip>
   )
 }

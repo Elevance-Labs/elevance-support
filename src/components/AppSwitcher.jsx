@@ -3,16 +3,14 @@ import {
   Avatar, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Popover, Tooltip, Typography,
 } from '@mui/material'
 import AppsIcon from '@mui/icons-material/Apps'
-import GroupsIcon from '@mui/icons-material/Groups'
-import SupportAgentIcon from '@mui/icons-material/SupportAgent'
-import WorkspacesIcon from '@mui/icons-material/Workspaces'
+import { PeopleIcon, SupportIcon, WorkIcon } from './ElevanceIcons'
 import { googleDomain } from '../lib/signin'
 import { suiteLinks, switchUrl } from '../lib/suite'
 
 const LOOK = {
-  work: { icon: WorkspacesIcon, color: '#3f51b5' },
-  support: { icon: SupportAgentIcon, color: '#2563eb' },
-  people: { icon: GroupsIcon, color: '#00796b' },
+  work: { icon: WorkIcon, color: '#3f51b5' },
+  support: { icon: SupportIcon, color: '#2563eb' },
+  people: { icon: PeopleIcon, color: '#00796b' },
 }
 
 // A build may place an app somewhere other than the sibling folder.

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { Alert, Avatar, Box, Button, Card, CardContent, Stack, Typography } from '@mui/material'
-import SupportAgentIcon from '@mui/icons-material/SupportAgent'
+import { SupportIcon } from '../components/ElevanceIcons'
 import GoogleIcon from '@mui/icons-material/Google'
 import { useAuth } from '../context/AuthContext'
 
@@ -32,7 +32,7 @@ export default function Login() {
         <CardContent sx={{ p: { xs: 3, sm: 5 } }}>
           <Stack spacing={3} sx={{ alignItems: 'center', textAlign: 'center' }}>
             <Avatar variant="rounded" sx={{ width: 56, height: 56, bgcolor: 'primary.main' }}>
-              <SupportAgentIcon sx={{ fontSize: 35 }} />
+              <SupportIcon sx={{ fontSize: 35 }} />
             </Avatar>
             <Box>
               <Typography variant="h5" component="h1">Elevance Support</Typography>
