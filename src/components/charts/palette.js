@@ -1,3 +1,5 @@
+import { useTheme } from '@mui/material/styles'
+
 /**
  * Chart colours.
  *
@@ -39,3 +41,16 @@ export const CHART = {
 }
 
 export const seriesColor = (i) => CATEGORICAL[i % CATEGORICAL.length]
+
+/** The chrome on a dark surface: the same jobs, lifted off the dark paper. */
+const CHART_DARK = {
+  surface: '#1b1d23',
+  grid: 'rgba(255, 255, 255, 0.12)',
+  ink: '#f3f4f6',
+  muted: '#9ca3af',
+}
+
+/** The chart chrome for the theme in use (light or dark). */
+export function useChartChrome() {
+  return useTheme().palette.mode === 'dark' ? CHART_DARK : CHART
+}

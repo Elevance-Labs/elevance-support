@@ -207,7 +207,7 @@ export default function Board() {
             key={s.id}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => drop(s.name)}
-            sx={{ width: { xs: 280, sm: 300 }, flexShrink: 0, bgcolor: '#f1f3f5', p: 1.5, maxHeight: '72vh', overflowY: 'auto' }}
+            sx={{ width: { xs: 280, sm: 300 }, flexShrink: 0, bgcolor: 'background.muted', p: 1.5, maxHeight: '72vh', overflowY: 'auto' }}
           >
             <Stack direction="row" spacing={1} sx={{ mb: 1.5, px: 0.5, alignItems: 'center' }}>
               <StatusDot statusType={s.status_type} />

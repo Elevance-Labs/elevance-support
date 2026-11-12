@@ -173,7 +173,7 @@ function Who({ notification: n, actor }) {
     : n.kind === 'test' ? NotificationsActiveOutlinedIcon
     : EventNoteIcon // assigned with nobody behind it: the rota
   return (
-    <Avatar sx={{ width: 32, height: 32, bgcolor: 'grey.100', color: 'text.secondary' }}>
+    <Avatar sx={{ width: 32, height: 32, bgcolor: 'background.muted', color: 'text.secondary' }}>
       <Icon sx={{ fontSize: 18 }} />
     </Avatar>
   )

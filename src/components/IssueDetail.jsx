@@ -295,7 +295,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
           {/* On a phone the title takes the first line and the buttons wrap
               under it, rather than squeezing the title into a sliver. */}
           <Stack direction="row" spacing={{ xs: 1, md: 2 }} useFlexGap sx={{
-            p: { xs: 1.5, md: 2 }, alignItems: 'flex-start', borderBottom: '1px solid #e5e7eb',
+            p: { xs: 1.5, md: 2 }, alignItems: 'flex-start', borderBottom: 1, borderColor: 'divider',
             flexWrap: { xs: 'wrap', md: 'nowrap' }, justifyContent: 'flex-end',
           }}>
             {position >= 0 && (
@@ -584,7 +584,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
                   draft survives a look at the other tab. */}
               <Box>
                 <Tabs value={thread} onChange={(_e, v) => setThread(v)}
-                  sx={{ minHeight: 36, mb: 1.5, borderBottom: '1px solid #e5e7eb' }}>
+                  sx={{ minHeight: 36, mb: 1.5, borderBottom: 1, borderColor: 'divider' }}>
                   <Tab value="comments" sx={{ minHeight: 36, py: 0.5 }}
                     label={commentCount ? `Comments (${commentCount})` : 'Comments'} />
                   <Tab value="conversation" sx={{ minHeight: 36, py: 0.5 }}

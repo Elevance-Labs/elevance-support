@@ -594,7 +594,7 @@ export default function Issues() {
           sx={{
             border: 0,
             '& .MuiDataGrid-row': { cursor: 'pointer' },
-            '& .issue-group': { bgcolor: 'grey.50' },
+            '& .issue-group': { bgcolor: 'background.subtle' },
           }}
         />
       </Paper>

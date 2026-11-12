@@ -43,7 +43,7 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 | Path | Role |
 |---|---|
 | `src/pages/` | One file per route. Fetches data, owns page state. |
-| `src/components/` | Shared UI: ticket dialog, form, comments, email conversation, linked tickets, rich text editor, timeline, chips, avatars. |
+| `src/components/` | Shared UI: shell (`AppLayout`, `ThemeModeSwitch`), ticket dialog, form, comments, email conversation, linked tickets, rich text editor, timeline, chips, avatars. |
 | `src/components/charts/` | Hand-drawn SVG charts. No charting dependency. |
 | `src/context/` | App-wide state providers (auth, config, project, refresh). |
 | `src/lib/` | Pure domain logic + the Supabase client. Where rules live. |
@@ -99,6 +99,14 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   foot, via `components/useNavCollapsed`, one localStorage key shared by the
   apps; the first load is the app's icon over a running bar, `components/Splash`)
   match Work, Support and People. A change to either belongs in all three.
+- **Light, dark or system.** `theme.js` has both colour schemes (no CSS
+  variables, so `theme.palette` is the mode in use); `App.jsx` gives
+  `ThemeProvider` the `themeSettings` (one localStorage key, `elevance.theme`,
+  shared by the apps); `components/ThemeModeSwitch` is its control in the
+  account menu. Colours come from the palette (`background.subtle` / `muted`
+  for tints, `divider`, `text.*`); a fixed hex is for brand or data only, and
+  chart chrome comes from `useChartChrome`. The embed form stays light
+  (`lightTheme`): it sits inside other people's pages.
 - Staff pages are phone-ready: `AppLayout` swaps the side nav for a drawer
   below `md`; dialogs go full screen below `sm`; tables go through
   `components/ScrollTable`. Ask "is it narrow?" (`breakpoints.down`), so the

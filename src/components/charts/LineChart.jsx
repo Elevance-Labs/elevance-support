@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Box } from '@mui/material'
 import dayjs from 'dayjs'
-import { CHART } from './palette'
+import { useChartChrome } from './palette'
 import { useContainerWidth } from './useContainerWidth'
 import ChartTooltip from './ChartTooltip'
 
@@ -27,6 +27,7 @@ const LABEL_FORMAT = { day: 'D MMM', week: 'D MMM', month: 'MMM YY' }
 export default function LineChart({ data, series, unit = 'day', height = 220 }) {
   const [wrapRef, width] = useContainerWidth()
   const [hover, setHover] = useState(null)
+  const chrome = useChartChrome()
 
   const plotW = Math.max(width - PAD.left - PAD.right, 10)
   const plotH = height - PAD.top - PAD.bottom
@@ -54,9 +55,9 @@ export default function LineChart({ data, series, unit = 'day', height = 220 }) 
         {ticks.map((t) => (
           <g key={t}>
             <line x1={PAD.left} y1={y(t)} x2={PAD.left + plotW} y2={y(t)}
-              stroke={CHART.grid} strokeWidth={1} />
+              stroke={chrome.grid} strokeWidth={1} />
             <text x={PAD.left - 8} y={y(t)} textAnchor="end" dominantBaseline="central"
-              fontSize={11} fill={CHART.muted} style={{ fontVariantNumeric: 'tabular-nums' }}>
+              fontSize={11} fill={chrome.muted} style={{ fontVariantNumeric: 'tabular-nums' }}>
               {t.toLocaleString()}
             </text>
           </g>
@@ -64,14 +65,14 @@ export default function LineChart({ data, series, unit = 'day', height = 220 }) 
 
         {data.map((d, i) => (i % labelEvery === 0 || i === data.length - 1) && (
           <text key={d.ms} x={x(i)} y={height - 6} textAnchor={i === 0 ? 'start' : 'middle'}
-            fontSize={11} fill={CHART.muted}>
+            fontSize={11} fill={chrome.muted}>
             {dayjs(d.ms).format(LABEL_FORMAT[unit] ?? 'D MMM')}
           </text>
         ))}
 
         {hover != null && (
           <line x1={x(hover)} y1={PAD.top} x2={x(hover)} y2={PAD.top + plotH}
-            stroke={CHART.grid} strokeWidth={1} />
+            stroke={chrome.grid} strokeWidth={1} />
         )}
 
         {series.map((s) => (
@@ -83,10 +84,10 @@ export default function LineChart({ data, series, unit = 'day', height = 220 }) 
             />
             {/* End marker, ringed in the surface colour so crossing lines stay legible. */}
             <circle cx={x(data.length - 1)} cy={y(data[data.length - 1][s.key])} r={4}
-              fill={s.color} stroke={CHART.surface} strokeWidth={2} />
+              fill={s.color} stroke={chrome.surface} strokeWidth={2} />
             {hover != null && (
               <circle cx={x(hover)} cy={y(data[hover][s.key])} r={4}
-                fill={s.color} stroke={CHART.surface} strokeWidth={2} />
+                fill={s.color} stroke={chrome.surface} strokeWidth={2} />
             )}
           </g>
         ))}

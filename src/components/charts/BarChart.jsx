@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Box } from '@mui/material'
-import { CHART, SERIES_1 } from './palette'
+import { SERIES_1, useChartChrome } from './palette'
 import { useContainerWidth } from './useContainerWidth'
 import ChartTooltip from './ChartTooltip'
 
@@ -34,6 +34,7 @@ export default function BarChart({
 }) {
   const [wrapRef, width] = useContainerWidth()
   const [hover, setHover] = useState(null)
+  const chrome = useChartChrome()
 
   const longest = data.reduce((n, d) => Math.max(n, d.name.length), 0)
   const labelW = Math.min(150, Math.max(72, longest * 6.6))
@@ -46,7 +47,7 @@ export default function BarChart({
     <Box ref={wrapRef} sx={{ position: 'relative' }}>
       <svg width="100%" height={height} role="img">
         {/* Baseline: one hairline, a single step off the surface. */}
-        <line x1={labelW} y1={0} x2={labelW} y2={height} stroke={CHART.grid} strokeWidth={1} />
+        <line x1={labelW} y1={0} x2={labelW} y2={height} stroke={chrome.grid} strokeWidth={1} />
         {data.map((d, i) => {
           const y = i * ROW
           const barY = y + (ROW - BAR) / 2
@@ -55,13 +56,13 @@ export default function BarChart({
           return (
             <g key={d.name}>
               <text x={labelW - 8} y={y + ROW / 2} textAnchor="end" dominantBaseline="central"
-                fontSize={12} fill={CHART.muted}>
+                fontSize={12} fill={chrome.muted}>
                 {d.name.length > 22 ? `${d.name.slice(0, 21)}…` : d.name}
               </text>
               <path d={barPath(labelW, barY, w, BAR)} fill={fill}
                 opacity={hover && hover.name !== d.name ? 0.45 : 1} />
               <text x={labelW + w + 8} y={y + ROW / 2} dominantBaseline="central"
-                fontSize={12} fontWeight={600} fill={CHART.ink}>
+                fontSize={12} fontWeight={600} fill={chrome.ink}>
                 {formatValue(d.value)}
               </text>
               {/* Hit target is the whole row, not the bar — a 3px bar is unhoverable. */}

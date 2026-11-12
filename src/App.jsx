@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { CssBaseline, ThemeProvider } from '@mui/material'
-import { theme } from './theme'
+import { lightTheme, theme, themeSettings } from './theme'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { can } from './lib/permissions'
 import { ConfigProvider } from './context/ConfigContext'
@@ -55,8 +55,8 @@ export function Protected({ require: requires, children }) {
 
 export default function App() {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
+    <ThemeProvider theme={theme} {...themeSettings}>
+      <CssBaseline enableColorScheme />
       <UpdatePrompt />
       {/* basename follows Vite's base, so a GitHub Pages project site served
           from /<repo>/ routes the same as a root deployment. */}
@@ -70,9 +70,13 @@ export default function App() {
             <Route
               path="/embed/:key/form"
               element={
-                <ConfigProvider withUsers={false}>
-                  <EmbedForm />
-                </ConfigProvider>
+                // Always light: it sits inside other people's pages.
+                <ThemeProvider theme={lightTheme}>
+                  <CssBaseline enableColorScheme />
+                  <ConfigProvider withUsers={false}>
+                    <EmbedForm />
+                  </ConfigProvider>
+                </ThemeProvider>
               }
             />
             {/* Share link. Signed-in staff are redirected to the editable view. */}

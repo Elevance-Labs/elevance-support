@@ -34,6 +34,7 @@ import { displayName } from '../lib/users'
 import { isShortcut, shortcutLabel } from '../lib/search'
 import UserAvatar from './UserAvatar'
 import AppSwitcher from './AppSwitcher'
+import ThemeModeSwitch from './ThemeModeSwitch'
 import { useNavCollapsed } from './useNavCollapsed'
 import { InstallBanner, InstallNavButton } from './InstallApp'
 
@@ -146,7 +147,7 @@ function AppLayoutInner() {
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <AppBar position="fixed"
-        sx={{ zIndex: (t) => t.zIndex.drawer + 1, borderBottom: 1, borderColor: 'divider', bgcolor: '#fff' }}>
+        sx={{ zIndex: (t) => t.zIndex.drawer + 1, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
         <Toolbar sx={{ gap: { xs: 0.75, sm: 1.5 } }}>
           {narrow && (
             <IconButton edge="start" aria-label="Open navigation" onClick={() => setNavOpen(true)}>
@@ -208,6 +209,8 @@ function AppLayoutInner() {
               <Typography variant="caption" sx={{ color: 'text.secondary' }}>{role}</Typography>
             </Box>
             <Divider />
+            <ThemeModeSwitch />
+            <Divider />
             <MenuItem onClick={() => { setAnchor(null); navigate('/profile') }}>
               <ListItemIcon><PersonIcon fontSize="small" /></ListItemIcon>
               Profile
@@ -233,7 +236,7 @@ function AppLayoutInner() {
         open={narrow ? navOpen : true}
         onClose={() => setNavOpen(false)}
         sx={{ width: narrow ? 0 : width, flexShrink: 0 }}
-        slotProps={{ paper: { sx: { width: narrow ? WIDTH : width, boxSizing: 'border-box', overflowX: 'hidden', border: 0, borderRight: '1px solid #e5e7eb', borderRadius: 0 } } }}
+        slotProps={{ paper: { sx: { width: narrow ? WIDTH : width, boxSizing: 'border-box', overflowX: 'hidden', border: 0, borderRight: 1, borderColor: 'divider', borderRadius: 0 } } }}
       >
         <Toolbar />
         {subbar && <Box sx={{ height: SUBBAR, flexShrink: 0 }} />}

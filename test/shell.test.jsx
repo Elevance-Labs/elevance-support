@@ -9,8 +9,8 @@ const dom = setupDom('http://localhost/issues')
 const { createRoot } = await import('react-dom/client')
 const { act } = await import('react')
 const { MemoryRouter, Route, Routes } = await import('react-router-dom')
-const { ThemeProvider } = await import('@mui/material')
-const { theme } = await import('../src/theme')
+const { CssBaseline, ThemeProvider } = await import('@mui/material')
+const { theme, themeSettings } = await import('../src/theme')
 const { ConfigProvider } = await import('../src/context/ConfigContext')
 const { ProjectProvider } = await import('../src/context/ProjectContext')
 const { AuthContext } = await import('../src/context/AuthContext')
@@ -21,13 +21,28 @@ const D = dom.window.document
 const profile = { id: 'user-1', full_name: 'Ada Lovelace', email: 'ada@co.com', role: 'admin' }
 const KEY = 'elevance.nav-collapsed'
 
+// The device's own light or dark setting; jsdom has no media queries, so
+// only this one is answered (others stay unmatched, as without the stub).
+let deviceScheme = 'light'
+dom.window.matchMedia = (query) => {
+  const scheme = /prefers-color-scheme:\s*(\w+)/.exec(query)
+  return {
+    matches: scheme ? scheme[1] === deviceScheme : false, media: query, onchange: null,
+    addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false,
+  }
+}
+
+let root = null
 async function render() {
+  if (root) await act(async () => root.unmount())
   D.body.innerHTML = ''
   const el = D.createElement('div')
   D.body.appendChild(el)
+  root = createRoot(el)
   await act(async () => {
-    createRoot(el).render(
-      <ThemeProvider theme={theme}>
+    root.render(
+      <ThemeProvider theme={theme} {...themeSettings}>
+        <CssBaseline enableColorScheme />
         <MemoryRouter initialEntries={['/issues']}>
           <AuthContext.Provider value={{
             session: {}, profile, loading: false, signIn: () => {}, signOut: () => {},
@@ -111,5 +126,36 @@ check('a fresh load stays collapsed',
 await click(D.querySelector('[aria-label="Expand navigation"]'))
 check('expanding brings the labels back', navLabels().join() === before.join(), navLabels().join())
 check('and that is remembered too', localStorage.getItem(KEY) === '0')
+
+// ---------------- the theme: light, dark or the device's ----------------
+// Chosen in the account menu; remembered under one key the three apps share.
+const bodyBg = () => dom.window.getComputedStyle(D.body).backgroundColor
+const themeButtons = () => [...D.querySelectorAll('[aria-labelledby="theme-mode-label"] button')]
+const pressed = () => themeButtons().find((b) => b.getAttribute('aria-pressed') === 'true')?.textContent
+const pick = (name) => click(themeButtons().find((b) => b.textContent === name))
+localStorage.removeItem('elevance.theme')
+await render()
+const lightBg = bodyBg()
+await click(D.querySelector('[aria-label="Account menu"]'))
+check('the account menu offers Light, Dark and System', themeButtons().map((b) => b.textContent).join() === 'Light,Dark,System',
+  themeButtons().map((b) => b.textContent).join())
+check('following the device by default', pressed() === 'System', pressed())
+await pick('Dark')
+check('Dark is chosen', pressed() === 'Dark', pressed())
+check('the page goes dark', bodyBg() !== lightBg && bodyBg() === 'rgb(18, 19, 24)', `${lightBg} → ${bodyBg()}`)
+check('the choice is remembered, under the key the apps share', localStorage.getItem('elevance.theme') === 'dark')
+await render()
+check('a fresh load opens dark', bodyBg() === 'rgb(18, 19, 24)', bodyBg())
+await click(D.querySelector('[aria-label="Account menu"]'))
+await pick('Light')
+check('Light brings it back', bodyBg() === lightBg && localStorage.getItem('elevance.theme') === 'light', bodyBg())
+deviceScheme = 'dark'
+await pick('System')
+await render()
+check('System follows a dark device', bodyBg() === 'rgb(18, 19, 24)' && localStorage.getItem('elevance.theme') === 'system', bodyBg())
+deviceScheme = 'light'
+await render()
+check('and a light one', bodyBg() === lightBg, bodyBg())
+localStorage.removeItem('elevance.theme')
 
 done()

@@ -273,7 +273,7 @@ export default function Report() {
                 <TableCell align="right">{t.total}</TableCell>
                 <TableCell align="right">{t.open}</TableCell>
                 <TableCell align="right">{t.closed}</TableCell>
-                <TableCell align="right" sx={{ color: t.breached ? '#c62828' : 'inherit' }}>
+                <TableCell align="right" sx={{ color: t.breached ? 'error.main' : 'inherit' }}>
                   {t.breached}
                 </TableCell>
                 <TableCell align="right">{t.metPct == null ? '—' : `${t.metPct}%`}</TableCell>

@@ -58,7 +58,7 @@ export default function Configuration() {
 
       {tab && (
         <Paper>
-          <Tabs value={tab} onChange={(_e, v) => setPicked(v)} sx={{ borderBottom: '1px solid #e5e7eb' }}>
+          <Tabs value={tab} onChange={(_e, v) => setPicked(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
             {lists.map((l) => <Tab key={l.key} value={l.key} label={l.label} />)}
             {tabs.includes(TEMPLATES) && <Tab value={TEMPLATES} label="Templates" />}
           </Tabs>
@@ -231,7 +231,7 @@ function ListPanel({ type }) {
                       <Box sx={{
                         width: 14, height: 14, borderRadius: '3px',
                         bgcolor: item.color ?? 'transparent',
-                        border: '1px solid #d1d5db',
+                        border: 1, borderColor: 'divider',
                       }} />
                       <Typography variant="caption">{item.color ?? 'auto'}</Typography>
                     </Stack>

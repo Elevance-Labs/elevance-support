@@ -13,7 +13,7 @@ export default function ChartTooltip({ x, y, width, title, rows }) {
       sx={{
         position: 'absolute', left: x, top: y, pointerEvents: 'none', zIndex: 2,
         transform: `translate(${flip ? 'calc(-100% - 12px)' : '12px'}, -50%)`,
-        px: 1.25, py: 0.75, minWidth: 110, border: '1px solid #e5e7eb',
+        px: 1.25, py: 0.75, minWidth: 110,
       }}
     >
       <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }}>
@@ -31,7 +31,7 @@ export default function ChartTooltip({ x, y, width, title, rows }) {
             )}
             {r.label}
           </span>
-          <span style={{ color: '#111827', fontWeight: 600 }}>{r.value}</span>
+          <Typography component="span" variant="caption" sx={{ color: 'text.primary', fontWeight: 600 }}>{r.value}</Typography>
         </Typography>
       ))}
     </Paper>

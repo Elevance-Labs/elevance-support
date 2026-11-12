@@ -77,7 +77,7 @@ function Tile({ item, onOpen, onRemove }) {
           >
             <Box
               sx={{
-                aspectRatio: '4 / 3', bgcolor: 'grey.100', position: 'relative',
+                aspectRatio: '4 / 3', bgcolor: 'background.muted', position: 'relative',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 color: 'text.secondary', overflow: 'hidden',
               }}
