@@ -161,9 +161,12 @@ check('collapsed, Install is an icon above Expand',
     && !installButton().textContent.trim())
 await click(expand)
 
+check('in a browser tab, the header leads to the sibling apps', Boolean(D.querySelector('[aria-label="Switch app"]')))
 screen.displayMode = 'standalone'
 await render()
 check('running as the app, there is nothing to install', installButton() === null && collapseButton() !== null)
+check('nor a switcher to the sibling apps: each installed app keeps to its window',
+  D.querySelector('[aria-label="Switch app"]') === null)
 screen.displayMode = 'browser'
 
 // ---------------- a phone ----------------

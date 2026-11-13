@@ -17,26 +17,13 @@ import { alpha } from '@mui/material/styles'
 import CloseIcon from '@mui/icons-material/Close'
 import InstallDesktopOutlinedIcon from '@mui/icons-material/InstallDesktopOutlined'
 import InstallMobileOutlinedIcon from '@mui/icons-material/InstallMobileOutlined'
-import { APP_DISPLAY_MODES, detectDevice, installGuide, installLabel, isStandalone } from '../lib/install'
+import { detectDevice, installGuide, installLabel } from '../lib/install'
+import { useStandalone } from './useStandalone'
 import { installState, listenForInstall, promptInstall, subscribeInstall } from '../pwa'
 
 const APP_NAME = 'Elevance Support'
 // Per app: each is installed on its own, though they share an origin.
 const DISMISSED = 'el-support:install-dismissed'
-
-// Old browsers have no media queries from script: a browser tab, then.
-const media = (query) => (typeof window.matchMedia === 'function' ? window.matchMedia(query) : null)
-
-const subscribeDisplayMode = (onChange) => {
-  // Desktop Chrome and Edge can move a tab into an app window while it is open.
-  const lists = APP_DISPLAY_MODES.map((mode) => media(`(display-mode: ${mode})`))
-  for (const l of lists) l?.addEventListener?.('change', onChange)
-  return () => {
-    for (const l of lists) l?.removeEventListener?.('change', onChange)
-  }
-}
-const standaloneNow = () =>
-  isStandalone((q) => media(q)?.matches === true, navigator.standalone)
 
 /**
  * Whether to offer installing the app, and the way to do it here: the
@@ -45,7 +32,7 @@ const standaloneNow = () =>
 function useInstall() {
   useEffect(listenForInstall, [])
   const { installed } = useSyncExternalStore(subscribeInstall, installState)
-  const standalone = useSyncExternalStore(subscribeDisplayMode, standaloneNow)
+  const standalone = useStandalone()
   const device = useMemo(() => detectDevice(navigator.userAgent, navigator.maxTouchPoints ?? 0), [])
   const [guiding, setGuiding] = useState(false)
 
