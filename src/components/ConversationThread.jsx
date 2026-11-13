@@ -6,8 +6,8 @@ import { signAttachments } from '../lib/storage'
 import { useAuth } from '../context/AuthContext'
 import { useConfig } from '../context/ConfigContext'
 import { can } from '../lib/permissions'
-import { isEmail, latestMessage, newestFirst, ticketSubject } from '../lib/email'
-import EmailComposer, { ComposerLine } from './EmailComposer'
+import { isEmail, latestMessage, mayResend, newestFirst, resentIds, ticketSubject } from '../lib/email'
+import EmailComposer, { ComposerLine, resendEmail } from './EmailComposer'
 import EmailMessage, { LastEmail } from './EmailMessage'
 
 // Where it has always been imported from.
@@ -67,6 +67,14 @@ export default function ConversationThread({ issue, ticketRef, onCount, onLast }
     return (id) => map[id]
   }, [users])
 
+  const resent = useMemo(() => resentIds(messages), [messages])
+  const resend = async (m) => {
+    setError('')
+    const problem = await resendEmail(m)
+    if (problem) setError(problem)
+    else await load()
+  }
+
   const to = (issue?.requester_email ?? '').trim()
   const reachable = isEmail(to)
   const subject = ticketSubject(ticketRef, issue?.title)
@@ -123,7 +131,8 @@ export default function ConversationThread({ issue, ticketRef, onCount, onLast }
         {messages.map((m) => (
           <EmailMessage key={m.id} message={m}
             sender={m.direction === 'outbound' ? senderOf(m.sent_by) : null}
-            files={filesOf[m.id]} />
+            files={filesOf[m.id]} resent={resent.has(m.id)}
+            onResend={mayWrite && mayResend(m, resent) ? () => resend(m) : null} />
         ))}
       </Stack>
     </Stack>

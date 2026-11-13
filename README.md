@@ -67,7 +67,7 @@ The look is set in `src/theme` and the shell in the layout component of each app
 
 ## Switching between the Elevance apps
 
-The grid icon at the top left opens the **app switcher**: Work, Support and People. Picking one opens that app; the one you are in is marked *You are here*.
+The grid icon at the top left opens the **app switcher**: Work, Support and People. Picking one opens that app; the one you are in is marked *You are here*. It is not shown when an app runs installed (from its own icon): each installed app stays in its own window.
 
 **You are not asked to sign in again.** Each app has its own database and its own session, so the switcher is a link that carries your company email (`?sso=you@…`). An app that opens with no session hands that email to Google as a hint and skips the account chooser; Google already knows you, so you land signed in without seeing a screen. If you are not signed in to Google with that account, Google asks as usual.
 

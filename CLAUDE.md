@@ -223,7 +223,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   or in a tab (`isStandalone`), the install steps for each (`installGuide`).
 - `suite.js` — the Elevance suite (Work, Support, People): where each app
   lives (the sibling folder, or `VITE_SUITE_*_URL`) and the `?sso=<email>`
-  hand-over. `components/AppSwitcher` is the grid icon before the logo;
+  hand-over. `components/AppSwitcher` is the grid icon before the logo
+  (hidden when running installed, `components/useStandalone`);
   `AuthContext` takes the hint once at load, strips it from the address and,
   with no session, goes to Google with `login_hint` and no chooser. Never
   trusted: the account is still found by Google's answer.
@@ -294,7 +295,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `email_messages` — the email thread with the requester, in and out, with
   delivery status, and — outbound — the rich text document it went as, body
   and signature. Browser read-only (same sight as the ticket); only
-  `email-send` and `email-webhook` write it. A reply finds its ticket by the
+  `email-send` and `email-webhook` write it. A resend names the failed message
+  it replaces (`resend_of`, unique). A reply finds its ticket by the
   ticket's random `email_token` in the Reply-To address — never by the public
   ticket reference — or by its threading headers; anything else is a new ticket.
 - `project_contacts` — the email addresses a project has met, stored lower-case,
@@ -411,7 +413,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   through Mailgun:
   checks the `can_email` grant and project membership by hand (service_role
   skips RLS), decides from/subject/Reply-To/threading headers/layout itself, and
-  records the message.
+  records the message. With `resend_of` it sends a **failed** outbound message
+  again, as it went (recipients, text, files read from the row, never the
+  browser) — once per message.
 - `email-webhook` — Mailgun's caller: inbound mail (filed on its ticket, or a
   new `Email` ticket in `EMAIL_INTAKE_PROJECT_KEY` — only when the helpdesk is
   in its To, never from a Cc or Bcc; machine mail never makes one) and delivery

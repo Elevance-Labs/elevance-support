@@ -1,5 +1,7 @@
 // Sends an email about a ticket, from the ticket's Conversation tab (to its
-// requester) or from the Inbox (to one of a contact's addresses).
+// requester) or from the Inbox (to one of a contact's addresses). Also sends a
+// message that was not delivered again (`resend_of`, 0026): the same email, to
+// the same people, as a new message in the same thread.
 //
 // The browser never talks to Mailgun: the API key can send as the support
 // address, so it lives in this function's environment. The browser sends what
@@ -273,6 +275,7 @@ Deno.serve(async (req) => {
 
   let payload: {
     issue_id?: unknown;
+    resend_of?: unknown;
     to?: unknown;
     body?: unknown;
     doc?: unknown;
@@ -286,19 +289,8 @@ Deno.serve(async (req) => {
   }
 
   const issueId = typeof payload.issue_id === "string" ? payload.issue_id : "";
-  // The composer sends a document; plain `body` text is still taken, as lines.
-  const body = payload.doc !== undefined
-    ? normalizeDoc(payload.doc)
-    : docFromText(typeof payload.body === "string" ? payload.body : "");
   if (!issueId) return json({ error: "Missing issue_id" }, 400);
-  if (isEmptyDoc(body)) return json({ error: "Write a message before sending" }, 400);
-
-  const cc = Array.isArray(payload.cc)
-    ? [...new Set(payload.cc.map((c) => String(c).trim().toLowerCase()).filter(Boolean))]
-    : [];
-  if (cc.length > MAX_CC) return json({ error: `At most ${MAX_CC} people can be copied` }, 400);
-  const badCc = cc.find((c) => !EMAIL.test(c));
-  if (badCc) return json({ error: `"${badCc}" is not an email address` }, 400);
+  const resendOf = typeof payload.resend_of === "string" ? payload.resend_of : "";
 
   // ---- the ticket, and whether this person may see it ----
   const { data: issue } = await admin.from("issues")
@@ -315,28 +307,110 @@ Deno.serve(async (req) => {
     if (!membership) return json({ error: "not_found" }, 404);
   }
 
-  // Who it goes to. The ticket's requester unless the request names someone
-  // else — the Inbox writes to a contact about a ticket that may be someone
-  // else's — and then only an address this project already knows
-  // (`project_contacts`): the function sends as the support address, so it
-  // must not become a way to write to anyone at all.
-  const requester = String(issue.requester_email ?? "").trim().toLowerCase();
-  const asked = typeof payload.to === "string" ? payload.to.trim().toLowerCase() : "";
-  const to = asked || requester;
-  if (!EMAIL.test(to)) {
-    return json({
-      error: asked ? `"${payload.to}" is not an email address` : "This ticket has no requester email to write to",
-    }, 400);
-  }
-  if (asked && asked !== requester) {
-    const { data: known } = await admin.from("project_contacts")
-      .select("email").eq("project_id", issue.project_id).eq("email", asked).maybeSingle();
-    if (!known) return json({ error: `${asked} is not one of this project's contacts` }, 400);
-  }
-
   // deno-lint-ignore no-explicit-any
   const key = (issue as any).projects.key as string;
   const ref = `${key}-${issue.number}`;
+
+  // ---- what goes, and to whom ----
+  // Either a new draft, or — `resend_of` — a message that was not delivered,
+  // sent again exactly as it first went. Everything after this is the same.
+  let to: string[];
+  let cc: string[];
+  let files: { path: string; name: string }[];
+  let content: { text: string; html: string; doc: unknown; stripped: string; fromName: string };
+
+  if (resendOf) {
+    const { data: original } = await admin.from("email_messages")
+      .select("id, direction, status, to_emails, cc_emails, from_name, body_text, body_html, body_doc, stripped_text")
+      .eq("id", resendOf).eq("issue_id", issue.id).maybeSingle();
+    if (!original || original.direction !== "outbound") return json({ error: "not_found" }, 404);
+    if (original.status !== "failed") {
+      return json({ error: "Only an email that was not delivered can be sent again" }, 400);
+    }
+    // One resend per message (a unique index, 0026). Checked before sending,
+    // so a second click does not reach the customer twice.
+    const { data: again, error: againErr } = await admin.from("email_messages")
+      .select("id").eq("resend_of", original.id).maybeSingle();
+    if (againErr) {
+      console.error("email-send could not check for an earlier resend — is migration 0026 applied?", againErr);
+      return json({ error: "Resending is not set up yet — ask an admin" }, 500);
+    }
+    if (again) return json({ error: "This email has already been sent again" }, 409);
+
+    to = (original.to_emails ?? []).map((t: string) => String(t).trim().toLowerCase()).filter(Boolean);
+    cc = (original.cc_emails ?? []).map((c: string) => String(c).trim().toLowerCase()).filter(Boolean);
+    const bad = [...to, ...cc].find((a) => !EMAIL.test(a));
+    if (!to.length || bad) {
+      return json({ error: bad ? `"${bad}" is not an email address` : "This email had nobody to send to" }, 400);
+    }
+    if (!original.body_text || !original.body_html) {
+      return json({ error: "This email has nothing to send again" }, 400);
+    }
+    const { data: kept } = await admin.from("attachments")
+      .select("file_path, file_name").eq("email_message_id", original.id).order("created_at");
+    files = (kept ?? []).map((a) => ({ path: a.file_path, name: a.file_name }));
+    // The same words, signature and footer — the sign-off is the original
+    // sender's, so the name it went under stays with it.
+    content = {
+      text: original.body_text,
+      html: original.body_html,
+      doc: original.body_doc,
+      stripped: original.stripped_text ?? "",
+      fromName: original.from_name || displayName(me),
+    };
+  } else {
+    // The composer sends a document; plain `body` text is still taken, as lines.
+    const body = payload.doc !== undefined
+      ? normalizeDoc(payload.doc)
+      : docFromText(typeof payload.body === "string" ? payload.body : "");
+    if (isEmptyDoc(body)) return json({ error: "Write a message before sending" }, 400);
+
+    cc = Array.isArray(payload.cc)
+      ? [...new Set(payload.cc.map((c) => String(c).trim().toLowerCase()).filter(Boolean))]
+      : [];
+    if (cc.length > MAX_CC) return json({ error: `At most ${MAX_CC} people can be copied` }, 400);
+    const badCc = cc.find((c) => !EMAIL.test(c));
+    if (badCc) return json({ error: `"${badCc}" is not an email address` }, 400);
+
+    // Who it goes to. The ticket's requester unless the request names someone
+    // else — the Inbox writes to a contact about a ticket that may be someone
+    // else's — and then only an address this project already knows
+    // (`project_contacts`): the function sends as the support address, so it
+    // must not become a way to write to anyone at all.
+    const requester = String(issue.requester_email ?? "").trim().toLowerCase();
+    const asked = typeof payload.to === "string" ? payload.to.trim().toLowerCase() : "";
+    const recipient = asked || requester;
+    if (!EMAIL.test(recipient)) {
+      return json({
+        error: asked ? `"${payload.to}" is not an email address` : "This ticket has no requester email to write to",
+      }, 400);
+    }
+    if (asked && asked !== requester) {
+      const { data: known } = await admin.from("project_contacts")
+        .select("email").eq("project_id", issue.project_id).eq("email", asked).maybeSingle();
+      if (!known) return json({ error: `${asked} is not one of this project's contacts` }, 400);
+    }
+    to = [recipient];
+
+    files = (Array.isArray(payload.attachments) ? payload.attachments : []).map((f) => ({
+      path: String((f as { path?: unknown })?.path ?? ""),
+      name: String((f as { name?: unknown })?.name ?? "").trim() || "attachment",
+    }));
+
+    const sender = displayName(me);
+    const signature = signatureOf(me.email_signature, sender);
+    const appBaseUrl = Deno.env.get("APP_BASE_URL");
+    const { text, html } = render({
+      body, signature, ref,
+      link: appBaseUrl ? publicIssueUrl(appBaseUrl, key, issue.number) : null,
+    });
+    // The message as the customer reads it — body, a blank line, the signature —
+    // which is what the thread draws.
+    const asSent: Doc = {
+      blocks: [...body.blocks, { type: "p", runs: [] }, ...signature.blocks],
+    };
+    content = { text, html, doc: asSent, stripped: docToText(asSent), fromName: sender };
+  }
 
   // ---- the thread so far ----
   const { data: thread } = await admin.from("email_messages")
@@ -348,15 +422,12 @@ Deno.serve(async (req) => {
   const references = history.map((m) => m.message_id).slice(-MAX_REFERENCES);
   const inReplyTo = references.at(-1) ?? null;
 
-  // ---- files the composer already put in the bucket ----
+  // ---- files already in the bucket ----
   // Each must sit under this ticket's folder — the path the browser uploads to
   // — so a request cannot attach some other ticket's file to a customer email.
-  const files = Array.isArray(payload.attachments) ? payload.attachments : [];
   const attachments: { path: string; name: string; mime: string; blob: Blob }[] = [];
   let total = 0;
-  for (const f of files) {
-    const path = String((f as { path?: unknown })?.path ?? "");
-    const name = String((f as { name?: unknown })?.name ?? "").trim() || "attachment";
+  for (const { path, name } of files) {
     if (!path.startsWith(`${issue.id}/`) || path.includes("..")) {
       return json({ error: "An attachment is not on this ticket" }, 400);
     }
@@ -373,18 +444,6 @@ Deno.serve(async (req) => {
   const rowId = crypto.randomUUID();
   const messageId = `${crypto.randomUUID()}@${domain}`;
   const replyTo = `t-${issue.email_token}@${domain}`;
-  const sender = displayName(me);
-  const signature = signatureOf(me.email_signature, sender);
-  const appBaseUrl = Deno.env.get("APP_BASE_URL");
-  const { text, html } = render({
-    body, signature, ref,
-    link: appBaseUrl ? publicIssueUrl(appBaseUrl, key, issue.number) : null,
-  });
-  // The message as the customer reads it — body, a blank line, the signature —
-  // which is what the thread draws.
-  const asSent: Doc = {
-    blocks: [...body.blocks, { type: "p", runs: [] }, ...signature.blocks],
-  };
 
   const fromAddress = from.match(/<([^>]+)>/)?.[1] ?? from;
   const form = new FormData();
@@ -395,11 +454,11 @@ Deno.serve(async (req) => {
   // the From address as the Sender keeps the display to the From alone. The
   // envelope (bounce) address is unchanged, so SPF, DKIM and DMARC are too.
   form.append("h:Sender", fromAddress);
-  form.append("to", to);
+  for (const t of to) form.append("to", t);
   for (const c of cc) form.append("cc", c);
   form.append("subject", subject);
-  form.append("text", text);
-  form.append("html", html);
+  form.append("text", content.text);
+  form.append("html", content.html);
   form.append("h:Reply-To", replyTo);
   form.append("h:Message-Id", bracket(messageId));
   if (inReplyTo) form.append("h:In-Reply-To", bracket(inReplyTo));
@@ -431,20 +490,22 @@ Deno.serve(async (req) => {
     issue_id: issue.id,
     direction: "outbound",
     from_email: fromAddress,
-    from_name: sender,
-    to_emails: [to],
+    from_name: content.fromName,
+    to_emails: to,
     cc_emails: cc,
     subject,
-    body_text: text,
-    body_html: html,
-    stripped_text: docToText(asSent),
-    body_doc: asSent,
+    body_text: content.text,
+    body_html: content.html,
+    stripped_text: content.stripped,
+    body_doc: content.doc,
     message_id: messageId,
     in_reply_to: inReplyTo,
     references,
     sent_by: me.id,
     status: "sent",
     provider_id: providerId ? String(providerId).replace(/^<|>$/g, "") : null,
+    // Only on a resend, so a plain send works whether or not 0026 is applied.
+    ...(resendOf ? { resend_of: resendOf } : {}),
   }).select("*").single();
   if (insErr) {
     // It has gone; the thread just does not know. Say so rather than inviting
@@ -453,6 +514,8 @@ Deno.serve(async (req) => {
     return json({ error: "The email was sent, but could not be saved to the ticket" }, 500);
   }
 
+  // A resent file is the same object in the bucket, recorded again against
+  // the new message — email attachments are never removed, so sharing is safe.
   if (attachments.length) {
     const { error } = await admin.from("attachments").insert(attachments.map((a) => ({
       issue_id: issue.id,

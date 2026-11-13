@@ -32,6 +32,18 @@ export async function functionError(error) {
   return error.message
 }
 
+/**
+ * Sends a message that was not delivered again. `email-send` reads everything
+ * — recipients, text, signature, files — from the message itself; the browser
+ * only names it. Answers the error to show, or '' once it has gone.
+ */
+export async function resendEmail(message) {
+  const { error } = await supabase.functions.invoke('email-send', {
+    body: { issue_id: message.issue_id, resend_of: message.id },
+  })
+  return error ? await functionError(error) : ''
+}
+
 /** One labelled line above the box: "To", "Subject", "Ticket". */
 export function ComposerLine({ label, children }) {
   return (

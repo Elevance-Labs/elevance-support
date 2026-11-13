@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Alert, Box, Chip, Paper, Stack, Tooltip, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, Paper, Stack, Tooltip, Typography } from '@mui/material'
 import CallMadeIcon from '@mui/icons-material/CallMade'
 import CallReceivedIcon from '@mui/icons-material/CallReceived'
 import ConfirmationNumberIcon from '@mui/icons-material/ConfirmationNumberOutlined'
+import ReplayIcon from '@mui/icons-material/Replay'
 import { ago, formatDateTime } from '../lib/format'
 import { displayName } from '../lib/users'
 import { isEmptyDoc, normalizeDoc } from '../lib/richText'
@@ -17,8 +18,18 @@ import { RichTextView } from './RichTextEditor'
  * outbound one; `files` its gallery items. `ticket` ({ ref, title, onOpen })
  * names the ticket it was filed on, and opens it — which only the Inbox needs:
  * there one person's emails span many tickets.
+ *
+ * `onResend` (async, answers when done) puts a "Send again" button on a
+ * message that was not delivered — the caller offers it only where
+ * `mayResend` agrees and the viewer may email. `resent` marks one that already
+ * has been, whose resend is the newer card.
  */
-export default function EmailMessage({ message: m, sender, files, ticket }) {
+export default function EmailMessage({ message: m, sender, files, ticket, onResend, resent = false }) {
+  const [resending, setResending] = useState(false)
+  const resend = async () => {
+    setResending(true)
+    try { await onResend() } finally { setResending(false) }
+  }
   const outbound = m.direction === 'outbound'
   const name = outbound
     ? displayName(sender, m.from_name || 'Support')
@@ -46,6 +57,19 @@ export default function EmailMessage({ message: m, sender, files, ticket }) {
             <Tooltip title={m.status === 'failed' && m.error ? m.error : delivery.hint}>
               <Chip size="small" variant="outlined" label={delivery.label} color={delivery.color} />
             </Tooltip>
+            {onResend && (
+              <Tooltip title={`Send this email again, as it was, to ${[...(m.to_emails ?? []), ...(m.cc_emails ?? [])].join(', ')}`}>
+                <span>
+                  <Button size="small" startIcon={<ReplayIcon />} onClick={resend} disabled={resending}
+                    data-resend-email={m.id} sx={{ py: 0 }}>
+                    {resending ? 'Sending…' : 'Send again'}
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
+            {resent && m.status === 'failed' && (
+              <Typography variant="caption" color="text.secondary">Sent again</Typography>
+            )}
           </Stack>
           {/* Who else saw it: everyone on a sent one, the copied on a
               received one (it was to us). */}

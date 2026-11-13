@@ -74,6 +74,7 @@ check('a reply shows what the customer wrote, not the quoted history',
   !text().includes('> Which browser'))
 check('no composer without the grant', !box() && !sendButton())
 check('and it says who to ask', text().includes('Ask an admin'))
+check('nor a way to send a failed email again', !D.querySelector('[data-resend-email]'))
 
 const kinds = [...D.querySelectorAll('[data-email-message]')].map((p) => p.getAttribute('data-email-message'))
 check('sent and received are told apart', kinds.join() === 'outbound,inbound,outbound', kinds.join())
@@ -113,6 +114,31 @@ check('the signature sits inside the box, under the text',
 check('and cannot be typed into — it is outside the editable region',
   !box().contains(signature()) && signature().closest('[contenteditable="true"]') === null)
 check('templates are offered here too', Boolean(D.querySelector('[aria-label="Insert template"]')))
+
+// ---- an email that was not delivered can be sent again ----
+const resendButtons = () => [...D.querySelectorAll('[data-resend-email]')]
+check('only the failed email offers "Send again"',
+  resendButtons().map((b) => b.getAttribute('data-resend-email')).join() === 'em-3',
+  resendButtons().map((b) => b.getAttribute('data-resend-email')).join())
+captured.functionCalls.length = 0
+await act(async () => { resendButtons()[0].click() })
+await settle()
+const again = captured.functionCalls.find((c) => c.name === 'email-send')
+check('it names the message and its ticket — email-send reads the rest from the message',
+  again?.body.issue_id === 'issue-1' && again?.body.resend_of === 'em-3'
+  && Object.keys(again?.body ?? {}).length === 2,
+  JSON.stringify(again?.body))
+
+FIXTURES.email_messages.push({ id: 'em-4', issue_id: 'issue-1', direction: 'outbound', status: 'sent',
+  from_email: 'support@example.com', from_name: 'Ada Lovelace', sent_by: 'user-1',
+  to_emails: ['jane@acme.com'], cc_emails: [], resend_of: 'em-3',
+  subject: '[ACME-42] Cannot export invoice', message_id: 'm3@mg.example.com',
+  stripped_text: 'Thanks — trying it now.', created_at: new Date().toISOString() })
+await render(writer)
+check('once resent, it is not offered again', resendButtons().length === 0)
+check('and says it went again', text().includes('Sent again'))
+FIXTURES.email_messages.pop()
+await render(writer)
 
 const ccInput = [...D.querySelectorAll('input')].find((i) =>
   (i.getAttribute('placeholder') ?? '').startsWith('Optional'))

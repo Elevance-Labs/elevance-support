@@ -5,7 +5,7 @@
 import { reporter } from './setup.js'
 import { can } from '../src/lib/permissions.js'
 import {
-  deliveryOf, isEmail, messageText, newestFirst, parseRecipients, ticketSubject,
+  deliveryOf, isEmail, mayResend, messageText, newestFirst, parseRecipients, resentIds, ticketSubject,
 } from '../src/lib/email.js'
 
 const { check, done } = reporter()
@@ -52,5 +52,17 @@ check('and falls back to the whole text when nothing was stripped',
 check('a bounced send says so', deliveryOf({ status: 'failed' }).label === 'Not delivered')
 check('an unknown status reads as sent, not as delivered',
   deliveryOf({ status: 'weird' }).label === 'Sent')
+
+// ---- sending a failed email again ----
+const bounced = { id: 'm1', direction: 'outbound', status: 'failed' }
+check('an email that was not delivered may be sent again', mayResend(bounced))
+check('a delivered one may not', !mayResend({ ...bounced, status: 'delivered' }))
+check('nor one still on its way — it may yet arrive', !mayResend({ ...bounced, status: 'sent' }))
+check('nor anything the customer sent', !mayResend({ id: 'm2', direction: 'inbound', status: 'received' }))
+const thread = [bounced, { id: 'm3', direction: 'outbound', status: 'sent', resend_of: 'm1' }]
+check('the resends in a thread are known by what they replace', [...resentIds(thread)].join() === 'm1')
+check('and one already sent again is not offered twice', !mayResend(bounced, resentIds(thread)))
+check('a failed resend may be resent in turn',
+  mayResend({ ...thread[1], status: 'failed' }, resentIds(thread)))
 
 done()

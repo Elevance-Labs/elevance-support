@@ -60,6 +60,18 @@ export const DELIVERY = {
 
 export const deliveryOf = (message) => DELIVERY[message?.status] ?? DELIVERY.sent
 
+/** The ids of messages that have been sent again — each resend names the one it replaces. */
+export const resentIds = (messages = []) =>
+  new Set(messages.map((m) => m?.resend_of).filter(Boolean))
+
+/**
+ * Whether a message may be sent again: one we sent that was not delivered,
+ * and not already resent. Mirrored in `email-send` (and a unique index), which
+ * refuses anything else.
+ */
+export const mayResend = (message, resent = new Set()) =>
+  message?.direction === 'outbound' && message.status === 'failed' && !resent.has(message.id)
+
 /** What a message shows as its text: what was written, not the quoted history. */
 export const messageText = (message) =>
   (message?.stripped_text ?? message?.body_text ?? '').trim()

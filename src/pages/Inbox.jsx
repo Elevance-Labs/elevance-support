@@ -18,14 +18,14 @@ import { useConfig } from '../context/ConfigContext'
 import { useProject } from '../context/ProjectContext'
 import { useRefreshSignal } from '../context/RefreshContext'
 import { can } from '../lib/permissions'
-import { newestFirst, ticketSubject } from '../lib/email'
+import { mayResend, newestFirst, resentIds, ticketSubject } from '../lib/email'
 import { issueRef } from '../lib/projects'
 import {
   buildInbox, contactName, defaultRecipient, groupByCompany, NO_COMPANY, searchInbox, ticketOptions,
 } from '../lib/inbox'
 import { NoProject } from '../components/ProjectFilter'
 import UserAvatar from '../components/UserAvatar'
-import EmailComposer, { ComposerLine } from '../components/EmailComposer'
+import EmailComposer, { ComposerLine, resendEmail } from '../components/EmailComposer'
 import EmailMessage, { LastEmail } from '../components/EmailMessage'
 import ContactPanel from '../components/ContactPanel'
 import IssueDetail from '../components/IssueDetail'
@@ -220,6 +220,14 @@ function Conversation({ entry, project, issues, listed, onBack, onDetails, onSen
     const map = Object.fromEntries(users.map((u) => [u.id, u]))
     return (id) => map[id]
   }, [users])
+  const resent = useMemo(() => resentIds(messages), [messages])
+  const resend = async (m) => {
+    setError('')
+    const problem = await resendEmail(m)
+    if (problem) setError(problem)
+    else onSent?.()
+  }
+
   // A message's ticket: from the list row, which carries one even when it is
   // closed (and so not among the open tickets loaded).
   const ticketOf = useMemo(() => Object.fromEntries(
@@ -286,7 +294,8 @@ function Conversation({ entry, project, issues, listed, onBack, onDetails, onSen
           return (
             <EmailMessage key={m.id} message={m}
               sender={m.direction === 'outbound' ? senderOf(m.sent_by) : null}
-              files={filesOf[m.id]}
+              files={filesOf[m.id]} resent={resent.has(m.id)}
+              onResend={mayWrite && mayResend(m, resent) ? () => resend(m) : null}
               ticket={issue
                 ? { ref: issueRef(project, issue), title: issue.title, onOpen: () => onOpenIssue(issue.id) }
                 : null} />
