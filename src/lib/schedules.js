@@ -51,6 +51,17 @@ export const scheduleFor = (schedules = [], day) =>
   schedules.find((s) => covers(s, day)) ?? null
 
 /**
+ * The first schedule starting after a day, or null — what the Dashboard names
+ * when nobody is on today, so a gap reads as "until when" rather than "ever".
+ */
+export function nextSchedule(schedules = [], day) {
+  const d = toDateKey(day)
+  return schedules
+    .filter((s) => toDateKey(s.starts_on) > d)
+    .reduce((best, s) => (!best || toDateKey(s.starts_on) < toDateKey(best.starts_on) ? s : best), null)
+}
+
+/**
  * Where a schedule sits relative to today: 'past', 'current' or 'upcoming'.
  *
  * The three words the Projects dialog groups by — a rota is read as "who is on

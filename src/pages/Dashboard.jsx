@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Alert, Box, Chip, LinearProgress, Paper, Stack, TableBody, TableCell,
+  Alert, Box, Button, Chip, LinearProgress, Paper, Stack, TableBody, TableCell,
   TableHead, TableRow, Tooltip, Typography,
 } from '@mui/material'
+import { Link as RouterLink } from 'react-router-dom'
+import dayjs from 'dayjs'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useConfig } from '../context/ConfigContext'
@@ -16,7 +18,7 @@ import { displayName } from '../lib/users'
 import Tag from '../components/Tag'
 import IssueDetail from '../components/IssueDetail'
 import { NoProject } from '../components/ProjectFilter'
-import { AssigneeChip } from '../components/UserAvatar'
+import { AssigneeChip, UserChip } from '../components/UserAvatar'
 import ChartCard, { NoData } from '../components/charts/ChartCard'
 import BarChart from '../components/charts/BarChart'
 import StatTile from '../components/charts/StatTile'
@@ -24,6 +26,8 @@ import { CHART } from '../components/charts/palette'
 import { issueRef } from '../lib/projects'
 import { assigneesOf } from '../lib/assignees'
 import ScrollTable from '../components/ScrollTable'
+import { DATE_FORMAT, formatRange, nextSchedule, scheduleFor, toDateKey, today } from '../lib/schedules'
+import { can } from '../lib/permissions'
 
 /** How many rows a list card shows before it says how many it is holding back. */
 const LIST_LIMIT = 8
@@ -40,6 +44,7 @@ export default function Dashboard() {
   const { signal } = useRefreshSignal()
 
   const [issues, setIssues] = useState([])
+  const [schedules, setSchedules] = useState([])
   // One instant for the whole page, stamped when the data arrived, so every SLA
   // clock on it was read off the same wall.
   const [now, setNow] = useState(() => Date.now())
@@ -48,13 +53,17 @@ export default function Dashboard() {
   const [selected, setSelected] = useState(null)
 
   const load = useCallback(async () => {
-    if (!projectId) { setIssues([]); setLoading(false); return }
+    if (!projectId) { setIssues([]); setSchedules([]); setLoading(false); return }
     setLoading(true)
-    const { data, error } = await supabase
-      .from('issues').select('*').eq('project_id', projectId)
-      .order('submitted_date', { ascending: false })
+    const [issuesRes, schedulesRes] = await Promise.all([
+      supabase.from('issues').select('*').eq('project_id', projectId)
+        .order('submitted_date', { ascending: false }),
+      supabase.from('project_schedules').select('*').eq('project_id', projectId),
+    ])
+    const error = issuesRes.error ?? schedulesRes.error
     if (error) setError(error.message)
-    setIssues(data ?? [])
+    setIssues(issuesRes.data ?? [])
+    setSchedules(schedulesRes.data ?? [])
     setNow(Date.now())
     setLoading(false)
   }, [projectId])
@@ -136,6 +145,11 @@ export default function Dashboard() {
       {!projectsLoading && !projectId && <NoProject />}
       {loading && <LinearProgress />}
 
+      {projectId && (
+        <OnSupport schedules={schedules} userById={userById} loading={loading}
+          canManage={can.manageSchedules(profile)} />
+      )}
+
       {/* Tiles wrap by their own width rather than a fixed column count, so five
           of them don't get squeezed on a laptop. */}
       <Box sx={{
@@ -148,11 +162,13 @@ export default function Dashboard() {
           caption={stats.mine ? 'still open' : 'nothing on your plate'} />
         <StatTile label={`Past ${PCT} of SLA`} value={stats.breaching.toLocaleString()}
           caption={stats.breached ? `${stats.breached} already breached` : 'none breached yet'}
-          color={stats.breaching ? '#ef6c00' : undefined} />
+          alert={stats.breaching > 0} />
+        {/* These three should read zero; anything else is a call to act. */}
         <StatTile label="Unassigned" value={stats.unassigned.toLocaleString()}
-          caption="open, waiting for an owner" />
+          caption="open, waiting for an owner" alert={stats.unassigned > 0} />
         <StatTile label="Not triaged" value={stats.untriaged.toLocaleString()}
-          caption={stats.untriaged ? 'cannot be started yet' : 'everything has a severity'} />
+          caption={stats.untriaged ? 'cannot be started yet' : 'everything has a severity'}
+          alert={stats.untriaged > 0} />
       </Box>
 
       <Box sx={{
@@ -217,6 +233,51 @@ export default function Dashboard() {
         onClose={() => setSelected(null)} onSaved={load}
       />
     </Stack>
+  )
+}
+
+/**
+ * Who is on the project's support rota today — the people a new ticket lands
+ * on. With nobody on, it says who is next and from when, so a gap reads as a
+ * gap rather than as a rota that does not exist.
+ */
+function OnSupport({ schedules, userById, loading, canManage }) {
+  const day = today()
+  const current = scheduleFor(schedules, day)
+  const next = current ? null : nextSchedule(schedules, day)
+  const people = (s) => (s?.assignee_ids ?? []).map((id) => (
+    <UserChip key={id} user={userById[id]} size={28} empty="Unknown user" />
+  ))
+
+  let caption = ''
+  if (current) {
+    const ends = toDateKey(current.ends_on)
+    caption = ends === day ? 'Last day of this rota' : `Until ${dayjs(ends).format(DATE_FORMAT)}`
+  } else if (next) {
+    caption = `Nobody is on today. Next: ${formatRange(next)}`
+  } else if (!loading) {
+    caption = 'Nobody is on today, and no rota is scheduled.'
+  }
+
+  return (
+    <Paper sx={{ p: 2 }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }}
+        sx={{ alignItems: { xs: 'flex-start', sm: 'center' }, gap: { xs: 1, sm: 2 } }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>On support today</Typography>
+          <Typography variant="caption" color="text.secondary">{caption}</Typography>
+        </Box>
+        <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 2, flexGrow: 1, minWidth: 0 }}>
+          {/* The next pair is drawn faded: named, but not on yet. */}
+          {current ? people(current) : next && (
+            <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 2, opacity: 0.6 }}>{people(next)}</Stack>
+          )}
+        </Stack>
+        {canManage && (
+          <Button component={RouterLink} to="/schedule" size="small">Rota</Button>
+        )}
+      </Stack>
+    </Paper>
   )
 }
 

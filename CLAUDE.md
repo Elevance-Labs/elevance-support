@@ -55,7 +55,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 ## 4. Routes and pages
 
 - `/login` — Google sign-in, the only way in. Shows why a sign-in came back refused.
-- `/dashboard` — the selected project's open work: your queue, what is close to
+- `/dashboard` — the selected project's open work: who is on support today
+  (from its schedule, or who is next), your queue, what is close to
   breaching, and status/assignee/severity breakdowns. No role guard.
 - `/issues` — filterable DataGrid of tickets, grouped (status by default;
   remembered per browser, not in a view); admins/managers save **views**.

@@ -1,7 +1,7 @@
 import { reporter } from './setup.js'
 import {
   byStartDesc, covers, formatRange, isValidRange, lengthInDays, overlapping,
-  overlaps, phaseOf, scheduleFor, toDateKey,
+  nextSchedule, overlaps, phaseOf, scheduleFor, toDateKey,
 } from '../src/lib/schedules.js'
 import { can } from '../src/lib/permissions.js'
 
@@ -41,6 +41,15 @@ check('the handover day goes to the new rota',
 check('a day nobody is scheduled for finds nothing',
   scheduleFor(ROTA, '2026-02-01') === null)
 check('an empty rota finds nothing', scheduleFor([], '2026-01-07') === null)
+
+// ---------------- the next rota, for a day nobody is on ----------------
+check('a gap finds the next rota to start',
+  nextSchedule(ROTA, '2026-02-01')?.id === 's3')
+check('the next rota is the soonest, whatever the list order',
+  nextSchedule([MARCH, WEEK_2, WEEK_1], '2026-01-01')?.id === 's1')
+check('a rota already running is not "next"',
+  nextSchedule(ROTA, '2026-01-12')?.id === 's3')
+check('nothing after the last rota', nextSchedule(ROTA, '2026-03-02') === null)
 
 // ---------------- overlap ----------------
 // Two schedules covering one day would make "who is on" a question with two

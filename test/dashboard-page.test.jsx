@@ -37,6 +37,18 @@ check('the page renders', body().includes('Dashboard'))
 check('the tiles are drawn',
   ['Open tickets', 'Assigned to me', 'Past 75% of SLA', 'Unassigned', 'Not triaged']
     .every((label) => body().includes(label)))
+// The fixture's live rota (Ada and Grace) runs from two days ago to four ahead.
+check('who is on support today is shown',
+  body().includes('On support today') && body().includes('Grace Hopper')
+  && /Until \d{2} \w{3} \d{4}/.test(body()))
+check('a member is not offered the rota', !el.querySelector('a[href="/schedule"]'))
+// The fixture's one open ticket is past its target, assigned and triaged: only
+// the SLA tile has something to shout about.
+const alerted = () => [...el.querySelectorAll('[data-alert]')].map((t) => t.textContent)
+check('a tile that should be zero and is not is highlighted',
+  alerted().some((t) => t.includes('Past 75% of SLA')))
+check('a tile at zero is not highlighted',
+  !alerted().some((t) => t.includes('Unassigned') || t.includes('Not triaged')))
 check('the open ticket is counted', body().includes('1 open ticket'))
 
 check('my issues lists my open ticket',
