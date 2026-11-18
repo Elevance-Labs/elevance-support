@@ -53,9 +53,11 @@ function useEditWindowTick(comments) {
  * ticket's Google Chat thread (a trigger and `notify-issue` do the posting).
  * `mentionables` — the people who can see the ticket — turns on @mentions in
  * the box; whoever a posted comment mentions is notified by the database.
+ * `onPosted` hears of each comment once the database has it (a check-in
+ * waits on one).
  */
 export default function CommentsThread({
-  issueId, hideHeading = false, onCount, hasChatThread = false, mentionables,
+  issueId, hideHeading = false, onCount, hasChatThread = false, mentionables, onPosted,
 }) {
   const { profile } = useAuth()
   const { users, templates } = useConfig()
@@ -123,6 +125,8 @@ export default function CommentsThread({
         notify_thread: hasChatThread && notifyThread,
       })
     if (error) { setBusy(false); return setError(error.message) }
+    // The comment is on the ticket now, whatever becomes of its files.
+    onPosted?.()
     try {
       for (const file of attach.files) await uploadAttachment(file, { issueId, commentId: id })
     } catch (err) {

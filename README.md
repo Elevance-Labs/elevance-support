@@ -10,8 +10,8 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | Page | What it does |
 |---|---|
 | **Dashboard** | The selected project's open work at a glance: your own queue, the tickets closest to breaching, and where the rest of it is sitting. |
-| **Issues** | Every request in a filterable table. Admins save filter sets as **views** everyone can load. |
-| **Board** | Jira-style kanban by status. Drag a card between lanes to change its status. Each card leads with its ticket reference and type. |
+| **Issues** | Every request in a filterable table. Admins save filter sets as **views** everyone can load. Managers and admins run a [check-in](#check-ins) from here. |
+| **Board** | Jira-style kanban by status. Drag a card between lanes to change its status. Each card leads with its ticket reference and type. Managers and admins run a [check-in](#check-ins) from here. |
 | **Inbox** | The selected project's customer email, by person: who you deal with (searchable, or grouped by company), every email with the one you pick across all their tickets, and their contact details. Write to someone from here — about one of their tickets. See [Inbox and contacts](#inbox-and-contacts). |
 | **Report** | Volume, breakdowns and SLA performance for the selected range. |
 | **Schedule** | The selected project's support rota — who is on, and when. Managers and admins. |
@@ -34,6 +34,7 @@ React + Vite + Material UI on the front, Supabase (Postgres, Auth, Storage) behi
 | Watch a ticket, @mention someone, get notified | ✅ | ✅ | ✅ |
 | Load saved views | ✅ | ✅ | ✅ |
 | Create / rename / delete views | — | ✅ | ✅ |
+| Run a [check-in](#check-ins) from Issues or Board | — | ✅ | ✅ |
 | See Reports | — | ✅ | ✅ |
 | Disable accounts (managers & members) | — | ✅ | ✅ |
 | Disable an **admin** | — | — | ✅ |
@@ -452,6 +453,36 @@ Details, ties such tickets together.
   ticket in a project you are not in.
 - Links are **staff-only**: they appear on neither the share page nor the
   company page.
+
+### Check-ins
+
+When the team goes over its open tickets together, what gets agreed out loud is
+easy to lose. A **check-in** makes sure it lands on the ticket before the
+meeting moves on.
+
+- **Check-in**, beside the page title on **Issues** and **Board**, opens the
+  ticket dialog on the first **open** ticket in what the page is showing. The
+  page's **filters** decide which tickets are included; closed tickets never
+  are.
+- The **order** is the check-in's own, the same from either page however it
+  is sorted or grouped. It reads the pipeline from its far end: tickets in an
+  **In Progress** status first, then **Paused**, then **New**, each
+  **oldest submitted first**. The list is fixed when the check-in starts, so a
+  status change mid-meeting does not reorder what comes next.
+- A bar across the dialog shows where you are (*3 of 12*) and what has been
+  captured on this ticket. **Next ticket** stays disabled until the ticket has
+  **a status change saved** or **a comment posted**. Picking a status without
+  saving does not count, and the bar says so. Alt+↓ is held back the same way.
+- **Back** (Alt+↑) returns to an earlier ticket to add to it. Every ticket
+  behind you is already captured, so going forward again is never blocked.
+- On the last ticket the button becomes **Finish check-in**. **End check-in**,
+  or closing the dialog, stops early after a confirmation. Either way a summary
+  follows: how many tickets were captured, how many status changes and
+  comments, and which tickets, if any, had nothing captured.
+- **Managers and admins** only. A check-in grants nothing extra: every comment
+  and status change in it goes through the same rules as anywhere else, and the
+  ticket's own comments and timeline are the record. Nothing about the
+  check-in itself is stored.
 
 ## Departments
 

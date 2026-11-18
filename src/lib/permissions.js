@@ -3,7 +3,7 @@
  *
  * admin   — everything
  * manager — everything a member can do, plus: manage saved views, see reports,
- *           disable managers/members,
+ *           run check-ins, disable managers/members,
  *           manage labels and comment templates under Configuration.
  *           Cannot create or delete accounts, cannot touch admins.
  * member  — work issues on the Issues and Board pages, load (not manage) views,
@@ -31,7 +31,7 @@ export const ROLE_LABELS = {
 
 export const ROLE_DESCRIPTIONS = {
   admin: 'Full access, including deleting tickets and managing users and configuration.',
-  manager: 'Manages views, reports, labels and comment templates; disables managers and members.',
+  manager: 'Manages views, reports, labels and comment templates; runs check-ins; disables managers and members.',
   member: 'Works tickets on Issues and Board, uses saved views, comments.',
 }
 
@@ -135,6 +135,17 @@ export const can = {
     const ends = toDateKey(schedule?.ends_on)
     return Boolean(ends) && ends >= day
   },
+
+  /**
+   * Running a check-in from the Board or Issues: walking the team through the
+   * open tickets one by one, each needing a status change or a comment before
+   * the next. Chairing that meeting is a lead's job, so an admin or a manager.
+   *
+   * UI-only on purpose: a check-in grants nothing. Every write it makes is a
+   * comment or a status change the person could already make, judged by the
+   * same RLS and triggers as anywhere else.
+   */
+  checkIn: isManagerOrAdmin,
 
   // ---- saved views ----
   manageViews: isManagerOrAdmin,

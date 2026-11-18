@@ -38,6 +38,7 @@ import { StatusLabel } from './StatusDot'
 import { SeverityOption, SeverityValue } from './SeverityOption'
 import Tag from './Tag'
 import GoogleChatIcon from './GoogleChatIcon'
+import CheckInBar from './CheckInBar'
 import LinkedTickets from './LinkedTickets'
 import WatchButton from './WatchButton'
 import { useNotifications } from '../context/NotificationsContext'
@@ -58,8 +59,15 @@ import { mentionablePeople } from '../lib/mentions'
  * `siblings` is the list the ticket was opened from, in the order the page
  * draws it — the grid's sort and filters, or the board lane. With it, the
  * header steps up and down that list through `onNavigate`.
+ *
+ * `checkIn` runs the dialog as one step of a check-in (see `CheckIn`): a band
+ * across the top, above the ticket, in place of the arrows, whose way on stays shut until this
+ * ticket has had a status change saved or a comment posted, each reported
+ * through `checkIn.onAction`. Closing the dialog is ending the check-in.
  */
-export default function IssueDetail({ issueId, open, onClose, onSaved, siblings, onNavigate }) {
+export default function IssueDetail({
+  issueId, open, onClose, onSaved, siblings, onNavigate, checkIn,
+}) {
   const { lists, users, statuses, colorOf } = useConfig()
   const userById = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u])), [users])
   const { profile } = useAuth()
@@ -203,22 +211,32 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
 
   // Stepping to a neighbour leaves this ticket just as closing does, so it asks
   // the same question first.
-  const position = siblings && onNavigate ? siblings.indexOf(issueId) : -1
+  const leave = (step) => {
+    if (dirty && !confirm('You have unsaved changes. Discard them and move on?')) return
+    step()
+  }
+  // A check-in steps through its own list, on its own terms, so the arrows
+  // over the list the ticket was opened from give way to its bar.
+  const position = !checkIn && siblings && onNavigate ? siblings.indexOf(issueId) : -1
   const prevId = position > 0 ? siblings[position - 1] : null
   const nextId = position >= 0 && position < siblings.length - 1 ? siblings[position + 1] : null
-  const go = (id) => {
-    if (!id) return
-    if (dirty && !confirm('You have unsaved changes. Discard them and move on?')) return
-    onNavigate(id)
-  }
+  const go = (id) => { if (id) leave(() => onNavigate(id)) }
+  const checkInBack = () => { if (checkIn?.position > 1) leave(checkIn.onBack) }
+  const checkInNext = () => { if (checkIn?.canAdvance) leave(checkIn.onNext) }
 
   // Alt+↑ / Alt+↓, so plain arrows still scroll the panes and move the caret.
   useEffect(() => {
-    if (!open || position < 0) return
+    if (!open || (position < 0 && !checkIn)) return
     const onKey = (e) => {
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
-      if (e.key === 'ArrowUp' && prevId) { e.preventDefault(); go(prevId) }
-      if (e.key === 'ArrowDown' && nextId) { e.preventDefault(); go(nextId) }
+      if (e.key === 'ArrowUp') {
+        if (checkIn) { e.preventDefault(); checkInBack() }
+        else if (prevId) { e.preventDefault(); go(prevId) }
+      }
+      if (e.key === 'ArrowDown') {
+        if (checkIn) { e.preventDefault(); checkInNext() }
+        else if (nextId) { e.preventDefault(); go(nextId) }
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -234,6 +252,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
   }, [open, dirty])
 
   const save = async () => {
+    const statusChanged = issue.status !== saved.status
     setSaving(true); setError('')
     const { error } = await supabase.from('issues').update({
       status: issue.status,
@@ -253,6 +272,8 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
     }).eq('id', issue.id)
     setSaving(false)
     if (error) return setError(error.message)
+    // Only once the database has taken it: a refused move captured nothing.
+    if (statusChanged) checkIn?.onAction('status')
     await load()          // refresh so a status change shows on the timeline at once
     onSaved?.()
   }
@@ -279,18 +300,29 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
     if (!confirm('Delete this ticket permanently? This cannot be undone.')) return
     const { error } = await supabase.from('issues').delete().eq('id', issue.id)
     if (error) return setError(error.message)
-    onSaved?.(); onClose()
+    onSaved?.()
+    // Mid check-in a deleted ticket is dealt with, and the meeting goes on.
+    if (checkIn) checkIn.onRemoved()
+    else onClose()
   }
 
   return (
     <Dialog open={open} onClose={close} fullWidth maxWidth="xl" fullScreen={phone}
       slotProps={{ paper: { sx: { height: phone ? '100%' : '92vh' } } }}>
+      <Stack sx={{ height: '100%' }}>
+      {/* A check-in frames the ticket rather than sitting inside it: the band
+          is the activity, the ticket under it one step of it — so it holds
+          still, and stays up while the next ticket loads. */}
+      {checkIn && (
+        <CheckInBar checkIn={checkIn} onBack={checkInBack} onNext={checkInNext}
+          pendingStatus={Boolean(issue && saved) && issue.status !== saved.status} />
+      )}
       {loading || !issue ? (
-        <Box sx={{ display: 'grid', placeItems: 'center', height: '100%' }}>
+        <Box sx={{ display: 'grid', placeItems: 'center', flexGrow: 1 }}>
           <CircularProgress />
         </Box>
       ) : (
-        <Stack sx={{ height: '100%' }}>
+        <Stack sx={{ flexGrow: 1, minHeight: 0 }}>
           {/* header */}
           {/* On a phone the title takes the first line and the buttons wrap
               under it, rather than squeezing the title into a sliver. */}
@@ -597,7 +629,8 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
                 </Tabs>
                 <Box hidden={thread !== 'comments'}>
                   <CommentsThread issueId={issue.id} hideHeading onCount={setCommentCount}
-                    hasChatThread={Boolean(saved?.chat_thread)} mentionables={mentionables} />
+                    hasChatThread={Boolean(saved?.chat_thread)} mentionables={mentionables}
+                    onPosted={checkIn ? () => checkIn.onAction('comment') : undefined} />
                 </Box>
                 <Box hidden={thread !== 'conversation'}>
                   <ConversationThread issue={saved} ticketRef={issueRef(project, issue)}
@@ -617,6 +650,7 @@ export default function IssueDetail({ issueId, open, onClose, onSaved, siblings,
           </Box>
         </Stack>
       )}
+      </Stack>
     </Dialog>
   )
 }

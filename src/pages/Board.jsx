@@ -17,6 +17,8 @@ import StatusDot from '../components/StatusDot'
 import { elapsed, toMillis } from '../lib/format'
 import Tag from '../components/Tag'
 import IssueDetail from '../components/IssueDetail'
+import CheckIn, { CheckInButton } from '../components/CheckIn'
+import { checkInQueue } from '../lib/checkIn'
 import { jiraUrl } from '../lib/jira'
 import { byDisplayName, displayName } from '../lib/users'
 import { slaStatus, slaBand, slaHoursBySeverity } from '../lib/sla'
@@ -63,6 +65,8 @@ export default function Board() {
   const [type, setType] = useState('')
   const [company, setCompany] = useState('')
   const [dragging, setDragging] = useState(null)
+  // The tickets of the check-in under way, pinned when it started; null if none.
+  const [checkIn, setCheckIn] = useState(null)
   // The cutoff is pinned to the last load, so a re-render never silently drops
   // a card the user is looking at.
   const [loadedAt, setLoadedAt] = useState(() => Date.now())
@@ -151,6 +155,14 @@ export default function Board() {
     return laneIds.filter((id) => shown.has(id))
   }, [laneIds, filtered])
 
+  // A check-in takes the board's filters, not its layout: its order is its
+  // own (see `checkInQueue`), and a ticket in a retired status — which has no
+  // lane — is still open work to go over.
+  const checkInTickets = useMemo(
+    () => checkInQueue(filtered, (name) => statusTypeByName[name]),
+    [filtered, statusTypeByName],
+  )
+
   // Drag a card to another lane to change its status.
   const drop = async (status) => {
     const id = dragging
@@ -165,7 +177,10 @@ export default function Board() {
 
   return (
     <Stack spacing={2} sx={{ height: '100%' }}>
-      <Typography variant="h5">Board</Typography>
+      <Stack direction="row" sx={{ alignItems: 'center', gap: 2 }}>
+        <Typography variant="h5" sx={{ flexGrow: 1 }}>Board</Typography>
+        {projectId && <CheckInButton tickets={checkInTickets} onStart={setCheckIn} />}
+      </Stack>
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {!projectsLoading && !projectId && <NoProject />}
 
@@ -252,6 +267,8 @@ export default function Board() {
         onClose={() => setSelected(null)} onSaved={load}
         siblings={siblings} onNavigate={setSelected}
       />
+
+      {checkIn && <CheckIn tickets={checkIn} onClose={() => setCheckIn(null)} onSaved={load} />}
     </Stack>
   )
 }

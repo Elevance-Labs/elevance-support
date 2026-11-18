@@ -61,6 +61,11 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 - `/issues` — filterable DataGrid of tickets, grouped (status by default;
   remembered per browser, not in a view); admins/managers save **views**.
 - `/board` — kanban by status; drag between lanes to change status.
+- Both `/issues` and `/board` start a **check-in** (admin/manager,
+  `can.checkIn`): `components/CheckIn` walks the page's open tickets, in its
+  own order, through `IssueDetail` in check-in mode, holding each until a status
+  change is saved or a comment posted. Client-only, nothing stored: it grants
+  no write the person lacks, so there is no SQL mirror.
 - `/inbox` — the selected project's email **by person**, three columns: people
   (recent or by company, last email's direction and age), the conversation
   across all their tickets, and the contact (name, addresses, notes, tickets
@@ -137,7 +142,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   / `refile` — internal vs. the public form, not a role distinction — and
   `emailCustomer`, a per-person grant (`profiles.can_email`) rather than a role,
   which only an admin hands out (`grantEmail`), and `editContacts` (any
-  signed-in user; RLS adds project membership). Configuration is split by list:
+  signed-in user; RLS adds project membership). `checkIn` (admin/manager) is
+  UI-only, since a check-in grants nothing. Configuration is split by list:
   admins every one, managers `labels` and the comment templates.
 - `sla.js` — status types (`new` → `in_progress` → `closed`, with `paused`
   outside the ladder), legal transitions — forward only, except that an **admin**
@@ -163,6 +169,10 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   past/current/upcoming.
 - `grouping.js` — the Issues list's group-by choices and group order; a ticket
   on two people sits under both.
+- `checkIn.js` — a check-in's rules: which tickets (the page's open ones) and in what
+  order (in progress → paused → new, oldest first — the same from either page),
+  what counts as dealt with (status change, comment, deletion), when it may
+  move on, and the summary.
 - `projects.js` — key format/normalisation, ticket refs, embed and share URLs.
 - `format.js` — timestamp parsing (all `timestamptz`, shown local), durations,
   initials, hashed colours.

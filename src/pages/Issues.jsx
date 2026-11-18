@@ -23,6 +23,8 @@ import { can } from '../lib/permissions'
 import { formatDuration, formatDate, toMillis } from '../lib/format'
 import Tag from '../components/Tag'
 import IssueDetail from '../components/IssueDetail'
+import CheckIn, { CheckInButton } from '../components/CheckIn'
+import { checkInQueue } from '../lib/checkIn'
 import { AssigneeChip, UserChip } from '../components/UserAvatar'
 import { byDisplayName, displayName } from '../lib/users'
 import { slaStatus, slaBand, statusColor, slaHoursBySeverity } from '../lib/sla'
@@ -106,6 +108,8 @@ export default function Issues() {
   // The resolved-window cutoff is pinned to the last load, so a re-render never
   // silently drops a row the user is looking at.
   const [loadedAt, setLoadedAt] = useState(() => Date.now())
+  // The tickets of the check-in under way, pinned when it started; null if none.
+  const [checkIn, setCheckIn] = useState(null)
 
   // Which ticket is open lives in the URL, so a share link can hand a signed-in
   // user straight to it. Both transitions replace rather than push: the dialog
@@ -290,6 +294,13 @@ export default function Issues() {
     [groups, sorted],
   )
 
+  // A check-in takes the list's filters, not its sort or groups: its order is
+  // its own (see `checkInQueue`), the same from here as from the Board.
+  const checkInTickets = useMemo(
+    () => checkInQueue(filtered, (name) => statusTypeByName[name]),
+    [filtered, statusTypeByName],
+  )
+
   const applyView = (id) => {
     setActiveView(id)
     const v = views.find((x) => x.id === id)
@@ -455,6 +466,7 @@ export default function Issues() {
         <Typography variant="body2" color="text.secondary">
           {filtered.length} of {rows.length}
         </Typography>
+        {projectId && <CheckInButton tickets={checkInTickets} onStart={setCheckIn} />}
       </Stack>
 
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
@@ -604,6 +616,8 @@ export default function Issues() {
         onClose={closeIssue} onSaved={load}
         siblings={siblings} onNavigate={openIssue}
       />
+
+      {checkIn && <CheckIn tickets={checkIn} onClose={() => setCheckIn(null)} onSaved={load} />}
 
       <Dialog open={Boolean(viewDialog)} onClose={() => setViewDialog(null)} fullWidth maxWidth="xs">
         <DialogTitle>{viewDialog?.mode === 'create' ? 'Save view' : 'Rename view'}</DialogTitle>
