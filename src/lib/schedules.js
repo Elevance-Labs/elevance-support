@@ -118,3 +118,79 @@ export const lengthInDays = (schedule) =>
 /** Newest first: the rota is read backwards from now far more often than forwards. */
 export const byStartDesc = (a, b) =>
   toDateKey(b?.starts_on).localeCompare(toDateKey(a?.starts_on))
+
+// ---------------------------------------------------------------------------
+// The calendar the rota is drawn on.
+//
+// Weeks start on Monday — a rota is a working week far more often than not.
+// Everything below speaks in day keys, same as the rest of this module: a cell
+// is a calendar day, never an instant.
+// ---------------------------------------------------------------------------
+
+export const CALENDAR_VIEWS = ['month', 'week']
+
+/** Column headings, Monday first. */
+export const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+/** A day key moved by whole days. */
+export const addDays = (day, n) => {
+  const d = toDateKey(day)
+  return d ? dayjs(d).add(n, 'day').format('YYYY-MM-DD') : ''
+}
+
+/** The Monday on or before a day. */
+export const weekStartOf = (day) => {
+  const d = dayjs(toDateKey(day))
+  return d.subtract((d.day() + 6) % 7, 'day').format('YYYY-MM-DD')
+}
+
+/** "Fri", or "Friday" with `long` — what a date field shows beside its date. */
+export const weekdayOf = (day, long = false) => {
+  const d = toDateKey(day)
+  return d ? dayjs(d).format(long ? 'dddd' : 'ddd') : ''
+}
+
+/**
+ * The days a view draws, in order, for the period around `anchor`.
+ *
+ * A week is its seven days. A month is padded out to whole weeks at both ends,
+ * so the grid is always rows of seven and the days spilling in from either
+ * neighbour are still there to tap.
+ */
+export function calendarDays(anchor, view = 'month') {
+  const a = toDateKey(anchor) || today()
+  const first = view === 'week' ? weekStartOf(a) : weekStartOf(dayjs(a).startOf('month'))
+  const last = view === 'week'
+    ? addDays(first, 6)
+    : addDays(weekStartOf(dayjs(a).endOf('month')), 6)
+  const out = []
+  for (let d = first; d <= last; d = addDays(d, 1)) out.push(d)
+  return out
+}
+
+/** The anchor one period earlier (`-1`) or later (`1`). */
+export const shiftPeriod = (anchor, view, delta) =>
+  view === 'week'
+    ? addDays(anchor, 7 * delta)
+    : dayjs(toDateKey(anchor)).startOf('month').add(delta, 'month').format('YYYY-MM-DD')
+
+/** Whether a day belongs to the month `anchor` is in — the rest are spill. */
+export const sameMonth = (day, anchor) =>
+  toDateKey(day).slice(0, 7) === toDateKey(anchor).slice(0, 7)
+
+/** "November 2026", or for a week "16 – 22 Nov 2026" / "30 Nov – 6 Dec 2026". */
+export function periodLabel(anchor, view = 'month') {
+  const a = toDateKey(anchor) || today()
+  if (view !== 'week') return dayjs(a).format('MMMM YYYY')
+  const from = dayjs(weekStartOf(a))
+  const to = from.add(6, 'day')
+  if (from.year() !== to.year()) return `${from.format('D MMM YYYY')} – ${to.format('D MMM YYYY')}`
+  if (from.month() !== to.month()) return `${from.format('D MMM')} – ${to.format('D MMM YYYY')}`
+  return `${from.format('D')} – ${to.format('D MMM YYYY')}`
+}
+
+/** "Fri 24 Nov 2026" — one day, with its weekday. */
+export const formatDay = (day) => {
+  const d = toDateKey(day)
+  return d ? dayjs(d).format(`ddd ${DATE_FORMAT}`) : '—'
+}

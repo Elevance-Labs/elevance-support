@@ -2,6 +2,7 @@ import { reporter } from './setup.js'
 import {
   byStartDesc, covers, formatRange, isValidRange, lengthInDays, overlapping,
   nextSchedule, overlaps, phaseOf, scheduleFor, toDateKey,
+  addDays, calendarDays, formatDay, periodLabel, sameMonth, shiftPeriod, weekStartOf, weekdayOf,
 } from '../src/lib/schedules.js'
 import { can } from '../src/lib/permissions.js'
 
@@ -121,5 +122,41 @@ check('a missing range reads as a dash', formatRange(null) === '—')
 // Newest first: a rota is read backwards from now far more often than forwards.
 check('schedules sort newest first',
   [...ROTA].sort(byStartDesc).map((s) => s.id).join(',') === 's3,s2,s1')
+
+// ---------------- the calendar ----------------
+// Weeks start on Monday; everything stays a day key, so no zone can move a cell.
+check('a week starts on the Monday on or before a day',
+  weekStartOf('2026-11-20') === '2026-11-16' && weekStartOf('2026-11-16') === '2026-11-16'
+  && weekStartOf('2026-11-22') === '2026-11-16')
+check('days add across a month end', addDays('2026-11-30', 1) === '2026-12-01')
+check('days add across a daylight-saving change',
+  addDays('2026-03-28', 1) === '2026-03-29' && addDays('2026-10-24', 2) === '2026-10-26')
+check('a day names its weekday', weekdayOf('2026-11-20') === 'Fri'
+  && weekdayOf('2026-11-20', true) === 'Friday' && weekdayOf('') === '')
+check('one day reads with its weekday', formatDay('2026-11-24') === 'Tue 24 Nov 2026')
+
+const NOV = calendarDays('2026-11-20', 'month')
+check('a month pads out to whole weeks', NOV.length % 7 === 0, String(NOV.length))
+check('starting on the Monday before the 1st', NOV[0] === '2026-10-26', NOV[0])
+check('and ending on the Sunday after the last', NOV.at(-1) === '2026-12-06', NOV.at(-1))
+check('with every day once, in order',
+  NOV.every((d, i) => i === 0 || d === addDays(NOV[i - 1], 1)))
+check('a month starting on a Monday has no spill before it',
+  calendarDays('2027-02-10', 'month')[0] === '2027-02-01')
+check('spill days are told apart', sameMonth('2026-11-30', '2026-11-20') && !sameMonth('2026-12-01', '2026-11-20'))
+
+const WEEK = calendarDays('2026-11-20', 'week')
+check('a week is its seven days, Monday to Sunday',
+  WEEK.length === 7 && WEEK[0] === '2026-11-16' && WEEK[6] === '2026-11-22')
+
+check('a month steps to the next', shiftPeriod('2026-01-31', 'month', 1) === '2026-02-01')
+check('and back across a year', shiftPeriod('2026-01-15', 'month', -1) === '2025-12-01')
+check('a week steps seven days', shiftPeriod('2026-11-20', 'week', 1) === '2026-11-27')
+
+check('a month is labelled by name', periodLabel('2026-11-20', 'month') === 'November 2026')
+check('a week inside one month', periodLabel('2026-11-20', 'week') === '16 – 22 Nov 2026')
+check('a week across two months', periodLabel('2026-12-02', 'week') === '30 Nov – 6 Dec 2026')
+check('a week across two years',
+  periodLabel('2026-12-31', 'week') === '28 Dec 2026 – 3 Jan 2027', periodLabel('2026-12-31', 'week'))
 
 done()

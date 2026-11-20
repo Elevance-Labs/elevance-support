@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Alert, Autocomplete, Box, Button, Chip, IconButton, Paper, Stack, TextField,
-  Tooltip, Typography,
+  Alert, Autocomplete, Button, Chip, Dialog, DialogActions, DialogContent,
+  DialogTitle, IconButton, InputAdornment, Stack, TextField, ToggleButton,
+  ToggleButtonGroup, Tooltip, Typography, useMediaQuery,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
-import EditIcon from '@mui/icons-material/Edit'
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import DeleteIcon from '@mui/icons-material/Delete'
 import LockIcon from '@mui/icons-material/Lock'
 import { supabase } from '../lib/supabase'
@@ -14,15 +16,22 @@ import { can } from '../lib/permissions'
 import { byDisplayName, departmentOf, displayName } from '../lib/users'
 import { canJoin, MAX_ASSIGNEES, normalizeAssignees, sharedDepartment } from '../lib/assignees'
 import {
-  byStartDesc, formatRange, isValidRange, lengthInDays, overlapping,
-  PHASE_LABELS, phaseOf, today, toDateKey,
+  byStartDesc, calendarDays, CALENDAR_VIEWS, formatDay, formatRange, isValidRange, lengthInDays,
+  nextSchedule, overlapping, periodLabel, scheduleFor, shiftPeriod, today, toDateKey,
+  weekdayOf,
 } from '../lib/schedules'
 import UserAvatar, { AssigneeChip, UserOption } from './UserAvatar'
+import ScheduleCalendar from './ScheduleCalendar'
 
-/** Read top to bottom: who is on now, who is next, who was on when. */
-const PHASE_ORDER = ['current', 'upcoming', 'past']
-
-const blank = () => ({ starts_on: today(), ends_on: today(), members: [] })
+/** Month or week, remembered per browser — like the Issues grouping. */
+const VIEW_KEY = 'el-support.schedule-view'
+const readView = () => {
+  try {
+    const v = localStorage.getItem(VIEW_KEY)
+    return CALENDAR_VIEWS.includes(v) ? v : 'month'
+  } catch { return 'month' }
+}
+const keepView = (v) => { try { localStorage.setItem(VIEW_KEY, v) } catch { /* this visit only */ } }
 
 /**
  * What to say when a write came back having changed nothing.
@@ -36,8 +45,10 @@ const refusedMessage = (verb) =>
   `Nothing was saved — you may not ${verb} this schedule. A manager may change `
   + 'current and upcoming schedules in projects they belong to; a past one is an admin\'s.'
 
+const LOCKED_REASON = 'This schedule has already ended — only an admin can change it.'
+
 /**
- * A project's support rota — the list, the form and the rules.
+ * A project's support rota — the calendar, the form and the rules.
  *
  * Rendered on its own page (`/schedule`, where managers reach it) and inside
  * `ScheduleDialog` (the Projects page, where admins do). `open` exists for the
@@ -45,11 +56,12 @@ const refusedMessage = (verb) =>
  *
  * A schedule is a date range and the one or two people on support for it. When
  * a request arrives, the database looks up the schedule covering its submitted
- * date and puts those people on the ticket — so this dialog is where most
- * assignment actually happens, and the ticket is where it gets corrected.
+ * date and puts those people on the ticket — so this is where most assignment
+ * actually happens, and the ticket is where it gets corrected.
  *
- * Ranges may not overlap within a project. The database refuses one outright;
- * this says which schedule is in the way before the save rather than after it,
+ * Tapping a day opens the form on it: the schedule covering it, or a new one
+ * starting there. Ranges may not overlap within a project. The database refuses
+ * one outright; the form says which schedule is in the way before the save,
  * because "23 Jan is already covered by Ada and Grace" is the answer, and a
  * constraint violation is not.
  */
@@ -57,19 +69,13 @@ export default function ScheduleManager({ project, open = true }) {
   const { users } = useConfig()
   const { profile } = useAuth()
   const [rows, setRows] = useState([])
-  const [form, setForm] = useState(null)   // { id, starts_on, ends_on, members }
+  const [form, setForm] = useState(null)   // { id, starts_on, ends_on, members, locked }
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [view, setView] = useState(readView)
+  const [anchor, setAnchor] = useState(today)
 
   const editable = can.manageSchedules(profile)
-  // Admins change any schedule; managers only current and upcoming ones.
-  const mayChange = (row) => can.changeSchedule(profile, row)
-  const lockedReason = 'This schedule has already ended — only an admin can change it.'
   const userById = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u])), [users])
-  const roster = useMemo(
-    () => users.filter((u) => u.is_active !== false).sort(byDisplayName),
-    [users],
-  )
 
   const projectId = project?.id
   const load = useCallback(async () => {
@@ -80,35 +86,131 @@ export default function ScheduleManager({ project, open = true }) {
     setRows((data ?? []).slice().sort(byStartDesc))
   }, [projectId])
 
-  useEffect(() => { if (open) { setForm(null); setError(''); load() } }, [open, load])
+  useEffect(() => {
+    if (open) { setForm(null); setError(''); setAnchor(today()); load() }
+  }, [open, load])
 
-  // Grouped rather than one long list: "who is on now" is the question this
-  // dialog is opened to answer, and it should not be somewhere in the middle.
-  const grouped = useMemo(() => {
-    const now = today()
-    const out = { current: [], upcoming: [], past: [] }
-    for (const r of rows) out[phaseOf(r, now)].push(r)
-    // Upcoming reads forwards — the next rota first — while past reads backwards.
-    out.upcoming.reverse()
-    return out
-  }, [rows])
+  const todayKey = today()
+  const days = useMemo(() => calendarDays(anchor, view), [anchor, view])
+  const onNow = scheduleFor(rows, todayKey)
+  const upNext = onNow ? null : nextSchedule(rows, todayKey)
 
-  const candidate = form && {
-    id: form.id,
-    starts_on: form.starts_on,
-    ends_on: form.ends_on,
+  /** A saved schedule whose pair has since ended up in one department. */
+  const staleRota = useCallback((row) =>
+    sharedDepartment((row.assignee_ids ?? []).map((id) => userById[id]).filter(Boolean)),
+  [userById])
+
+  const openSchedule = (row) => setForm({
+    id: row.id,
+    starts_on: toDateKey(row.starts_on),
+    ends_on: toDateKey(row.ends_on),
+    members: (row.assignee_ids ?? []).map((id) => userById[id]).filter(Boolean),
+    // Admins change any schedule; managers only current and upcoming ones.
+    locked: !can.changeSchedule(profile, row),
+  })
+  const newSchedule = (day) => setForm({
+    id: null, starts_on: day, ends_on: day, members: [], locked: false,
+  })
+  const pick = (day, row) => {
+    setError('')
+    if (row) openSchedule(row)
+    else newSchedule(day)
   }
+
+  const changeView = (_e, v) => { if (v) { setView(v); keepView(v) } }
+
+  return (
+    <Stack spacing={2} sx={{ mt: 1 }}>
+      {error && !form && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+        <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1 }}>
+          On now
+        </Typography>
+        {onNow ? (
+          <>
+            <AssigneeChip size={24} users={(onNow.assignee_ids ?? []).map((id) => userById[id])} />
+            <Typography variant="body2" color="text.secondary">
+              until {formatDay(onNow.ends_on)}
+            </Typography>
+          </>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            Nobody is scheduled today
+            {upNext && ` — next from ${formatDay(upNext.starts_on)}`}.
+          </Typography>
+        )}
+      </Stack>
+
+      <Stack direction="row" sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+          <Tooltip title={view === 'week' ? 'Previous week' : 'Previous month'}>
+            <IconButton size="small" aria-label="Previous"
+              onClick={() => setAnchor((a) => shiftPeriod(a, view, -1))}>
+              <ChevronLeftIcon />
+            </IconButton>
+          </Tooltip>
+          <Button size="small" variant="outlined" onClick={() => setAnchor(today())}>Today</Button>
+          <Tooltip title={view === 'week' ? 'Next week' : 'Next month'}>
+            <IconButton size="small" aria-label="Next"
+              onClick={() => setAnchor((a) => shiftPeriod(a, view, 1))}>
+              <ChevronRightIcon />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+        <Typography variant="h6" sx={{ fontWeight: 600, mr: 'auto', fontSize: { xs: 16, sm: 20 } }}>
+          {periodLabel(anchor, view)}
+        </Typography>
+        <ToggleButtonGroup size="small" exclusive value={view} onChange={changeView}>
+          <ToggleButton value="month" sx={{ px: 1.5 }}>Month</ToggleButton>
+          <ToggleButton value="week" sx={{ px: 1.5 }}>Week</ToggleButton>
+        </ToggleButtonGroup>
+        {editable && (
+          <Button startIcon={<AddIcon />} variant="contained" size="small"
+            onClick={() => { setError(''); newSchedule(todayKey) }}>
+            New schedule
+          </Button>
+        )}
+      </Stack>
+
+      <ScheduleCalendar days={days} anchor={anchor} view={view} schedules={rows}
+        userById={userById} todayKey={todayKey} staleRota={staleRota}
+        onPick={editable ? pick : undefined} />
+
+      {editable && (
+        <Typography variant="caption" color="text.secondary">
+          Tap a day to schedule it, or to change the schedule already on it.
+        </Typography>
+      )}
+
+      <ScheduleForm form={form} setForm={setForm} rows={rows} users={users}
+        userById={userById} profile={profile} project={project}
+        error={error} setError={setError} onSaved={load} />
+    </Stack>
+  )
+}
+
+/** The form, in a dialog over the calendar. `form` null is closed. */
+function ScheduleForm({
+  form, setForm, rows, users, userById, profile, project, error, setError, onSaved,
+}) {
+  const phone = useMediaQuery((t) => t.breakpoints.down('sm'))
+  const [busy, setBusy] = useState(false)
+  const roster = useMemo(
+    () => users.filter((u) => u.is_active !== false).sort(byDisplayName),
+    [users],
+  )
+
+  const locked = Boolean(form?.locked)
+  const candidate = form && { id: form.id, starts_on: form.starts_on, ends_on: form.ends_on }
   const clash = candidate && isValidRange(candidate) ? overlapping(rows, candidate) : null
   const memberIds = normalizeAssignees((form?.members ?? []).map((u) => u.id))
   // A rota is where most pairs come from, so it carries the same department
   // rule a ticket does — one naming two engineers would mint broken tickets.
   const deptClash = sharedDepartment(form?.members ?? [])
-  const canSave = Boolean(form) && isValidRange(form) && memberIds.length > 0
+  const canSave = Boolean(form) && !locked && isValidRange(form) && memberIds.length > 0
     && !clash && !deptClash
-
-  /** A saved schedule whose pair has since ended up in one department. */
-  const staleRota = (row) =>
-    sharedDepartment((row.assignee_ids ?? []).map((id) => userById[id]).filter(Boolean))
+  const close = () => { setForm(null); setError('') }
 
   const save = async () => {
     setBusy(true); setError('')
@@ -129,63 +231,72 @@ export default function ScheduleManager({ project, open = true }) {
     if (err) return setError(err.message)
     if (!data?.length) return setError(refusedMessage(form.id ? 'change' : 'create'))
     setForm(null)
-    load()
+    onSaved()
   }
 
-  const remove = async (row) => {
+  const remove = async () => {
     if (!confirm(
-      `Delete the schedule for ${formatRange(row)}? `
+      `Delete the schedule for ${formatRange(form)}? `
       + 'Tickets already assigned by it keep the people it put on them.',
     )) return
     const { data, error: err } = await supabase
-      .from('project_schedules').delete().eq('id', row.id).select('id')
+      .from('project_schedules').delete().eq('id', form.id).select('id')
     if (err) return setError(err.message)
     if (!data?.length) return setError(refusedMessage('delete'))
-    load()
+    setForm(null)
+    onSaved()
   }
 
-  const edit = (row) => setForm({
-    id: row.id,
-    starts_on: toDateKey(row.starts_on),
-    ends_on: toDateKey(row.ends_on),
-    members: (row.assignee_ids ?? []).map((id) => userById[id]).filter(Boolean),
+  // Moving the start past the end carries the end along, rather than leaving
+  // a backwards range to be fixed by hand.
+  const setStart = (e) => {
+    const v = e.target.value
+    setForm((f) => ({ ...f, starts_on: v, ends_on: v && f.ends_on && f.ends_on < v ? v : f.ends_on }))
+  }
+  const setEnd = (e) => setForm((f) => ({ ...f, ends_on: e.target.value }))
+
+  /** The weekday, inside the date field, so "which Monday" needs no second look. */
+  const weekday = (value) => ({
+    inputLabel: { shrink: true },
+    input: {
+      startAdornment: (
+        <InputAdornment position="start" sx={{ minWidth: '3ch' }}>
+          {weekdayOf(value) || '—'}
+        </InputAdornment>
+      ),
+    },
   })
 
-  const patch = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }))
+  const stale = form?.id ? sharedDepartment(form.members) : null
+  const days = form && isValidRange(form) ? lengthInDays(form) : 0
 
   return (
-      <Stack spacing={2} sx={{ mt: 1 }}>
-        {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-
-        {editable && !form && (
-          <Box>
-            <Button startIcon={<AddIcon />} variant="outlined"
-              onClick={() => setForm({ id: null, ...blank() })}>
-              New schedule
-            </Button>
-          </Box>
-        )}
-
-        {form && (
-          <Paper variant="outlined" sx={{ p: 2 }}>
-            <Typography variant="subtitle2" sx={{ mb: 2 }}>
-              {form.id ? 'Edit schedule' : 'New schedule'}
+    <Dialog open={Boolean(form)} onClose={close} fullWidth maxWidth="sm" fullScreen={phone}>
+      {form && (
+        <>
+          <DialogTitle sx={{ pb: 0.5 }}>
+            {locked ? 'Schedule' : form.id ? 'Edit schedule' : 'New schedule'}
+            <Typography variant="body2" color="text.secondary">
+              {project?.name} · everyone here goes on each ticket submitted in this range.
             </Typography>
-            <Stack spacing={2}>
+          </DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ mt: 1.5 }}>
+              {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+              {locked && <Alert severity="info" icon={<LockIcon fontSize="inherit" />}>{LOCKED_REASON}</Alert>}
+
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                <TextField type="date" label="From" size="small" fullWidth
-                  value={form.starts_on} onChange={patch('starts_on')}
-                  slotProps={{ inputLabel: { shrink: true } }} />
-                <TextField type="date" label="To" size="small" fullWidth
-                  value={form.ends_on} onChange={patch('ends_on')}
-                  slotProps={{ inputLabel: { shrink: true } }}
+                <TextField type="date" label="From" size="small" fullWidth disabled={locked}
+                  value={form.starts_on} onChange={setStart} slotProps={weekday(form.starts_on)} />
+                <TextField type="date" label="To" size="small" fullWidth disabled={locked}
+                  value={form.ends_on} onChange={setEnd} slotProps={weekday(form.ends_on)}
                   error={Boolean(form.ends_on) && !isValidRange(form)}
                   helperText={isValidRange(form)
-                    ? `${lengthInDays(form)} day${lengthInDays(form) === 1 ? '' : 's'}, both ends included`
+                    ? `${days} day${days === 1 ? '' : 's'}, both ends included`
                     : 'The end of a range cannot be before its start.'} />
               </Stack>
 
-              <Autocomplete multiple size="small" disableCloseOnSelect
+              <Autocomplete multiple size="small" disableCloseOnSelect disabled={locked}
                 options={roster}
                 value={form.members}
                 isOptionEqualToValue={(o, v) => o.id === v.id}
@@ -208,92 +319,46 @@ export default function ScheduleManager({ project, open = true }) {
                 }
                 renderInput={(p) => (
                   <TextField {...p} label="On support"
-                    error={memberIds.length === 0 || Boolean(deptClash)}
+                    error={!locked && (memberIds.length === 0 || Boolean(deptClash))}
                     helperText={deptClash
                       ? `Both are in ${deptClash} — a rota pairs two departments, not two colleagues.`
-                      : 'One or two people, from different departments. They go on every ticket submitted in this range.'} />
+                      : 'One or two people, from different departments.'} />
                 )} />
 
-              {clash && (
+              {clash && !locked && (
                 <Alert severity="warning">
                   {formatRange(clash)} is already covered by{' '}
                   {(clash.assignee_ids ?? []).map((id) => displayName(userById[id])).join(' and ')}.
                   Two schedules cannot cover the same day.
                 </Alert>
               )}
-
-              <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-                <Button onClick={() => setForm(null)}>Cancel</Button>
+              {stale && locked && (
+                <Alert severity="warning">
+                  Both are now in {stale}. A ticket arriving in this range will only be
+                  assigned the first of them.
+                </Alert>
+              )}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            {form.id && !locked && (
+              <Button color="error" startIcon={<DeleteIcon />} onClick={remove} sx={{ mr: 'auto' }}>
+                Delete
+              </Button>
+            )}
+            {locked ? (
+              <Button onClick={close}>Close</Button>
+            ) : (
+              <>
+                <Button onClick={close}>Cancel</Button>
                 <Button variant="contained" onClick={save} disabled={busy || !canSave}>
                   {busy ? 'Saving…' : 'Save'}
                 </Button>
-              </Stack>
-            </Stack>
-          </Paper>
-        )}
-
-        {PHASE_ORDER.map((phase) => (
-          <Box key={phase}>
-            <Typography variant="overline" color="text.secondary">
-              {PHASE_LABELS[phase]}
-            </Typography>
-            {grouped[phase].length === 0 ? (
-              <Typography variant="body2" color="text.disabled">
-                {phase === 'current' ? 'Nobody is scheduled today.'
-                  : phase === 'upcoming' ? 'Nothing scheduled ahead.'
-                  : 'No past schedules.'}
-              </Typography>
-            ) : (
-              <Stack spacing={1} sx={{ mt: 0.5 }}>
-                {grouped[phase].map((r) => (
-                  <Paper key={r.id} variant="outlined"
-                    sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-                    <Box sx={{ minWidth: 200 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        {formatRange(r)}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {lengthInDays(r)} day{lengthInDays(r) === 1 ? '' : 's'}
-                      </Typography>
-                    </Box>
-                    <AssigneeChip size={24}
-                      users={(r.assignee_ids ?? []).map((id) => userById[id])} />
-                    {staleRota(r) && (
-                      <Tooltip title={
-                        `Both are now in ${staleRota(r)}. A ticket arriving in this range `
-                        + 'will only be assigned the first of them until this is fixed.'
-                      }>
-                        <Chip size="small" color="warning" variant="outlined"
-                          label={`Both in ${staleRota(r)}`} />
-                      </Tooltip>
-                    )}
-                    <Box sx={{ flexGrow: 1 }} />
-                    {editable && (mayChange(r) ? (
-                      <>
-                        <Tooltip title="Edit this schedule">
-                          <IconButton size="small" onClick={() => edit(r)}>
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete this schedule">
-                          <IconButton size="small" onClick={() => remove(r)}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </>
-                    ) : (
-                      // A manager looking at a rota that has already run. The
-                      // row says why rather than just losing its buttons.
-                      <Tooltip title={lockedReason}>
-                        <LockIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
-                      </Tooltip>
-                    ))}
-                  </Paper>
-                ))}
-              </Stack>
+              </>
             )}
-          </Box>
-        ))}
-      </Stack>
+          </DialogActions>
+        </>
+      )}
+    </Dialog>
   )
 }

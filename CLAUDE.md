@@ -75,7 +75,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   Where contacts are kept — they have no page of their own. Writing needs
   `can_email` and a ticket. No role guard.
 - `/report` — manager/admin analytics over the selected range.
-- `/schedule` — the selected project's **support rota**; manager/admin. Exists
+- `/schedule` — the selected project's **support rota** as a month/week
+  calendar (`ScheduleManager` over `ScheduleCalendar`; tapping a day opens the
+  form in a modal, on that day's schedule or a new one); manager/admin. Exists
   because Projects is admin-only and running the rota is not the same power as
   renaming or deleting a project. Same `ScheduleManager` as the Projects dialog.
 - `/projects` — admin-only CRUD over projects, their members and their
@@ -165,8 +167,8 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   selection, comparing sets, and the **one-per-department** rule (`sharedDepartment`,
   `canJoin`). Order matters — the first name is who it is mainly on.
 - `schedules.js` — the support rota: day keys (plain `YYYY-MM-DD` strings, never
-  parsed into instants), which schedule covers a date, overlap detection, and
-  past/current/upcoming.
+  parsed into instants), which schedule covers a date, overlap detection,
+  past/current/upcoming, and the calendar grid (Monday-first weeks, padded months).
 - `grouping.js` — the Issues list's group-by choices and group order; a ticket
   on two people sits under both.
 - `checkIn.js` — a check-in's rules: which tickets (the page's open ones) and in what

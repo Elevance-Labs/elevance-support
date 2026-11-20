@@ -13,7 +13,7 @@ const { AuthContext } = await import('../src/context/AuthContext')
 const ScheduleManager = (await import('../src/components/ScheduleManager')).default
 const SchedulePage = (await import('../src/pages/Schedule')).default
 const Projects = (await import('../src/pages/Projects')).default
-const { formatRange } = await import('../src/lib/schedules.js')
+const { formatRange, today, weekdayOf } = await import('../src/lib/schedules.js')
 const {
   PROJECTS, PROJECT_SCHEDULES, captured, dayKey, refuseWrites,
 } = await import('./mockSupabase.js')
@@ -29,8 +29,13 @@ const PAST = PROJECT_SCHEDULES.find((s) => s.id === 'sch-past')
 const LIVE = PROJECT_SCHEDULES.find((s) => s.id === 'sch-live')
 const NEXT = PROJECT_SCHEDULES.find((s) => s.id === 'sch-next')
 
+let root = null
 async function mount(profile, node) {
+  // Unmount first: a dialog left open lives in a portal outside the root, and
+  // clearing the body under it leaves React removing nodes that are gone.
+  if (root) await act(async () => root.unmount())
   D.body.innerHTML = ''
+  localStorage.removeItem('el-support.schedule-view')
   const el = D.createElement('div')
   D.body.appendChild(el)
   const Stub = ({ children }) =>
@@ -38,7 +43,8 @@ async function mount(profile, node) {
       { value: { session: {}, profile, loading: false, signIn: () => {}, signOut: () => {} } },
       children)
   await act(async () => {
-    createRoot(el).render(
+    root = createRoot(el)
+    root.render(
       <ThemeProvider theme={theme}><MemoryRouter><Stub>
         <ConfigProvider><ProjectProvider>{node}</ProjectProvider></ConfigProvider>
       </Stub></MemoryRouter></ThemeProvider>)
@@ -60,10 +66,18 @@ const click = async (node) => {
 const inputFor = (label) => [...D.querySelectorAll('.MuiFormLabel-root')]
   .find((l) => l.textContent.replace(/\s*\*$/, '').trim() === label)
   ?.closest('.MuiFormControl-root')?.querySelector('input')
-/** The row a schedule is drawn in, found by the range it shows. */
-const rowFor = (schedule) => [...D.querySelectorAll('.MuiPaper-root')]
-  .filter((el) => el.textContent.includes(formatRange(schedule)))
-  .sort((a, b) => a.textContent.length - b.textContent.length)[0]
+/** A day's cell, paging the calendar towards it if it is not on screen. */
+const cellFor = async (day) => {
+  for (let i = 0; i < 4; i++) {
+    const c = D.querySelector(`[data-day="${day}"]`)
+    if (c) return c
+    await click(D.querySelector(`button[aria-label="${day < today() ? 'Previous' : 'Next'}"]`))
+  }
+  return D.querySelector(`[data-day="${day}"]`)
+}
+const tap = async (day) => click(await cellFor(day))
+const dialog = () => D.querySelector('[role="dialog"]')
+const dialogTitle = () => dialog()?.querySelector('.MuiDialogTitle-root')?.firstChild?.textContent ?? ''
 const setDate = async (label, value) => {
   const input = inputFor(label)
   const setter = Object.getOwnPropertyDescriptor(
@@ -102,46 +116,67 @@ check('an admin gets no such notice — they may change all of it',
 
 // ---------------- what the rota shows ----------------
 await rota(ADMIN)
-check('each schedule reads as a date range',
-  [PAST, LIVE, NEXT].every((s) => body().includes(formatRange(s))),
-  [PAST, LIVE, NEXT].map(formatRange).join(' | '))
-check('a range says how long it runs, both ends counted', body().includes('7 days'))
-check('the people on a range are named', body().includes('Ada Lovelace'))
+check('it opens on this month', body().includes(new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' })),
+  D.querySelector('h6')?.textContent)
+check('a month is drawn as whole weeks', D.querySelectorAll('[data-day]').length % 7 === 0,
+  String(D.querySelectorAll('[data-day]').length))
+check('the columns are the days of the week, Monday first', (() => {
+  const t = body(); return t.indexOf('Mon') > -1 && t.indexOf('Mon') < t.indexOf('Sun')
+})())
 
-// Read top to bottom: who is on now, who is next, who was on when.
-check('schedules are grouped by where they sit relative to today', (() => {
-  const t = body()
-  const now = t.indexOf('On now'), next = t.indexOf('Coming up'), past = t.indexOf('Past')
-  return now > -1 && next > now && past > next
-})(), `now=${body().indexOf('On now')} next=${body().indexOf('Coming up')} past=${body().indexOf('Past')}`)
+const todayCell = await cellFor(today())
+check('today\'s cell names who is on support', todayCell?.textContent.includes('Ada')
+  && todayCell?.textContent.includes('Grace'), todayCell?.textContent)
+check('and says so in words, for a screen reader',
+  todayCell?.getAttribute('aria-label')?.includes('Ada Lovelace and Grace Hopper on support'),
+  todayCell?.getAttribute('aria-label'))
+check('the summary says who is on now', body().includes('On now') && body().includes('Ada Lovelace'))
 
-check('each schedule lands in the right group', (() => {
-  const t = body()
-  const at = (s) => t.indexOf(formatRange(s))
-  const now = t.indexOf('On now'), next = t.indexOf('Coming up'), past = t.indexOf('Past')
-  return at(LIVE) > now && at(LIVE) < next
-    && at(NEXT) > next && at(NEXT) < past
-    && at(PAST) > past
-})(), body().replace(/\s+/g, ' ').slice(0, 260))
+const freeCell = await cellFor(dayKey(20))
+check('a day nobody covers says so', freeCell?.getAttribute('aria-label')?.endsWith('nobody on support'),
+  freeCell?.getAttribute('aria-label'))
+
+await rota(ADMIN)
+const pastCell = await cellFor(PAST.starts_on)
+check('a past range is still on the calendar', pastCell?.textContent.includes('Ada'), pastCell?.textContent)
+
+await rota(ADMIN)
+await click(buttonNamed('Week'))
+check('the week view draws seven days', D.querySelectorAll('[data-day]').length === 7)
+check('and today is one of them', Boolean(D.querySelector(`[data-day="${today()}"]`)))
+check('the week view gives full names', D.querySelector(`[data-day="${today()}"]`)?.textContent.includes('Ada Lovelace'))
+check('the view is remembered', localStorage.getItem('el-support.schedule-view') === 'week')
 
 // ---------------- creating one ----------------
+await rota(ADMIN)
 check('an admin is offered a new schedule', Boolean(buttonNamed('New schedule')))
-await click(buttonNamed('New schedule'))
+await tap(dayKey(20))
+check('tapping a free day opens a new schedule', dialogTitle() === 'New schedule', dialogTitle())
+check('with that day filled in',
+  inputFor('From')?.value === dayKey(20) && inputFor('To')?.value === dayKey(20),
+  `${inputFor('From')?.value} / ${inputFor('To')?.value}`)
+check('the date fields name the day of the week',
+  inputFor('From')?.closest('.MuiInputBase-root')?.textContent.includes(weekdayOf(dayKey(20))),
+  inputFor('From')?.closest('.MuiInputBase-root')?.textContent)
 check('the form asks for both ends of a range',
   inputFor('From')?.type === 'date' && inputFor('To')?.type === 'date')
 check('the form asks who is on support', Boolean(inputFor('On support')))
 check('a schedule with nobody on it cannot be saved', buttonNamed('Save')?.disabled === true)
 
-await setDate('From', LIVE.starts_on)
 await setDate('To', LIVE.ends_on)
+await setDate('From', LIVE.starts_on)
 check('a clash is named before the save, not after it',
   body().includes(`${formatRange(LIVE)} is already covered by`),
   body().match(/.{0,80}already covered.{0,60}/)?.[0] ?? '(no warning)')
 check('and the save stays shut while it clashes', buttonNamed('Save')?.disabled === true)
 
+await setDate('From', dayKey(27))
+check('moving the start past the end carries the end along', inputFor('To')?.value === dayKey(27))
 await setDate('From', dayKey(20))
 await setDate('To', dayKey(26))
 check('moving it clear drops the warning', !body().includes('already covered by'))
+check('the weekday follows the date',
+  inputFor('To')?.closest('.MuiInputBase-root')?.textContent.includes(weekdayOf(dayKey(26))))
 
 const openRoster = async () => {
   if (!D.querySelector('[role="option"]')) {
@@ -179,16 +214,23 @@ check('it stores who is on as an array',
   JSON.stringify(inserted.assignee_ids))
 check('it records who set it up', inserted.created_by === ADMIN.id)
 
-// ---------------- editing ----------------
 await rota(ADMIN)
-const editIn = (row) => [...(row?.querySelectorAll('button') ?? [])]
-  .find((b) => b.querySelector('[data-testid="EditIcon"]'))
-const lockIn = (row) => row?.querySelector('[data-testid="LockIcon"]')
+await click(buttonNamed('New schedule'))
+check('the New button starts on today',
+  inputFor('From')?.value === today() && inputFor('To')?.value === today())
 
-check('an admin may edit every schedule, the past one included',
-  [PAST, LIVE, NEXT].every((s) => Boolean(editIn(rowFor(s)))))
-await click(editIn(rowFor(LIVE)))
-check('editing opens the form on that schedule', body().includes('Edit schedule'))
+// ---------------- editing ----------------
+const deleteButton = () => buttonNamed('Delete')
+for (const s of [PAST, LIVE, NEXT]) {
+  await rota(ADMIN)
+  await tap(s.starts_on)
+  check(`an admin may edit the ${s.id.slice(4)} schedule`,
+    dialogTitle() === 'Edit schedule' && Boolean(deleteButton()), dialogTitle())
+}
+
+await rota(ADMIN)
+await tap(today())
+check('tapping a covered day opens the schedule covering it', dialogTitle() === 'Edit schedule')
 check('the form is filled with the range it is editing',
   inputFor('From')?.value === LIVE.starts_on && inputFor('To')?.value === LIVE.ends_on,
   `${inputFor('From')?.value} / ${inputFor('To')?.value}`)
@@ -202,20 +244,23 @@ check('saving an edit updates rather than inserts',
 
 // ---------------- a manager: creates freely, changes current and upcoming ----------------
 await rota(MANAGER)
-check('a manager sees the whole rota, past included',
-  [PAST, LIVE, NEXT].every((s) => body().includes(formatRange(s))))
 check('a manager may create a schedule', Boolean(buttonNamed('New schedule')))
-check('a manager may edit the one running now', Boolean(editIn(rowFor(LIVE))))
-check('and the one still ahead', Boolean(editIn(rowFor(NEXT))))
-check('but not the one that has already run', !editIn(rowFor(PAST)),
-  rowFor(PAST)?.textContent ?? '(row not found)')
-check('the past row says why, rather than just losing its buttons',
-  Boolean(lockIn(rowFor(PAST))))
+await tap(LIVE.starts_on)
+check('a manager may edit the one running now', dialogTitle() === 'Edit schedule')
+await rota(MANAGER)
+await tap(NEXT.starts_on)
+check('and the one still ahead', dialogTitle() === 'Edit schedule')
+await rota(MANAGER)
+await tap(PAST.starts_on)
+check('but not the one that has already run',
+  dialogTitle() === 'Schedule' && !buttonNamed('Save') && !deleteButton(), dialogTitle())
+check('the form says why, rather than just losing its buttons',
+  body().includes('only an admin can change it'))
 
 // Creating is not limited by date — only changing an existing schedule is.
-await click(buttonNamed('New schedule'))
-await setDate('From', dayKey(-40))
-await setDate('To', dayKey(-35))
+await rota(MANAGER)
+await tap(dayKey(-40))
+check('a manager may start a schedule on a past day', dialogTitle() === 'New schedule')
 options = await openRoster()
 await click(options.find((o) => o.textContent.includes('Grace Hopper')))
 check('a manager may create a schedule for any dates',
@@ -223,22 +268,24 @@ check('a manager may create a schedule for any dates',
 
 // ---------------- a member ----------------
 await rota(MEMBER)
-check('a member still sees who is on support', body().includes(formatRange(LIVE)))
+check('a member still sees who is on support',
+  (await cellFor(today()))?.textContent.includes('Ada'))
 check('but is offered no way to change any of it',
   !buttonNamed('New schedule')
-  && [PAST, LIVE, NEXT].every((s) => !editIn(rowFor(s))))
+  && [...D.querySelectorAll('[data-day]')].every((c) => c.getAttribute('role') !== 'button'))
 
 // ---------------- a write the database turns down ----------------
 // Row-level security refuses an update by matching no rows rather than by
 // raising, so a silent "saved" that changed nothing is the risk. The page has
 // to notice and say so.
 await rota(ADMIN)
-await click(editIn(rowFor(LIVE)))
+await tap(today())
 refuseWrites.on = true
 await click(buttonNamed('Save'))
 refuseWrites.on = false
 check('a refused write is reported, not passed off as saved',
   body().includes('Nothing was saved'),
   body().match(/.{0,30}Nothing was saved.{0,80}/)?.[0] ?? '(silent success)')
+check('and the form stays open to try again', dialogTitle() === 'Edit schedule')
 
 done()
