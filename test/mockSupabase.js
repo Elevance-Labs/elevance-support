@@ -183,6 +183,10 @@ const recordingChain = (entry, rows) => {
   p.eq = (col, value) => narrow('eq', col, value, (r) => r[col] === value)
   p.in = (col, values) => narrow('in', col, values, (r) => (values ?? []).includes(r[col]))
   p.is = (col, value) => narrow('is', col, value, (r) => (r[col] ?? null) === value)
+  p.not = (col, op, value) => {
+    entry.filters.push(['not', col, op, value])
+    return recordingChain(entry, op === 'is' ? rows.filter((r) => (r[col] ?? null) !== value) : rows)
+  }
   return p
 }
 

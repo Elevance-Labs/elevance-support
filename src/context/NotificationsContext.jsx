@@ -16,6 +16,7 @@ const SELECT = '*, issue:issues(id, number, title, project_id), comment:comments
 const NotificationsContext = createContext({
   items: [], unread: 0, loading: false,
   reload: async () => {}, markRead: async () => {}, markIssueRead: async () => {}, markAllRead: async () => {},
+  clearRead: async () => {},
 })
 export const useNotifications = () => useContext(NotificationsContext)
 
@@ -33,6 +34,9 @@ export const useNotifications = () => useContext(NotificationsContext)
  *
  * Opening a ticket marks its notifications read (`markIssueRead`, called by
  * the ticket dialog): having looked is what reading one means.
+ *
+ * Clearing (`clearRead`) deletes every read one for good — the recipient may
+ * delete their own (RLS); unread ones are never cleared.
  */
 export function NotificationsProvider({ children }) {
   const { profile } = useAuth()
@@ -105,9 +109,18 @@ export function NotificationsProvider({ children }) {
       .eq('recipient_id', me).is('read_at', null)
   }, [me])
 
+  // Every read one, including those past the end of the feed: on screen at
+  // once, then gone from the table.
+  const clearRead = useCallback(async () => {
+    if (!me) return
+    setItems((rows) => rows.filter((r) => !r.read_at))
+    await supabase.from('notifications').delete()
+      .eq('recipient_id', me).not('read_at', 'is', null)
+  }, [me])
+
   const value = useMemo(
-    () => ({ items, unread, loading, reload, markRead, markIssueRead, markAllRead }),
-    [items, unread, loading, reload, markRead, markIssueRead, markAllRead],
+    () => ({ items, unread, loading, reload, markRead, markIssueRead, markAllRead, clearRead }),
+    [items, unread, loading, reload, markRead, markIssueRead, markAllRead, clearRead],
   )
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>
 }

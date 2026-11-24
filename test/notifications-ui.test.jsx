@@ -1,6 +1,6 @@
 /**
  * Notifications in the app: the header's bell (what it counts, what each one
- * says, where one leads, marking read), watching a ticket from its dialog,
+ * says, where one leads, marking read, clearing read), watching a ticket from its dialog,
  * and opening a ticket marking its notifications read.
  *
  * Ada's feed (mockSupabase): Grace mentioned her on ACME-42, Jane replied
@@ -102,6 +102,16 @@ const all = captured.updates.find((u) => u.table === 'notifications')
 check('mark all read: everything of Ada\'s still unread',
   JSON.stringify(all?.filters) === '[["eq","recipient_id","user-1"],["is","read_at",null]]', JSON.stringify(all))
 check('and the bell is quiet', bell()?.getAttribute('aria-label') === 'Notifications')
+
+captured.deletes.length = 0
+const clear = () => [...D.querySelectorAll('button')].find((b) => b.textContent === 'Clear read')
+check('clear read is offered once something is read', clear() && !clear().disabled)
+await click(clear())
+const cleared = captured.deletes.find((d) => d.table === 'notifications')
+check('clear read deletes every read one of Ada\'s, for good',
+  JSON.stringify(cleared?.filters) === '[["eq","recipient_id","user-1"],["not","read_at","is",null]]', JSON.stringify(cleared))
+check('and they leave the list at once', items().length === 0, items().length)
+check('nothing left to clear', clear()?.disabled === true)
 
 // ======================= the ticket dialog =======================
 captured.updates.length = 0
