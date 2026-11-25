@@ -90,6 +90,12 @@ create table if not exists public.projects (
   -- The project's own ticket counter. Handed out one at a time by
   -- next_issue_number(), so tickets read ACME-1, ACME-2, ACME-3.
   issue_seq  bigint not null default 0,
+  -- When the support rota's day turns over: a schedule day D runs from D at
+  -- `support_handover` to D+1 at it, in `support_time_zone`. Defaults are
+  -- midnight UTC. Set through set_support_handover() (admins, managers on the
+  -- project), checked by verify_support_handover().
+  support_time_zone text not null default 'UTC',
+  support_handover  time not null default '00:00',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -605,6 +611,63 @@ drop trigger if exists projects_freeze_key on public.projects;
 create trigger projects_freeze_key before update on public.projects
   for each row execute function public.freeze_project_key();
 
+-- The support hand-over. An unknown zone would make `at time zone` raise inside
+-- the ticket insert trigger — a customer's request failing to file over a
+-- typo — so it is refused where it is written. Minutes are the finest it goes.
+create or replace function public.is_time_zone(p text)
+returns boolean language sql stable as $$
+  select exists (select 1 from pg_timezone_names where name = p);
+$$;
+
+create or replace function public.verify_support_handover()
+returns trigger language plpgsql as $$
+begin
+  if tg_op = 'INSERT'
+     or new.support_time_zone is distinct from old.support_time_zone then
+    if not public.is_time_zone(new.support_time_zone) then
+      raise exception '"%" is not a time zone this database knows', new.support_time_zone
+        using errcode = 'check_violation';
+    end if;
+  end if;
+  new.support_handover := date_trunc('minute', '2000-01-01'::date + new.support_handover)::time;
+  return new;
+end $$;
+
+drop trigger if exists projects_verify_handover on public.projects;
+create trigger projects_verify_handover before insert or update on public.projects
+  for each row execute function public.verify_support_handover();
+
+-- Projects are admin-only to write, but when the rota hands over is part of
+-- running it: an admin, or a manager on the project, sets it through here.
+create or replace function public.set_support_handover(
+  p_project uuid, p_time_zone text, p_handover time
+)
+returns public.projects language plpgsql security definer set search_path = public as $$
+declare
+  r public.projects;
+begin
+  if not (
+    public.is_admin()
+    or (public.my_role() = 'manager' and public.is_project_member(p_project))
+  ) then
+    raise exception 'Only an admin, or a manager on this project, can change when support hands over'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  update public.projects
+  set support_time_zone = p_time_zone, support_handover = p_handover
+  where id = p_project
+  returning * into r;
+
+  if not found then
+    raise exception 'No such project' using errcode = 'no_data_found';
+  end if;
+  return r;
+end $$;
+
+revoke all on function public.set_support_handover(uuid, text, time) from public, anon;
+grant execute on function public.set_support_handover(uuid, text, time) to authenticated;
+
 /*
  * Allocate the next number in a project.
  *
@@ -796,12 +859,25 @@ create trigger issues_stamp_origin before insert on public.issues
 -- ---------- who was on support that day ----------
 -- At most one row can match: project_schedules_no_overlap is what makes the
 -- `limit 1` honest rather than a coin toss.
--- Whether a schedule's last day is behind us, in UTC — the day the assignment
--- below uses. Inclusive: one ending today is current. Read by the manager
--- write policies further down.
-create or replace function public.schedule_is_past(p_ends_on date)
+-- Which schedule day a moment falls in for a project: its date in the
+-- project's support_time_zone after taking support_handover off it. With
+-- Asia/Karachi and 12:00 PM, Wed 1:00 AM PKT is still Tuesday's rota.
+create or replace function public.support_day(p_project uuid, p_at timestamptz default now())
+returns date language sql stable security definer set search_path = public as $$
+  select coalesce(
+    (select ((p_at at time zone p.support_time_zone)
+             - (p.support_handover - time '00:00'))::date
+     from public.projects p where p.id = p_project),
+    (p_at at time zone 'UTC')::date
+  );
+$$;
+
+-- Whether a schedule's last day is behind the project's current support day —
+-- the day the assignment below uses. Inclusive: one ending today is current.
+-- Read by the manager write policies further down.
+create or replace function public.schedule_is_past(p_project uuid, p_ends_on date)
 returns boolean language sql stable as $$
-  select p_ends_on < (now() at time zone 'UTC')::date;
+  select p_ends_on < public.support_day(p_project);
 $$;
 
 create or replace function public.scheduled_assignees(p_project uuid, p_on date)
@@ -818,8 +894,8 @@ $$;
 -- Tuesday belongs to whoever was on last Tuesday. Only ever fills an empty set,
 -- so a ticket created with someone already on it keeps them.
 --
--- The date is taken in UTC — that is what the database stores, and a rota
--- boundary has to fall on the same day for everyone reading the schedule.
+-- The date is the project's support day (support_day() above), so a rota
+-- covers its last night up to the hand-over rather than stopping at midnight.
 --
 -- Named to sort after `issues_stamp_origin` among the before-insert triggers
 -- (they fire in alphabetical order), because that is what pins an anonymous
@@ -836,7 +912,7 @@ begin
 
   rota := public.scheduled_assignees(
     new.project_id,
-    (coalesce(new.submitted_date, now()) at time zone 'UTC')::date
+    public.support_day(new.project_id, coalesce(new.submitted_date, now()))
   );
 
   if rota is null then
@@ -1375,7 +1451,8 @@ create policy project_members_admin_write on public.project_members for all to a
 --
 --   admin    — create, update and delete any schedule
 --   manager  — create any schedule; update and delete only current and upcoming
---              ones (last day today or later, UTC), in projects they belong to
+--              ones (last day on or after the project's support day), in
+--              projects they belong to
 --   member   — none
 drop policy if exists project_schedules_read on public.project_schedules;
 create policy project_schedules_read on public.project_schedules
@@ -1402,7 +1479,7 @@ create policy project_schedules_manager_update on public.project_schedules
   using (
     public.my_role() = 'manager'
     and public.is_project_member(project_id)
-    and not public.schedule_is_past(ends_on)
+    and not public.schedule_is_past(project_id, ends_on)
   )
   with check (
     public.my_role() = 'manager'
@@ -1415,7 +1492,7 @@ create policy project_schedules_manager_delete on public.project_schedules
   using (
     public.my_role() = 'manager'
     and public.is_project_member(project_id)
-    and not public.schedule_is_past(ends_on)
+    and not public.schedule_is_past(project_id, ends_on)
   );
 
 -- ---------- list_items: public form needs to read them; admins write ----------

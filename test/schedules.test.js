@@ -3,6 +3,8 @@ import {
   byStartDesc, covers, formatRange, isValidRange, lengthInDays, overlapping,
   nextSchedule, overlaps, phaseOf, scheduleFor, toDateKey,
   addDays, calendarDays, formatDay, periodLabel, sameMonth, shiftPeriod, weekStartOf, weekdayOf,
+  handoverLabel, handoverOf, handsOverAtMidnight, isTimeZone, shiftEnds, supportDay, timeZones,
+  toTimeKey, formatTime,
 } from '../src/lib/schedules.js'
 import { can } from '../src/lib/permissions.js'
 
@@ -103,6 +105,67 @@ check('a member may change none of them',
 check('a manager keeps a schedule on its last day',
   can.changeSchedule(manager, WEEK_1, '2026-01-11'))
 check('and loses it the day after', !can.changeSchedule(manager, WEEK_1, '2026-01-12'))
+
+// ---------------- the hand-over ----------------
+// A schedule day runs from the hand-over on that day to the hand-over the next,
+// in the project's zone — so "Saad, Mon–Tue" with Asia/Karachi and 12:00 is on
+// from Mon 12:00 to Wed 12:00 PKT, Tuesday night included. Mirrors the
+// database's support_day(), which is what assigns a ticket.
+const PKT_NOON = { support_time_zone: 'Asia/Karachi', support_handover: '12:00:00' }
+const at = (iso) => new Date(iso).getTime()
+// 2026-11-23 is a Monday. PKT is UTC+5, no daylight saving.
+check('before the hand-over, it is still yesterday on the rota',
+  supportDay(PKT_NOON, at('2026-11-23T11:59:00+05:00')) === '2026-11-22')
+check('at the hand-over, the day turns',
+  supportDay(PKT_NOON, at('2026-11-23T12:00:00+05:00')) === '2026-11-23')
+check('Tuesday night belongs to Tuesday',
+  supportDay(PKT_NOON, at('2026-11-25T01:00:00+05:00')) === '2026-11-24')
+check('and keeps belonging to it until noon on Wednesday',
+  supportDay(PKT_NOON, at('2026-11-25T11:59:00+05:00')) === '2026-11-24'
+  && supportDay(PKT_NOON, at('2026-11-25T12:00:00+05:00')) === '2026-11-25')
+const SAAD = { id: 'saad', starts_on: '2026-11-23', ends_on: '2026-11-24', assignee_ids: [ADA] }
+check('so a ticket at 1am on Wednesday lands on the Mon–Tue rota',
+  scheduleFor([SAAD], supportDay(PKT_NOON, at('2026-11-25T01:00:00+05:00')))?.id === 'saad')
+
+const PKT_SIX = { support_time_zone: 'Asia/Karachi', support_handover: '18:00' }
+check('a 6pm hand-over turns at 6pm',
+  supportDay(PKT_SIX, at('2026-11-23T17:59:00+05:00')) === '2026-11-22'
+  && supportDay(PKT_SIX, at('2026-11-23T18:00:00+05:00')) === '2026-11-23')
+
+// A project never configured keeps the old day: midnight UTC.
+check('no setting is midnight UTC',
+  supportDay(null, at('2026-11-24T23:59:00Z')) === '2026-11-24'
+  && supportDay({}, at('2026-11-25T00:00:00Z')) === '2026-11-25')
+check('a zone the browser does not know falls back to UTC',
+  handoverOf({ support_time_zone: 'Mars/Olympus', support_handover: '12:00' }).timeZone === 'UTC')
+// The zone does the work, not the browser's own: this suite runs in Karachi.
+check('a zone behind UTC reads its own date',
+  supportDay({ support_time_zone: 'America/New_York' }, at('2026-11-25T03:00:00Z')) === '2026-11-24')
+check('daylight saving is the zone\'s business',
+  supportDay({ support_time_zone: 'Europe/London', support_handover: '09:00' },
+    at('2026-07-01T08:30:00Z')) === '2026-07-01'
+  && supportDay({ support_time_zone: 'Europe/London', support_handover: '09:00' },
+    at('2026-12-01T08:30:00Z')) === '2026-11-30')
+
+check('a database time reads as HH:MM', toTimeKey('12:00:00') === '12:00' && toTimeKey('9:05') === '09:05')
+check('nonsense is no time', toTimeKey('25:00') === '' && toTimeKey('') === '' && toTimeKey(null) === '')
+check('a real zone is a zone', isTimeZone('Asia/Karachi') && isTimeZone('UTC') && !isTimeZone('Nowhere/Else'))
+check('the zone list starts with UTC and has Karachi',
+  timeZones()[0] === 'UTC' && timeZones().includes('Asia/Karachi'))
+check('times read 12-hour',
+  formatTime('00:00') === '12:00 AM' && formatTime('12:00:00') === '12:00 PM'
+  && formatTime('18:30') === '6:30 PM' && formatTime('09:05') === '9:05 AM' && formatTime('') === '')
+check('the hand-over reads as time and zone', handoverLabel(PKT_NOON) === '12:00 PM Asia/Karachi')
+check('midnight is midnight', handsOverAtMidnight(null) && !handsOverAtMidnight(PKT_NOON))
+
+// "Until Tuesday" reads as Tuesday evening — so past midnight, the moment it ends.
+check('at midnight, a rota ends on its last day', shiftEnds(SAAD, null) === 'Tue 24 Nov 2026')
+check('otherwise, at the hand-over the day after',
+  shiftEnds(SAAD, PKT_NOON) === 'Wed 25 Nov 2026, 12:00 PM', shiftEnds(SAAD, PKT_NOON))
+
+check('admins and managers set the hand-over',
+  can.setHandover({ role: 'admin' }) && can.setHandover({ role: 'manager' }))
+check('members do not', !can.setHandover({ role: 'member' }) && !can.setHandover(null))
 
 // ---------------- shape and display ----------------
 check('a range needs both ends', !isValidRange({ starts_on: '2026-01-05', ends_on: '' }))

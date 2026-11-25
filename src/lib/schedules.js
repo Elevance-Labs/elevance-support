@@ -33,6 +33,106 @@ export const toDateKey = (value) => {
 /** Today, as the same kind of key. */
 export const today = (now = Date.now()) => dayjs(now).format('YYYY-MM-DD')
 
+// ---------------------------------------------------------------------------
+// The hand-over: when one support day turns into the next.
+//
+// A project keeps its rota in a time zone and hands over at a set time. A
+// schedule day D runs from D at the hand-over to D+1 at the hand-over, so with
+// Asia/Karachi and 12:00 PM, "Saad, Mon–Tue" covers Mon 12:00 PM to Wed 12:00 PM PKT —
+// Tuesday night included. Mirrored by `support_day()` in the database, which is
+// what assigns a ticket; the defaults (UTC, midnight) are the old midnight-UTC day.
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_TIME_ZONE = 'UTC'
+export const DEFAULT_HANDOVER = '00:00'
+
+/** "HH:MM" from what Postgres returns for a `time` ("12:00:00"), or ''. */
+export const toTimeKey = (value) => {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(value ?? ''))
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return ''
+  return `${m[1].padStart(2, '0')}:${m[2]}`
+}
+
+/**
+ * "12:00 PM" from "12:00" — a time as people read it, 12-hour like every other
+ * time in the app (`DATE_TIME_FORMAT`). The stored value stays 24-hour.
+ */
+export function formatTime(value) {
+  const key = toTimeKey(value)
+  if (!key) return ''
+  const [h, m] = key.split(':').map(Number)
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`
+}
+
+/** Whether this browser knows a zone name. */
+export function isTimeZone(zone) {
+  if (!zone || typeof zone !== 'string') return false
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone: zone })
+    return true
+  } catch { return false }
+}
+
+/** A project's hand-over, with the defaults filled in and a bad zone dropped. */
+export function handoverOf(project) {
+  const zone = project?.support_time_zone
+  return {
+    timeZone: isTimeZone(zone) ? zone : DEFAULT_TIME_ZONE,
+    handover: toTimeKey(project?.support_handover) || DEFAULT_HANDOVER,
+  }
+}
+
+/** The wall clock in a zone, as milliseconds read as if it were UTC. */
+function wallClock(at, timeZone) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone, hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(new Date(at)).map((p) => [p.type, p.value]),
+  )
+  return Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour % 24, +parts.minute, +parts.second)
+}
+
+/**
+ * The schedule day a moment belongs to in a project: its date in the
+ * project's zone, after taking the hand-over time off it.
+ */
+export function supportDay(project, at = Date.now()) {
+  const { timeZone, handover } = handoverOf(project)
+  const [h, m] = handover.split(':').map(Number)
+  return new Date(wallClock(at, timeZone) - (h * 60 + m) * 60_000).toISOString().slice(0, 10)
+}
+
+/** Whether a project's support day turns over at midnight, as a calendar day does. */
+export const handsOverAtMidnight = (project) => handoverOf(project).handover === DEFAULT_HANDOVER
+
+/** "12:00 PM Asia/Karachi" — the hand-over, as the rota page states it. */
+export function handoverLabel(project) {
+  const { timeZone, handover } = handoverOf(project)
+  return `${formatTime(handover)} ${timeZone}`
+}
+
+/**
+ * When a schedule stops — "Fri 28 Nov 2026" (its last day) at a midnight
+ * hand-over, or "Sat 29 Nov 2026, 12:00 PM" (the moment it hands over) otherwise,
+ * because "until Friday" reads as Friday evening, which is the thing that
+ * stopped being true.
+ */
+export function shiftEnds(schedule, project) {
+  if (!schedule?.ends_on) return '—'
+  if (handsOverAtMidnight(project)) return formatDay(schedule.ends_on)
+  return `${formatDay(addDays(schedule.ends_on, 1))}, ${formatTime(handoverOf(project).handover)}`
+}
+
+/** Every zone this browser can name, UTC first. */
+export function timeZones() {
+  let zones = []
+  try { zones = Intl.supportedValuesOf?.('timeZone') ?? [] } catch { zones = [] }
+  if (!zones.length) zones = ['Asia/Karachi', 'Asia/Dubai', 'Europe/London', 'America/New_York']
+  return [DEFAULT_TIME_ZONE, ...zones.filter((z) => z !== DEFAULT_TIME_ZONE)]
+}
+
 /** Whether a schedule covers a day. Both ends count. */
 export function covers(schedule, day) {
   const d = toDateKey(day)

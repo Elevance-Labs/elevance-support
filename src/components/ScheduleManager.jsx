@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Alert, Autocomplete, Button, Chip, Dialog, DialogActions, DialogContent,
+  Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent,
   DialogTitle, IconButton, InputAdornment, Stack, TextField, ToggleButton,
   ToggleButtonGroup, Tooltip, Typography, useMediaQuery,
 } from '@mui/material'
@@ -16,12 +16,14 @@ import { can } from '../lib/permissions'
 import { byDisplayName, departmentOf, displayName } from '../lib/users'
 import { canJoin, MAX_ASSIGNEES, normalizeAssignees, sharedDepartment } from '../lib/assignees'
 import {
-  byStartDesc, calendarDays, CALENDAR_VIEWS, formatDay, formatRange, isValidRange, lengthInDays,
-  nextSchedule, overlapping, periodLabel, scheduleFor, shiftPeriod, today, toDateKey,
-  weekdayOf,
+  byStartDesc, calendarDays, CALENDAR_VIEWS, formatDay, formatRange, handsOverAtMidnight,
+  isValidRange, lengthInDays, nextSchedule, overlapping, periodLabel, scheduleFor, shiftEnds,
+  shiftPeriod, supportDay, today, toDateKey, weekdayOf,
 } from '../lib/schedules'
+import { useProject } from '../context/ProjectContext'
 import UserAvatar, { AssigneeChip, UserOption } from './UserAvatar'
 import ScheduleCalendar from './ScheduleCalendar'
+import HandoverSetting from './HandoverSetting'
 
 /** Month or week, remembered per browser — like the Issues grouping. */
 const VIEW_KEY = 'el-support.schedule-view'
@@ -65,9 +67,17 @@ const LOCKED_REASON = 'This schedule has already ended — only an admin can cha
  * because "23 Jan is already covered by Ada and Grace" is the answer, and a
  * constraint violation is not.
  */
-export default function ScheduleManager({ project, open = true }) {
+export default function ScheduleManager({ project: given, open = true }) {
   const { users } = useConfig()
   const { profile } = useAuth()
+  const { refresh: refreshProjects } = useProject()
+  // The hand-over as last saved here, over the row the page passed in — which
+  // is not re-read until the page itself reloads.
+  const [handover, setHandover] = useState(null)
+  const project = useMemo(
+    () => (given && handover?.id === given.id ? { ...given, ...handover } : given),
+    [given, handover],
+  )
   const [rows, setRows] = useState([])
   const [form, setForm] = useState(null)   // { id, starts_on, ends_on, members, locked }
   const [error, setError] = useState('')
@@ -91,9 +101,12 @@ export default function ScheduleManager({ project, open = true }) {
   }, [open, load])
 
   const todayKey = today()
+  // Who is on is judged by the support day, which runs past midnight until the
+  // project's hand-over — the same day the database assigns a ticket by.
+  const supportKey = supportDay(project)
   const days = useMemo(() => calendarDays(anchor, view), [anchor, view])
-  const onNow = scheduleFor(rows, todayKey)
-  const upNext = onNow ? null : nextSchedule(rows, todayKey)
+  const onNow = scheduleFor(rows, supportKey)
+  const upNext = onNow ? null : nextSchedule(rows, supportKey)
 
   /** A saved schedule whose pair has since ended up in one department. */
   const staleRota = useCallback((row) =>
@@ -106,7 +119,7 @@ export default function ScheduleManager({ project, open = true }) {
     ends_on: toDateKey(row.ends_on),
     members: (row.assignee_ids ?? []).map((id) => userById[id]).filter(Boolean),
     // Admins change any schedule; managers only current and upcoming ones.
-    locked: !can.changeSchedule(profile, row),
+    locked: !can.changeSchedule(profile, row, supportKey),
   })
   const newSchedule = (day) => setForm({
     id: null, starts_on: day, ends_on: day, members: [], locked: false,
@@ -131,15 +144,25 @@ export default function ScheduleManager({ project, open = true }) {
           <>
             <AssigneeChip size={24} users={(onNow.assignee_ids ?? []).map((id) => userById[id])} />
             <Typography variant="body2" color="text.secondary">
-              until {formatDay(onNow.ends_on)}
+              until {shiftEnds(onNow, project)}
             </Typography>
           </>
         ) : (
           <Typography variant="body2" color="text.secondary">
-            Nobody is scheduled today
+            Nobody is on support now
             {upNext && ` — next from ${formatDay(upNext.starts_on)}`}.
           </Typography>
         )}
+        <Box sx={{ flexGrow: 1 }} />
+        <HandoverSetting project={project} editable={can.setHandover(profile)}
+          onSaved={(row) => {
+            setHandover({
+              id: project.id,
+              support_time_zone: row?.support_time_zone,
+              support_handover: row?.support_handover,
+            })
+            refreshProjects()
+          }} />
       </Stack>
 
       <Stack direction="row" sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
@@ -174,7 +197,7 @@ export default function ScheduleManager({ project, open = true }) {
       </Stack>
 
       <ScheduleCalendar days={days} anchor={anchor} view={view} schedules={rows}
-        userById={userById} todayKey={todayKey} staleRota={staleRota}
+        userById={userById} todayKey={todayKey} supportKey={supportKey} staleRota={staleRota}
         onPick={editable ? pick : undefined} />
 
       {editable && (
@@ -293,6 +316,7 @@ function ScheduleForm({
                   error={Boolean(form.ends_on) && !isValidRange(form)}
                   helperText={isValidRange(form)
                     ? `${days} day${days === 1 ? '' : 's'}, both ends included`
+                      + (handsOverAtMidnight(project) ? '' : ` — on until ${shiftEnds(form, project)}`)
                     : 'The end of a range cannot be before its start.'} />
               </Stack>
 

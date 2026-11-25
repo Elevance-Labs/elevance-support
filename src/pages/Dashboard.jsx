@@ -4,7 +4,6 @@ import {
   TableHead, TableRow, Tooltip, Typography,
 } from '@mui/material'
 import { Link as RouterLink } from 'react-router-dom'
-import dayjs from 'dayjs'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useConfig } from '../context/ConfigContext'
@@ -26,7 +25,7 @@ import { CHART } from '../components/charts/palette'
 import { issueRef } from '../lib/projects'
 import { assigneesOf } from '../lib/assignees'
 import ScrollTable from '../components/ScrollTable'
-import { DATE_FORMAT, formatRange, nextSchedule, scheduleFor, toDateKey, today } from '../lib/schedules'
+import { formatRange, handsOverAtMidnight, nextSchedule, scheduleFor, shiftEnds, supportDay, toDateKey } from '../lib/schedules'
 import { can } from '../lib/permissions'
 
 /** How many rows a list card shows before it says how many it is holding back. */
@@ -146,7 +145,7 @@ export default function Dashboard() {
       {loading && <LinearProgress />}
 
       {projectId && (
-        <OnSupport schedules={schedules} userById={userById} loading={loading}
+        <OnSupport project={project} schedules={schedules} userById={userById} loading={loading}
           canManage={can.manageSchedules(profile)} />
       )}
 
@@ -241,8 +240,10 @@ export default function Dashboard() {
  * on. With nobody on, it says who is next and from when, so a gap reads as a
  * gap rather than as a rota that does not exist.
  */
-function OnSupport({ schedules, userById, loading, canManage }) {
-  const day = today()
+function OnSupport({ project, schedules, userById, loading, canManage }) {
+  // The support day, not the calendar one: last night's pair stays on until
+  // the project's hand-over, same as the rota the database assigns by.
+  const day = supportDay(project)
   const current = scheduleFor(schedules, day)
   const next = current ? null : nextSchedule(schedules, day)
   const people = (s) => (s?.assignee_ids ?? []).map((id) => (
@@ -252,7 +253,9 @@ function OnSupport({ schedules, userById, loading, canManage }) {
   let caption = ''
   if (current) {
     const ends = toDateKey(current.ends_on)
-    caption = ends === day ? 'Last day of this rota' : `Until ${dayjs(ends).format(DATE_FORMAT)}`
+    if (ends !== day) caption = `Until ${shiftEnds(current, project)}`
+    else if (handsOverAtMidnight(project)) caption = 'Last day of this rota'
+    else caption = `Last day of this rota — on until ${shiftEnds(current, project)}`
   } else if (next) {
     caption = `Nobody is on today. Next: ${formatRange(next)}`
   } else if (!loading) {

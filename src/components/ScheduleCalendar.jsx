@@ -23,7 +23,7 @@ const firstName = (u) => displayName(u).split(/\s+/)[0]
  * may look but not change) the cells are plain.
  */
 export default function ScheduleCalendar({
-  days, anchor, view, schedules, userById, todayKey, onPick, staleRota,
+  days, anchor, view, schedules, userById, todayKey, supportKey, onPick, staleRota,
 }) {
   const narrow = useMediaQuery((t) => t.breakpoints.down('sm'))
   // A week on a phone is seven rows, not seven slivers.
@@ -55,7 +55,7 @@ export default function ScheduleCalendar({
           <DayCell key={day} day={day} column={i % 7} lastRow={i >= days.length - (agenda ? 1 : 7)}
             view={view} agenda={agenda} narrow={narrow} anchor={anchor}
             schedule={scheduleFor(schedules, day)} userById={userById}
-            todayKey={todayKey} onPick={onPick} staleRota={staleRota} />
+            todayKey={todayKey} supportKey={supportKey ?? todayKey} onPick={onPick} staleRota={staleRota} />
         ))}
       </Box>
     </Box>
@@ -64,12 +64,14 @@ export default function ScheduleCalendar({
 
 function DayCell({
   day, column, lastRow, view, agenda, narrow, anchor, schedule, userById, todayKey,
-  onPick, staleRota,
+  supportKey, onPick, staleRota,
 }) {
   const isToday = day === todayKey
   const past = day < todayKey
   const spill = view === 'month' && !sameMonth(day, anchor)
-  const phase = schedule ? phaseOf(schedule, todayKey) : null
+  // Which rota is on is judged by the support day, which runs past midnight
+  // until the hand-over; the day marker stays on the calendar date.
+  const phase = schedule ? phaseOf(schedule, supportKey) : null
   const startsHere = schedule && toDateKey(schedule.starts_on) === day
   const endsHere = schedule && toDateKey(schedule.ends_on) === day
   const people = (schedule?.assignee_ids ?? []).map((id) => userById[id]).filter(Boolean)

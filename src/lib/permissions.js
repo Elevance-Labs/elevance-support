@@ -120,14 +120,23 @@ export const can = {
   manageSchedules: isManagerOrAdmin,
 
   /**
+   * Setting when the project's support day hands over (time zone and time).
+   * Part of running the rota, so the same people. Mirrored by
+   * `set_support_handover()`, which also holds a manager to their projects.
+   */
+  setHandover: isManagerOrAdmin,
+
+  /**
    * Editing or deleting an existing schedule.
    *
    * An admin may change any of them. A manager may change current and upcoming
    * ones — anything whose last day is today or later. Past ones are an admin's.
    *
-   * "Today" is the UTC day, because that is the day row-level security judges
-   * against; a local day would offer buttons the database then refuses for a
-   * few hours either side of midnight. `day` exists so a test can pick one.
+   * "Today" is the project's support day (`supportDay` in `schedules.js`),
+   * because that is the day row-level security judges against; a local day
+   * would offer buttons the database then refuses around the hand-over. Callers
+   * pass it; the default is the UTC day, which is the support day of a project
+   * that hands over at midnight UTC.
    */
   changeSchedule: (p, schedule, day = new Date().toISOString().slice(0, 10)) => {
     if (isAdmin(p)) return true

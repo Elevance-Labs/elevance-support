@@ -15,7 +15,7 @@ const SchedulePage = (await import('../src/pages/Schedule')).default
 const Projects = (await import('../src/pages/Projects')).default
 const { formatRange, today, weekdayOf } = await import('../src/lib/schedules.js')
 const {
-  PROJECTS, PROJECT_SCHEDULES, captured, dayKey, refuseWrites,
+  PROJECTS, PROJECT_SCHEDULES, captured, dayKey, refuseWrites, rpcResults,
 } = await import('./mockSupabase.js')
 
 const { check, done } = reporter()
@@ -120,9 +120,10 @@ check('it opens on this month', body().includes(new Date().toLocaleString('en-GB
   D.querySelector('h6')?.textContent)
 check('a month is drawn as whole weeks', D.querySelectorAll('[data-day]').length % 7 === 0,
   String(D.querySelectorAll('[data-day]').length))
-check('the columns are the days of the week, Monday first', (() => {
-  const t = body(); return t.indexOf('Mon') > -1 && t.indexOf('Mon') < t.indexOf('Sun')
-})())
+// The header row reads as one run of text; the "until Sun …" beside who is on
+// now must not be mistaken for it.
+check('the columns are the days of the week, Monday first',
+  body().includes('MonTueWedThuFriSatSun'))
 
 const todayCell = await cellFor(today())
 check('today\'s cell names who is on support', todayCell?.textContent.includes('Ada')
@@ -273,6 +274,38 @@ check('a member still sees who is on support',
 check('but is offered no way to change any of it',
   !buttonNamed('New schedule')
   && [...D.querySelectorAll('[data-day]')].every((c) => c.getAttribute('role') !== 'button'))
+
+// ---------------- the hand-over ----------------
+// When one schedule day turns into the next. Unset, it is midnight UTC — the
+// old behaviour — and it says so rather than leaving it implied.
+await rota(MANAGER)
+const handoverButton = () => [...D.querySelectorAll('button')]
+  .find((b) => b.textContent.startsWith('Hands over'))
+check('the rota says when its day hands over',
+  handoverButton()?.textContent === 'Hands over 12:00 AM UTC', handoverButton()?.textContent)
+await click(handoverButton())
+check('a manager may open it', dialogTitle() === 'Support hand-over', dialogTitle())
+check('midnight is explained as midnight', body().includes('runs midnight to midnight'))
+await setDate('Hands over at', '12:00')
+check('a later time is worked through, Tuesday night included',
+  body().includes('on until 12:00 PM Wednesday'),
+  body().match(/Each schedule day.{0,160}/)?.[0] ?? '(no example)')
+rpcResults.set_support_handover = (args) => ({
+  ...PROJECTS[0], support_time_zone: args.p_time_zone, support_handover: `${args.p_handover}:00`,
+})
+captured.rpcs.length = 0
+await click(buttonNamed('Save'))
+const saved = captured.rpcs.find((r) => r.name === 'set_support_handover')
+check('saving goes through the database function, not the projects table',
+  saved?.args.p_project === PROJECTS[0].id && saved?.args.p_handover === '12:00'
+  && saved?.args.p_time_zone === 'UTC', JSON.stringify(saved?.args))
+check('and the rota shows the new hand-over',
+  handoverButton()?.textContent === 'Hands over 12:00 PM UTC', handoverButton()?.textContent)
+delete rpcResults.set_support_handover
+
+await rota(MEMBER)
+check('a member sees the hand-over but cannot change it',
+  body().includes('Hands over 12:00 AM UTC') && !handoverButton())
 
 // ---------------- a write the database turns down ----------------
 // Row-level security refuses an update by matching no rows rather than by

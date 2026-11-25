@@ -168,7 +168,9 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   `canJoin`). Order matters — the first name is who it is mainly on.
 - `schedules.js` — the support rota: day keys (plain `YYYY-MM-DD` strings, never
   parsed into instants), which schedule covers a date, overlap detection,
-  past/current/upcoming, and the calendar grid (Monday-first weeks, padded months).
+  past/current/upcoming, the calendar grid (Monday-first weeks, padded months),
+  and the **support day** (`supportDay`): a moment's date in the project's zone
+  after taking its hand-over time off — mirrored by `support_day()` in SQL.
 - `grouping.js` — the Issues list's group-by choices and group order; a ticket
   on two people sits under both.
 - `checkIn.js` — a check-in's rules: which tickets (the page's open ones) and in what
@@ -251,7 +253,10 @@ never line-level detail. Anything granular belongs in the code or `README.md`
 
 ## 7. Data model (conceptual)
 
-- `projects` — name, immutable `key`, status, own ticket counter.
+- `projects` — name, immutable `key`, status, own ticket counter, and the
+  rota's **hand-over** (time zone + time; default midnight UTC), written through
+  `set_support_handover()` — admins, or managers on the project — since the
+  table itself is admin-only to write. A bad zone is refused by trigger.
 - `companies` — who a ticket is for: display `name` plus a short, stable lower-case
   `code` that embed links carry (`?company=wupi`). Read-only from the browser and
   deliberately **not** in Configuration — maintained with `service_role`. A trigger
@@ -264,9 +269,10 @@ never line-level detail. Anything granular belongs in the code or `README.md`
   two departments, same rule as a ticket. Read by project members. **Admins**
   create, update and delete any; **managers** create any and update/delete only
   current and upcoming ones (`can.changeSchedule`), in projects they belong to.
-  "Past" is judged on the UTC day. RLS refuses by matching no rows, so the UI
-  withholds the controls and reports a write that came back empty. A ticket's `submitted_date` (taken in **UTC**) is what
-  the insert trigger looks up, so a back-dated ticket lands on whoever was on
+  "Past" is judged on the project's support day. RLS refuses by matching no rows, so the UI
+  withholds the controls and reports a write that came back empty. A ticket's `submitted_date`, read as the project's
+  **support day** (runs to the hand-over, not midnight), is what the insert
+  trigger looks up, so a back-dated ticket lands on whoever was on
   then, not on today's pair.
 - `issues` — the ticket. Request fields, submission details, workflow fields,
   `project_id` + per-project `number` (which also addresses the share link),

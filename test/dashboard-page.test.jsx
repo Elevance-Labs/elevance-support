@@ -40,7 +40,7 @@ check('the tiles are drawn',
 // The fixture's live rota (Ada and Grace) runs from two days ago to four ahead.
 check('who is on support today is shown',
   body().includes('On support today') && body().includes('Grace Hopper')
-  && /Until \d{2} \w{3} \d{4}/.test(body()))
+  && /Until \w{3} \d{2} \w{3} \d{4}/.test(body()))
 check('a member is not offered the rota', !el.querySelector('a[href="/schedule"]'))
 // The fixture's one open ticket is past its target, assigned and triaged: only
 // the SLA tile has something to shout about.

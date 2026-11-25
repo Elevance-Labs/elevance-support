@@ -276,6 +276,21 @@ ticket in January".
 | **From / To** | Inclusive at both ends. A one-day rota has the same date twice. |
 | **On support** | One or two people, from different [departments](#departments). |
 
+#### When the day hands over
+
+A schedule day is not a calendar day. Each project sets a **time zone** and a
+**hand-over time** (*Hands over …* beside **On now**; admins, and managers on
+the project), and schedule day D runs from D at the hand-over to D+1 at the
+hand-over. With **Asia/Karachi, 12:00 PM**, someone scheduled Monday–Tuesday is on
+from Monday 12:00 PM to **Wednesday 12:00 PM** PKT — Tuesday night included — and a
+ticket at 11:00 AM on Monday still goes to Sunday's pair.
+
+Unset, it is **12:00 AM UTC** (midnight), which is how every rota worked before the setting
+existed. Changing it affects new tickets (and back-dated ones logged from then
+on); tickets already filed keep their people. The Dashboard's *On support today*
+and the rota's *On now* follow the same day, so they name whoever a ticket
+arriving this minute would land on.
+
 A rota carries the same department rule a ticket does — it is where most pairs
 come from, and one naming two engineers would mint tickets that break the rule.
 If somebody moves department after a rota is written, that schedule is flagged
@@ -293,8 +308,8 @@ request must never be lost to an HR change.
 | Edit or delete a **past** schedule | — | — | ✅ |
 
 A schedule is past once its last day is behind us — both ends count, so one
-ending today is still current. The day is taken in **UTC**, the same day the
-assignment trigger uses. A manager only reaches the rotas of projects they
+ending today is still current. "Today" is the project's
+[support day](#when-the-day-hands-over), the same day the assignment trigger uses. A manager only reaches the rotas of projects they
 belong to.
 
 For a manager, past rows show a padlock instead of edit and delete buttons.
@@ -316,7 +331,8 @@ Three things worth knowing about how a schedule reaches a ticket:
   today's pair.
 - It **only ever fills an empty set**. A ticket created with someone already on
   it keeps them.
-- Days are compared in **UTC** — a rota boundary has to fall on the same day for
+- Days are the project's [support day](#when-the-day-hands-over) — one zone
+  and one hand-over for everyone, so a boundary falls at the same moment for
   everyone reading the schedule.
 
 Deleting a schedule does not touch tickets it already assigned; those people
